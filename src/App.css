@@ -1,0 +1,132 @@
+.paxion-app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.hero {
+  text-align: left;
+  border: 1px solid var(--edge);
+  border-radius: 1rem;
+  background: linear-gradient(120deg, rgba(13, 31, 41, 0.9), rgba(22, 44, 57, 0.84));
+  color: var(--ink-light);
+  padding: 1.25rem;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22);
+}
+
+.eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.74rem;
+  color: var(--accent-hot);
+}
+
+.hero h1 {
+  margin: 0.35rem 0;
+  color: var(--ink-light);
+}
+
+.subtitle {
+  margin: 0;
+  max-width: 62ch;
+}
+
+.grid-shell {
+  display: grid;
+  grid-template-columns: 0.95fr 1.5fr 1fr;
+  gap: 1rem;
+  flex: 1;
+}
+
+.panel {
+  border: 1px solid var(--edge);
+  border-radius: 1rem;
+  background: var(--panel);
+  padding: 1rem;
+}
+
+.panel h2 {
+  margin: 0 0 0.65rem;
+}
+
+.tab-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.tab {
+  text-align: left;
+  border: 1px solid var(--edge-soft);
+  border-radius: 0.75rem;
+  background: transparent;
+  color: var(--ink-main);
+  padding: 0.75rem;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.tab:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent-hot);
+}
+
+.tab.is-active {
+  background: linear-gradient(140deg, var(--accent-soft), rgba(255, 255, 255, 0.5));
+  border-color: var(--accent-hot);
+}
+
+.tab span {
+  display: block;
+  font-weight: 700;
+  margin-bottom: 0.15rem;
+}
+
+.tab small {
+  color: var(--ink-muted);
+}
+
+.placeholder {
+  margin-top: 0.9rem;
+  border-radius: 0.75rem;
+  border: 1px dashed var(--edge);
+  padding: 0.85rem;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.policy-panel ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.policy-panel li {
+  margin-bottom: 0.5rem;
+}
+
+.status {
+  margin-top: 0.9rem;
+  border: 1px solid var(--edge-soft);
+  border-radius: 0.65rem;
+  padding: 0.65rem;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.footer {
+  border: 1px solid var(--edge);
+  border-radius: 0.9rem;
+  padding: 0.7rem 0.95rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  justify-content: space-between;
+  background: var(--panel-soft);
+  font-size: 0.9rem;
+}
+
+@media (max-width: 1080px) {
+  .grid-shell {
+    grid-template-columns: 1fr;
+  }
+}
