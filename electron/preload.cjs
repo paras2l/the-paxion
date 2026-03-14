@@ -111,6 +111,7 @@ contextBridge.exposeInMainWorld('paxion', {
     listPacks: () => ipcRenderer.invoke('paxion:terminal:pack:list'),
     createPack: (input) => ipcRenderer.invoke('paxion:terminal:pack:create', input),
     activatePack: (input) => ipcRenderer.invoke('paxion:terminal:pack:activate', input),
+    simulatePack: (input) => ipcRenderer.invoke('paxion:terminal:pack:simulate', input),
   },
   creative: {
     ideate: (input) => ipcRenderer.invoke('paxion:creative:ideate', input),
@@ -120,6 +121,64 @@ contextBridge.exposeInMainWorld('paxion', {
     start: (input) => ipcRenderer.invoke('paxion:bridge:start', input),
     stop: () => ipcRenderer.invoke('paxion:bridge:stop'),
     approve: (input) => ipcRenderer.invoke('paxion:bridge:approve', input),
+    rotateSecret: () => ipcRenderer.invoke('paxion:bridge:rotateSecret'),
+    issueToken: (input) => ipcRenderer.invoke('paxion:bridge:issueToken', input),
+  },
+  security: {
+    threatDashboard: (input) => ipcRenderer.invoke('paxion:security:threatDashboard', input),
+  },
+  governancePlus: {
+    simulatePolicyDiff: (input) => ipcRenderer.invoke('paxion:governance:simulatePolicyDiff', input),
+    buildCanaryPlan: (input) => ipcRenderer.invoke('paxion:governance:buildCanaryPlan', input),
+    checkAnomalies: (input) => ipcRenderer.invoke('paxion:governance:checkAnomalies', input),
+  },
+  brokerLive: {
+    configure: (input) => ipcRenderer.invoke('paxion:broker:configure', input),
+    previewOrder: (input) => ipcRenderer.invoke('paxion:broker:previewOrder', input),
+    executeOrder: (input) => ipcRenderer.invoke('paxion:broker:executeOrder', input),
+  },
+  clinical: {
+    buildEvidence: (input) => ipcRenderer.invoke('paxion:clinical:buildEvidence', input),
+    validateEvidence: (input) => ipcRenderer.invoke('paxion:clinical:validateEvidence', input),
+  },
+  science: {
+    theoremPlan: (input) => ipcRenderer.invoke('paxion:science:theoremPlan', input),
+    simulationPlan: (input) => ipcRenderer.invoke('paxion:science:simulationPlan', input),
+    researchProgram: (input) => ipcRenderer.invoke('paxion:science:researchProgram', input),
+  },
+  voiceQuality: {
+    status: () => ipcRenderer.invoke('paxion:voiceQuality:status'),
+    update: (input) => ipcRenderer.invoke('paxion:voiceQuality:update', input),
+    evaluate: (input) => ipcRenderer.invoke('paxion:voiceQuality:evaluate', input),
+  },
+  relay: {
+    status: () => ipcRenderer.invoke('paxion:relay:status'),
+    configure: (input) => ipcRenderer.invoke('paxion:relay:configure', input),
+    envelope: (input) => ipcRenderer.invoke('paxion:relay:envelope', input),
+  },
+  wakeword: {
+    status: () => ipcRenderer.invoke('paxion:wakeword:status'),
+    configure: (input) => ipcRenderer.invoke('paxion:wakeword:configure', input),
+  },
+  planner: {
+    create: (input) => ipcRenderer.invoke('paxion:planner:create', input),
+    advance: (input) => ipcRenderer.invoke('paxion:planner:advance', input),
+  },
+  ecosystem: {
+    register: (input) => ipcRenderer.invoke('paxion:ecosystem:register', input),
+    plan: (input) => ipcRenderer.invoke('paxion:ecosystem:plan', input),
+  },
+  robotics: {
+    register: (input) => ipcRenderer.invoke('paxion:robotics:register', input),
+    plan: (input) => ipcRenderer.invoke('paxion:robotics:plan', input),
+  },
+  vault: {
+    status: () => ipcRenderer.invoke('paxion:vault:status'),
+    configure: (input) => ipcRenderer.invoke('paxion:vault:configure', input),
+  },
+  perception: {
+    sceneGraph: (input) => ipcRenderer.invoke('paxion:perception:sceneGraph', input),
+    groundFrame: (input) => ipcRenderer.invoke('paxion:perception:groundFrame', input),
   },
   workspace: {
     load: () => ipcRenderer.invoke('paxion:workspace:load'),

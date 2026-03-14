@@ -37,6 +37,18 @@ const { callViaTwilio, normalizePhoneNumber } = require('./telephony-adapter.cjs
 const { generateWorkflow } = require('./workflow-engine.cjs')
 const { assessTerminalCommand, buildCommandPlan } = require('./terminal-agent.cjs')
 const { generateCreativeHypotheses } = require('./creative-lab.cjs')
+const { simulatePolicyDiff, buildCanaryPlan, detectAnomalyRollback } = require('./governance-advanced.cjs')
+const { configureBroker, previewLiveOrder, executeBrokerOrder } = require('./broker-live.cjs')
+const { buildClinicalEvidence, validateExternalEvidence } = require('./clinical-validation.cjs')
+const { buildTheoremPlan, buildSimulationPlan, synthesizeResearchProgram } = require('./science-toolchain.cjs')
+const { updateVoiceQuality, evaluateDuplexSession } = require('./voice-quality-stack.cjs')
+const { buildRelayEnvelope, issueOneTimeToken, consumeOneTimeToken } = require('./secure-relay-service.cjs')
+const { configureWakewordAdapter, getNativeWakewordStatus } = require('./wakeword-native.cjs')
+const { createLongHorizonPlan, advanceValidationLoop } = require('./planner-executor.cjs')
+const { registerEcosystemAdapter, planDeviceAction } = require('./device-ecosystem.cjs')
+const { registerActuator, buildActuationPlan } = require('./robotics-control.cjs')
+const { summarizeVaultProviders, configureVaultProvider } = require('./secret-vault.cjs')
+const { buildSceneGraph, groundPerceptionFrame } = require('./multimodal-perception.cjs')
 
 const ADMIN_SESSION_TTL_MS = 15 * 60 * 1000
 const APPROVAL_TTL_MS = 5 * 60 * 1000
@@ -610,6 +622,7 @@ function registerIpcHandlers(mainWindow) {
   const voiceSecretsFilePath = path.join(app.getPath('userData'), 'paxion-voice-secrets.json')
   const terminalPackStateFilePath = path.join(app.getPath('userData'), 'paxion-terminal-command-packs.json')
   const bridgeStateFilePath = path.join(app.getPath('userData'), 'paxion-bridge-state.json')
+  const advancedStateFilePath = path.join(app.getPath('userData'), 'paxion-advanced-domains.json')
   const adminSession = buildAdminSessionState()
   const approvalTickets = new Map()
   const replayPreviewApprovals = new Map()
@@ -686,6 +699,20 @@ function registerIpcHandlers(mainWindow) {
     updatedAt: null,
   }
   let bridgeServer = null
+  let advancedState = {
+    governance: { policySimulations: [], canaries: [], anomalies: [], updatedAt: null },
+    broker: { broker: null, orders: [], updatedAt: null },
+    clinical: { evidence: [], validations: [], updatedAt: null },
+    science: { theoremPlans: [], simulationPlans: [], programs: [], updatedAt: null },
+    voiceQuality: { profile: null, sessions: [], updatedAt: null },
+    relay: { config: { mode: 'disabled', endpoint: '' }, oneTimeTokens: [], envelopes: [], updatedAt: null },
+    wakeword: { adapter: null, updatedAt: null },
+    planner: { plans: [], cycles: [], updatedAt: null },
+    deviceEcosystem: { adapters: [], actions: [], updatedAt: null },
+    robotics: { actuators: [], plans: [], updatedAt: null },
+    vault: { activeProvider: 'local-safeStorage', providers: [], updatedAt: null },
+    perception: { sceneGraphs: [], frames: [], updatedAt: null },
+  }
 
   function loadAuditEntriesFromDisk() {
     if (!fs.existsSync(auditFilePath)) {
@@ -1143,6 +1170,7 @@ function registerIpcHandlers(mainWindow) {
       pendingRequests: [],
       updatedAt: null,
     })
+    advancedState = loadJsonState(advancedStateFilePath, advancedState)
   }
 
   function saveDomainStates() {
@@ -1155,6 +1183,7 @@ function registerIpcHandlers(mainWindow) {
     saveJsonState(voiceSecretsFilePath, voiceSecretState)
     saveJsonState(terminalPackStateFilePath, terminalPackState)
     saveJsonState(bridgeStateFilePath, bridgeState)
+    saveJsonState(advancedStateFilePath, advancedState)
   }
 
   function workspaceRootPath() {
@@ -1590,6 +1619,37 @@ function registerIpcHandlers(mainWindow) {
         replayResult: 'replayed',
       })),
       expiresAt: Date.now() + REPLAY_PREVIEW_TTL_MS,
+    }
+  }
+
+  function buildThreatDashboard(input) {
+    const request = input?.request && typeof input.request === 'object' ? input.request : null
+    const baseDecision = request ? enforcePolicy(request) : null
+    const activeCapabilities = Object.entries(capabilityState || {}).filter(([, enabled]) => enabled === true).length
+    const activeBridge = bridgeState.enabled ? 12 : 0
+    const pendingBridge = Array.isArray(bridgeState.pendingRequests) ? bridgeState.pendingRequests.filter((x) => String(x?.status || '') === 'pending').length : 0
+    const activePacks = Array.isArray(terminalPackState.packs) ? terminalPackState.packs.filter((x) => x?.active === true).length : 0
+    const requestRisk = !request
+      ? 0
+      : baseDecision && baseDecision.allowed === false
+        ? 85
+        : baseDecision && baseDecision.requiresApproval
+          ? 55
+          : 18
+    const score = Math.min(100, requestRisk + activeBridge + pendingBridge * 5 + activePacks * 3 + Math.max(0, activeCapabilities - 8) * 2)
+    return {
+      ok: true,
+      dashboard: {
+        score,
+        level: score >= 75 ? 'high' : score >= 40 ? 'medium' : 'low',
+        requestRisk,
+        activeCapabilities,
+        bridgeEnabled: Boolean(bridgeState.enabled),
+        pendingBridgeRequests: pendingBridge,
+        activeSignedCommandPacks: activePacks,
+        latestPolicyDecision: baseDecision,
+        generatedAt: new Date().toISOString(),
+      },
     }
   }
 
@@ -4564,6 +4624,30 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, pack, packs: terminalPackState.packs, updatedAt: terminalPackState.updatedAt }
   })
 
+  ipcMain.handle('paxion:terminal:pack:simulate', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to simulate command pack policy.' }
+    }
+    const commands = Array.isArray(input?.commands)
+      ? input.commands.map((x) => String(x || '').trim()).filter(Boolean)
+      : []
+    const simulation = commands.map((command) => ({
+      command,
+      allowedByStaticPolicy: TOOL_COMMAND_ALLOWLIST.has(command),
+      requiresSignedPack: !TOOL_COMMAND_ALLOWLIST.has(command),
+      assessed: assessTerminalCommand(command),
+    }))
+    const riskScore = simulation.reduce((acc, item) => acc + (item.allowedByStaticPolicy ? 4 : item.assessed.allowed ? 18 : 35), 0)
+    return {
+      ok: true,
+      simulation: {
+        commands: simulation,
+        riskScore: Math.min(100, riskScore),
+        recommendation: riskScore > 70 ? 'needs-review' : 'can-sign',
+      },
+    }
+  })
+
   ipcMain.handle('paxion:terminal:pack:activate', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to change command pack activation.' }
@@ -4598,6 +4682,19 @@ function registerIpcHandlers(mainWindow) {
     const now = Date.now()
     const rows = Array.isArray(bridgeState.pendingRequests) ? bridgeState.pendingRequests : []
     bridgeState.pendingRequests = rows.filter((row) => Number(row?.expiresAt || 0) > now)
+  }
+
+  function cleanupBridgeOneTimeTokens() {
+    const rows = Array.isArray(advancedState.relay?.oneTimeTokens) ? advancedState.relay.oneTimeTokens : []
+    const now = Date.now()
+    advancedState = {
+      ...advancedState,
+      relay: {
+        ...(advancedState.relay || {}),
+        oneTimeTokens: rows.filter((row) => !row.used && Number(row.expiresAt || 0) > now),
+        updatedAt: new Date().toISOString(),
+      },
+    }
   }
 
   function readBridgeBody(req) {
@@ -4645,8 +4742,22 @@ function registerIpcHandlers(mainWindow) {
       if (req.method === 'POST' && urlObj.pathname === '/api/bridge/command') {
         const body = await readBridgeBody(req)
         if (String(body?.secret || '') !== String(bridgeState.secret || '')) {
-          writeBridgeJson(res, 401, { ok: false, reason: 'Invalid bridge secret.' })
-          return
+          const oneTimeToken = String(body?.oneTimeToken || '')
+          if (!oneTimeToken) {
+            writeBridgeJson(res, 401, { ok: false, reason: 'Invalid bridge secret.' })
+            return
+          }
+          cleanupBridgeOneTimeTokens()
+          const consumed = consumeOneTimeToken(advancedState.relay || {}, oneTimeToken)
+          advancedState = {
+            ...advancedState,
+            relay: consumed.state,
+          }
+          saveDomainStates()
+          if (!consumed.valid) {
+            writeBridgeJson(res, 401, { ok: false, reason: 'Bridge one-time token invalid or expired.' })
+            return
+          }
         }
         const remoteRequest = body?.request
         if (!remoteRequest || typeof remoteRequest.actionId !== 'string') {
@@ -4752,6 +4863,39 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
+  ipcMain.handle('paxion:bridge:rotateSecret', () => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to rotate bridge secret.' }
+    }
+    bridgeState = {
+      ...bridgeState,
+      secret: crypto.randomBytes(16).toString('hex'),
+      updatedAt: new Date().toISOString(),
+    }
+    saveDomainStates()
+    return {
+      ok: true,
+      secret: bridgeState.secret,
+      updatedAt: bridgeState.updatedAt,
+    }
+  })
+
+  ipcMain.handle('paxion:bridge:issueToken', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to issue one-time bridge token.' }
+    }
+    const issued = issueOneTimeToken(advancedState.relay || {}, input)
+    advancedState = {
+      ...advancedState,
+      relay: issued.state,
+    }
+    saveDomainStates()
+    return {
+      ok: true,
+      token: issued.token,
+    }
+  })
+
   ipcMain.handle('paxion:bridge:stop', () => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to stop mobile bridge.' }
@@ -4825,6 +4969,293 @@ function registerIpcHandlers(mainWindow) {
     bridgeState.updatedAt = new Date().toISOString()
     saveDomainStates()
     return { ok: true, request: row }
+  })
+
+  ipcMain.handle('paxion:security:threatDashboard', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to view threat dashboard.' }
+    }
+    return buildThreatDashboard(input)
+  })
+
+  ipcMain.handle('paxion:governance:simulatePolicyDiff', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required for policy diff simulation.' }
+    }
+    const result = simulatePolicyDiff(input)
+    advancedState.governance.policySimulations = [...advancedState.governance.policySimulations, result.simulation].slice(-60)
+    advancedState.governance.updatedAt = new Date().toISOString()
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:governance:buildCanaryPlan', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required for canary planning.' }
+    }
+    const result = buildCanaryPlan(input)
+    advancedState.governance.canaries = [...advancedState.governance.canaries, result.canary].slice(-60)
+    advancedState.governance.updatedAt = new Date().toISOString()
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:governance:checkAnomalies', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required for anomaly analysis.' }
+    }
+    const result = detectAnomalyRollback(input)
+    advancedState.governance.anomalies = [...advancedState.governance.anomalies, result.anomaly].slice(-120)
+    advancedState.governance.updatedAt = new Date().toISOString()
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:broker:configure', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to configure live broker.' }
+    }
+    const result = configureBroker(advancedState.broker, input)
+    advancedState.broker = result.state
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:broker:previewOrder', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to preview live order.' }
+    }
+    return previewLiveOrder(input)
+  })
+
+  ipcMain.handle('paxion:broker:executeOrder', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to execute live order.' }
+    }
+    const result = executeBrokerOrder(advancedState.broker, input)
+    advancedState.broker = result.state
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:clinical:buildEvidence', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required for clinical evidence generation.' }
+    }
+    const result = buildClinicalEvidence(input)
+    advancedState.clinical.evidence = [...advancedState.clinical.evidence, result.evidence].slice(-120)
+    advancedState.clinical.updatedAt = new Date().toISOString()
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:clinical:validateEvidence', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required for clinical evidence validation.' }
+    }
+    const result = validateExternalEvidence(input)
+    advancedState.clinical.validations = [...advancedState.clinical.validations, result.validation].slice(-120)
+    advancedState.clinical.updatedAt = new Date().toISOString()
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:science:theoremPlan', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required for theorem planning.' }
+    }
+    const result = buildTheoremPlan(input)
+    advancedState.science.theoremPlans = [...advancedState.science.theoremPlans, result.theoremPlan].slice(-120)
+    advancedState.science.updatedAt = new Date().toISOString()
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:science:simulationPlan', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required for simulation planning.' }
+    }
+    const result = buildSimulationPlan(input)
+    advancedState.science.simulationPlans = [...advancedState.science.simulationPlans, result.simulationPlan].slice(-120)
+    advancedState.science.updatedAt = new Date().toISOString()
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:science:researchProgram', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required for research program synthesis.' }
+    }
+    const result = synthesizeResearchProgram(input)
+    advancedState.science.programs = [...advancedState.science.programs, result.program].slice(-120)
+    advancedState.science.updatedAt = new Date().toISOString()
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:voiceQuality:status', () => {
+    return { ok: true, state: advancedState.voiceQuality }
+  })
+
+  ipcMain.handle('paxion:voiceQuality:update', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to update voice quality profile.' }
+    }
+    const result = updateVoiceQuality(advancedState.voiceQuality, input)
+    advancedState.voiceQuality = result.state
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:voiceQuality:evaluate', (_event, input) => {
+    return evaluateDuplexSession(input)
+  })
+
+  ipcMain.handle('paxion:relay:status', () => {
+    return { ok: true, relay: advancedState.relay }
+  })
+
+  ipcMain.handle('paxion:relay:configure', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to configure secure relay.' }
+    }
+    advancedState.relay = {
+      ...(advancedState.relay || {}),
+      config: {
+        mode: String(input?.mode || 'disabled').trim() || 'disabled',
+        endpoint: String(input?.endpoint || '').trim(),
+      },
+      updatedAt: new Date().toISOString(),
+    }
+    saveDomainStates()
+    return { ok: true, relay: advancedState.relay }
+  })
+
+  ipcMain.handle('paxion:relay:envelope', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to build relay envelope.' }
+    }
+    const result = buildRelayEnvelope(input)
+    advancedState.relay = {
+      ...(advancedState.relay || {}),
+      envelopes: [...(advancedState.relay.envelopes || []), result.envelope].slice(-120),
+      updatedAt: new Date().toISOString(),
+    }
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:wakeword:status', () => {
+    return getNativeWakewordStatus(advancedState.wakeword)
+  })
+
+  ipcMain.handle('paxion:wakeword:configure', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to configure native wake-word adapter.' }
+    }
+    const result = configureWakewordAdapter(advancedState.wakeword, input)
+    advancedState.wakeword = result.state
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:planner:create', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to create long-horizon plan.' }
+    }
+    const result = createLongHorizonPlan(input)
+    advancedState.planner.plans = [...advancedState.planner.plans, result.plan].slice(-120)
+    advancedState.planner.updatedAt = new Date().toISOString()
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:planner:advance', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to advance validation loop.' }
+    }
+    const result = advanceValidationLoop(advancedState.planner, input)
+    advancedState.planner = result.state
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:ecosystem:register', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to register device ecosystem adapter.' }
+    }
+    const result = registerEcosystemAdapter(advancedState.deviceEcosystem, input)
+    advancedState.deviceEcosystem = result.state
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:ecosystem:plan', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to plan device ecosystem action.' }
+    }
+    const result = planDeviceAction(input)
+    advancedState.deviceEcosystem.actions = [...advancedState.deviceEcosystem.actions, result.deviceAction].slice(-120)
+    advancedState.deviceEcosystem.updatedAt = new Date().toISOString()
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:robotics:register', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to register actuator.' }
+    }
+    const result = registerActuator(advancedState.robotics, input)
+    advancedState.robotics = result.state
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:robotics:plan', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to plan actuation.' }
+    }
+    const result = buildActuationPlan(input)
+    advancedState.robotics.plans = [...advancedState.robotics.plans, result.actuationPlan].slice(-120)
+    advancedState.robotics.updatedAt = new Date().toISOString()
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:vault:status', () => {
+    return summarizeVaultProviders(advancedState.vault)
+  })
+
+  ipcMain.handle('paxion:vault:configure', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to configure vault provider.' }
+    }
+    const result = configureVaultProvider(advancedState.vault, input)
+    advancedState.vault = result.state
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:perception:sceneGraph', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required for multimodal scene graph generation.' }
+    }
+    const result = buildSceneGraph(input)
+    advancedState.perception.sceneGraphs = [...advancedState.perception.sceneGraphs, result.sceneGraph].slice(-120)
+    advancedState.perception.updatedAt = new Date().toISOString()
+    saveDomainStates()
+    return result
+  })
+
+  ipcMain.handle('paxion:perception:groundFrame', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required for realtime grounding.' }
+    }
+    const result = groundPerceptionFrame(input)
+    advancedState.perception.frames = [...advancedState.perception.frames, result.frame].slice(-240)
+    advancedState.perception.updatedAt = new Date().toISOString()
+    saveDomainStates()
+    return result
   })
 
   ipcMain.handle('paxion:workflow:generate', (_event, input) => {

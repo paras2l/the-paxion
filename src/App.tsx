@@ -685,12 +685,15 @@ function App() {
   const [terminalPacks, setTerminalPacks] = useState<Array<Record<string, unknown>>>([])
   const [terminalPackName, setTerminalPackName] = useState('')
   const [terminalPackCommands, setTerminalPackCommands] = useState('')
+  const [terminalPackSimulation, setTerminalPackSimulation] = useState<Record<string, unknown> | null>(null)
   const [bridgeEnabled, setBridgeEnabled] = useState(false)
   const [bridgeHost, setBridgeHost] = useState('0.0.0.0')
   const [bridgePort, setBridgePort] = useState('8731')
   const [bridgeSecret, setBridgeSecret] = useState('')
   const [bridgePendingRequests, setBridgePendingRequests] = useState<Array<Record<string, unknown>>>([])
   const [bridgeMessage, setBridgeMessage] = useState('')
+  const [bridgeOneTimeToken, setBridgeOneTimeToken] = useState('')
+  const [threatDashboard, setThreatDashboard] = useState<Record<string, unknown> | null>(null)
   const [showThought, setShowThought] = useState<string | null>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null)
@@ -1079,6 +1082,7 @@ function App() {
       void loadVoiceSecretStatus()
       void loadTerminalPacks()
       void loadBridgeStatus()
+      void loadThreatDashboard()
     })
   }, [adminUnlocked, loadAutomationState, loadLearningState, loadReadinessState])
 
@@ -1289,6 +1293,60 @@ function App() {
     if (result.hasSecret && !bridgeSecret) {
       setBridgeSecret('********')
     }
+  }
+
+  async function loadThreatDashboard() {
+    if (!window.paxion?.security?.threatDashboard) {
+      return
+    }
+    const result = await window.paxion.security.threatDashboard().catch(() => null)
+    if (!result?.ok) {
+      return
+    }
+    setThreatDashboard(result.dashboard || null)
+  }
+
+  async function simulateTerminalPack() {
+    if (!window.paxion?.terminal?.simulatePack) {
+      return
+    }
+    const commands = terminalPackCommands
+      .split(/\r?\n/)
+      .map((x) => x.trim())
+      .filter(Boolean)
+    const result = await window.paxion.terminal.simulatePack({ commands }).catch(() => null)
+    if (!result?.ok) {
+      setAccessMessage(result?.reason || 'Failed to simulate command pack policy.')
+      return
+    }
+    setTerminalPackSimulation(result.simulation || null)
+  }
+
+  async function rotateBridgeSecret() {
+    if (!window.paxion?.bridge?.rotateSecret) {
+      return
+    }
+    const result = await window.paxion.bridge.rotateSecret().catch(() => null)
+    if (!result?.ok) {
+      setBridgeMessage(result?.reason || 'Failed to rotate bridge secret.')
+      return
+    }
+    setBridgeSecret(String(result.secret || ''))
+    setBridgeMessage('Bridge secret rotated.')
+    await loadBridgeStatus()
+  }
+
+  async function issueBridgeOneTimeToken() {
+    if (!window.paxion?.bridge?.issueToken) {
+      return
+    }
+    const result = await window.paxion.bridge.issueToken({ purpose: 'remote-command', ttlMs: 120000 }).catch(() => null)
+    if (!result?.ok) {
+      setBridgeMessage(result?.reason || 'Failed to issue one-time token.')
+      return
+    }
+    setBridgeOneTimeToken(String((result.token as Record<string, unknown> | undefined)?.token || ''))
+    setBridgeMessage('One-time bridge token issued.')
   }
 
   async function startMobileBridge() {
@@ -3545,6 +3603,34 @@ function App() {
           </div>
 
           <div className="decision-card">
+            <strong>Threat Dashboard</strong>
+            <p className="muted">Real-time risk scoring across capabilities, bridge traffic, and active request posture.</p>
+            <div className="workspace-actions">
+              <button className="run-button" onClick={() => void loadThreatDashboard()}>
+                Refresh Threat View
+              </button>
+            </div>
+            {threatDashboard ? (
+              <div className="capability-list">
+                <div className="capability-item">
+                  <span>Global threat level</span>
+                  <strong>{String(threatDashboard.level || 'unknown')} ({String(threatDashboard.score || '0')})</strong>
+                </div>
+                <div className="capability-item">
+                  <span>Pending bridge requests</span>
+                  <strong>{String(threatDashboard.pendingBridgeRequests || '0')}</strong>
+                </div>
+                <div className="capability-item">
+                  <span>Active signed command packs</span>
+                  <strong>{String(threatDashboard.activeSignedCommandPacks || '0')}</strong>
+                </div>
+              </div>
+            ) : (
+              <p className="muted">Threat view not loaded yet.</p>
+            )}
+          </div>
+
+          <div className="decision-card">
             <strong>External Integrations</strong>
             <p>
               Mode: {integrationStatus.desktopRelay ? 'Desktop Relay (No API)' : 'Unavailable'} |
@@ -3646,10 +3732,18 @@ function App() {
               <button className="run-button" onClick={() => void loadTerminalPacks()}>
                 Refresh Packs
               </button>
+              <button className="run-button" onClick={() => void simulateTerminalPack()}>
+                Simulate Policy
+              </button>
               <button className="run-button" onClick={() => void createTerminalPack()}>
                 Create Signed Pack
               </button>
             </div>
+            {terminalPackSimulation && (
+              <p className="muted">
+                Simulation risk: {String(terminalPackSimulation.riskScore || '0')} | Recommendation: {String(terminalPackSimulation.recommendation || 'unknown')}
+              </p>
+            )}
             <div className="capability-list">
               {terminalPacks.length === 0 ? (
                 <p className="muted">No signed packs yet.</p>
@@ -3700,6 +3794,12 @@ function App() {
               <button className="run-button" onClick={() => void loadBridgeStatus()}>
                 Refresh Bridge
               </button>
+              <button className="run-button" onClick={() => void rotateBridgeSecret()}>
+                Rotate Secret
+              </button>
+              <button className="run-button" onClick={() => void issueBridgeOneTimeToken()}>
+                Issue One-Time Token
+              </button>
               {!bridgeEnabled ? (
                 <button className="run-button" onClick={() => void startMobileBridge()}>
                   Start Bridge
@@ -3711,6 +3811,7 @@ function App() {
               )}
             </div>
             {bridgeMessage && <p className="muted">{bridgeMessage}</p>}
+            {bridgeOneTimeToken && <p className="muted">One-time token: {bridgeOneTimeToken}</p>}
             <p className="muted">Pending remote requests: {bridgePendingRequests.length}</p>
             <div className="capability-list">
               {bridgePendingRequests.map((row) => {

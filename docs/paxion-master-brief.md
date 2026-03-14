@@ -86,6 +86,20 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Remote commands from phone enter a pending queue and require approval-ticket confirmation before execution.
 - Bridge requests include lifecycle status (pending/approved/rejected/executed) and remain auditable.
 - Bridge runtime has start/stop/status controls with shared secret protection and persisted configuration.
+- Bridge secret rotation and one-time remote command tokens are now available for tighter remote-session control.
+
+## Advanced autonomy foundations
+- Advanced governance now includes policy-diff simulation, staged canary rollout planning, and anomaly-driven rollback recommendations.
+- Live broker module foundation now includes provider configuration, live-order preview, and gated broker order execution staging.
+- Clinical validation module now supports evidence bundles and external reviewer validation records.
+- Science toolchain now supports theorem planning, simulation planning, and combined research-program synthesis.
+- Voice quality stack now tracks duplex mode, interruption strategy, persona memory profile, and prosody profile.
+- Native wake-word adapter foundation now exists as a configurable runtime layer separate from browser speech APIs.
+- Long-horizon planner/executor foundation now supports multi-horizon plans and validation-loop cycles.
+- Device ecosystem layer now supports secure adapter registration for phones, IoT, car, and wearables.
+- Robotics layer now supports actuator registration and safety-first actuation planning.
+- Secret vault abstraction now supports future enterprise vault/HSM provider registration beyond local secure storage.
+- Multimodal perception foundation now supports scene graph generation and realtime grounding records.
 
 ## Knowledge growth baseline
 - Library ingestion is now persisted locally so learned documents survive restarts.

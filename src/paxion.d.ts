@@ -157,6 +157,12 @@ interface PaxionBridgeStatusResult {
   updatedAt?: string | null
 }
 
+interface PaxionThreatDashboardResult {
+  ok: boolean
+  reason?: string
+  dashboard?: Record<string, unknown>
+}
+
 interface PaxionTerminalPlanResult {
   ok: boolean
   reason?: string
@@ -1034,6 +1040,9 @@ declare global {
           packId: string
           active: boolean
         }): Promise<PaxionTerminalPackResult>
+        simulatePack(input: {
+          commands: string[]
+        }): Promise<{ ok: boolean; reason?: string; simulation?: Record<string, unknown> }>
       }
       creative: {
         ideate(input: {
@@ -1055,6 +1064,16 @@ declare global {
           approved: boolean
           adminCodeword: string
         }): Promise<{ ok: boolean; reason?: string; request?: Record<string, unknown> }>
+        rotateSecret(): Promise<PaxionBridgeStatusResult>
+        issueToken(input: {
+          purpose?: string
+          ttlMs?: number
+        }): Promise<{ ok: boolean; reason?: string; token?: Record<string, unknown> }>
+      }
+      security: {
+        threatDashboard(input?: {
+          request?: ActionRequest
+        }): Promise<PaxionThreatDashboardResult>
       }
       workspace: {
         load(): Promise<PaxionWorkspaceLoadResult>
