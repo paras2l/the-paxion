@@ -199,6 +199,7 @@ function sha256Hex(text) {
 function registerIpcHandlers(mainWindow) {
   const auditFilePath = path.join(app.getPath('userData'), 'paxion-audit.jsonl')
   const approvalsFilePath = path.join(app.getPath('userData'), 'paxion-approvals.json')
+  const workspaceStateFilePath = path.join(app.getPath('userData'), 'paxion-workspace-state.json')
   const adminSession = buildAdminSessionState()
   const approvalTickets = new Map()
   const auditState = {
@@ -675,6 +676,81 @@ function registerIpcHandlers(mainWindow) {
       return { name: path.basename(filePath), content, path: filePath }
     } catch (err) {
       return { error: `Could not read file: ${err.message}` }
+    }
+  })
+
+  ipcMain.handle('paxion:workspace:load', () => {
+    try {
+      if (!fs.existsSync(workspaceStateFilePath)) {
+        return {
+          ok: true,
+          state: {
+            goal: '',
+            plan: [],
+            updatedAt: null,
+          },
+        }
+      }
+
+      const raw = fs.readFileSync(workspaceStateFilePath, 'utf8')
+      const parsed = JSON.parse(raw)
+      const state = {
+        goal: typeof parsed?.goal === 'string' ? parsed.goal : '',
+        plan: Array.isArray(parsed?.plan) ? parsed.plan : [],
+        updatedAt: typeof parsed?.updatedAt === 'string' ? parsed.updatedAt : null,
+      }
+
+      return {
+        ok: true,
+        state,
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        reason: `Failed to load workspace state: ${err.message}`,
+        state: {
+          goal: '',
+          plan: [],
+          updatedAt: null,
+        },
+      }
+    }
+  })
+
+  ipcMain.handle('paxion:workspace:save', (_event, input) => {
+    try {
+      const state = {
+        goal: typeof input?.goal === 'string' ? input.goal : '',
+        plan: Array.isArray(input?.plan) ? input.plan : [],
+        updatedAt: new Date().toISOString(),
+      }
+
+      fs.writeFileSync(workspaceStateFilePath, JSON.stringify(state, null, 2), 'utf8')
+      return {
+        ok: true,
+        updatedAt: state.updatedAt,
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        reason: `Failed to save workspace state: ${err.message}`,
+      }
+    }
+  })
+
+  ipcMain.handle('paxion:workspace:clear', () => {
+    try {
+      if (fs.existsSync(workspaceStateFilePath)) {
+        fs.unlinkSync(workspaceStateFilePath)
+      }
+      return {
+        ok: true,
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        reason: `Failed to clear workspace state: ${err.message}`,
+      }
     }
   })
 }

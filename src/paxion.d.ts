@@ -50,6 +50,24 @@ interface PaxionActionExecutionEnvelope extends PaxionPolicyDecisionEnvelope {
   }
 }
 
+interface PaxionWorkspaceState {
+  goal: string
+  plan: Array<Record<string, unknown>>
+  updatedAt: string | null
+}
+
+interface PaxionWorkspaceLoadResult {
+  ok: boolean
+  reason?: string
+  state: PaxionWorkspaceState
+}
+
+interface PaxionWorkspaceSaveResult {
+  ok: boolean
+  reason?: string
+  updatedAt?: string
+}
+
 declare global {
   interface Window {
     readonly paxion?: {
@@ -74,6 +92,11 @@ declare global {
           request: ActionRequest
           adminCodeword?: string
         }): Promise<PaxionActionExecutionEnvelope>
+      }
+      workspace: {
+        load(): Promise<PaxionWorkspaceLoadResult>
+        save(input: { goal: string; plan: Array<Record<string, unknown>> }): Promise<PaxionWorkspaceSaveResult>
+        clear(): Promise<{ ok: boolean; reason?: string }>
       }
       library: {
         pickFile(): Promise<PaxionLibraryFileResult | PaxionLibraryFileError | null>

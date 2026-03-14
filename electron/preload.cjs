@@ -21,6 +21,11 @@ contextBridge.exposeInMainWorld('paxion', {
   action: {
     execute: (input) => ipcRenderer.invoke('paxion:action:execute', input),
   },
+  workspace: {
+    load: () => ipcRenderer.invoke('paxion:workspace:load'),
+    save: (input) => ipcRenderer.invoke('paxion:workspace:save', input),
+    clear: () => ipcRenderer.invoke('paxion:workspace:clear'),
+  },
   library: {
     pickFile: () => ipcRenderer.invoke('paxion:library:pickFile'),
   },

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { PaxionBrain } from './brain/engine'
 import { rankFromDocs } from './brain/knowledge'
@@ -71,6 +71,12 @@ type WorkspaceStep = {
   status: WorkspaceStepStatus
   result: string
   executionMode?: string
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
 }
 
 const actionPresets: ActionPreset[] = [
@@ -188,6 +194,12 @@ function App() {
   const [workspacePlan, setWorkspacePlan] = useState<WorkspaceStep[]>([])
   const [workspaceRunning, setWorkspaceRunning] = useState(false)
   const [workspaceMessage, setWorkspaceMessage] = useState('')
+  const [workspaceQueuePaused, setWorkspaceQueuePaused] = useState(false)
+  const [workspaceQueueStopped, setWorkspaceQueueStopped] = useState(false)
+  const [workspaceUpdatedAt, setWorkspaceUpdatedAt] = useState<string | null>(null)
+  const workspaceLoadedRef = useRef(false)
+  const workspaceQueuePausedRef = useRef(false)
+  const workspaceQueueStoppedRef = useRef(false)
 
   const activeTabMeta = useMemo(
     () => tabs.find((tab) => tab.id === activeTab) ?? tabs[0],
@@ -199,16 +211,16 @@ function App() {
   const brain = useMemo(() => new PaxionBrain(), [])
 
 
-  async function refreshAdminStatus() {
+  const refreshAdminStatus = useCallback(async () => {
     if (!window.paxion) return
     const status = await window.paxion.admin.status().catch(() => null)
     if (!status) return
 
     setAdminUnlocked(status.unlocked)
     setAdminExpiresAt(status.expiresAt)
-  }
+  }, [])
 
-  async function loadAuditIfAllowed() {
+  const loadAuditIfAllowed = useCallback(async () => {
     if (!window.paxion) return
     const result = await window.paxion.audit.load().catch(() => null)
     if (!result || !result.ok) {
@@ -218,7 +230,89 @@ function App() {
 
     auditLedger.loadExternal(result.entries)
     setAuditEntries(auditLedger.getAll())
-  }
+  }, [auditLedger])
+
+  const normalizeWorkspacePlan = useCallback((raw: Array<Record<string, unknown>>): WorkspaceStep[] => {
+    return raw
+      .map((item, idx) => {
+        const request = (item.request ?? {}) as Record<string, unknown>
+        return {
+          id: typeof item.id === 'string' ? item.id : `ws-step-${idx + 1}`,
+          title: typeof item.title === 'string' ? item.title : `Step ${idx + 1}`,
+          request: {
+            actionId:
+              typeof request.actionId === 'string' ? request.actionId : 'workspace.generateComponent',
+            category: (request.category as ActionCategory) ?? 'codegen',
+            targetPath:
+              typeof request.targetPath === 'string'
+                ? request.targetPath
+                : `/workspace/missions/recovered-step-${idx + 1}.tsx`,
+            detail:
+              typeof request.detail === 'string'
+                ? request.detail
+                : `Recovered mission step ${idx + 1}`,
+          },
+          status:
+            typeof item.status === 'string'
+              ? (item.status as WorkspaceStepStatus)
+              : ('pending' as WorkspaceStepStatus),
+          result: typeof item.result === 'string' ? item.result : 'Recovered from persistence.',
+          executionMode:
+            typeof item.executionMode === 'string' ? item.executionMode : undefined,
+        }
+      })
+      .filter((item) => Boolean(item.request.actionId))
+  }, [])
+
+  const loadWorkspaceState = useCallback(async () => {
+    if (window.paxion) {
+      const loaded = await window.paxion.workspace.load().catch(() => null)
+      if (loaded?.ok) {
+        setWorkspaceGoal(loaded.state.goal)
+        setWorkspacePlan(normalizeWorkspacePlan(loaded.state.plan))
+        setWorkspaceUpdatedAt(loaded.state.updatedAt)
+      }
+    } else {
+      try {
+        const raw = localStorage.getItem('paxion-workspace-state')
+        if (raw) {
+          const parsed = JSON.parse(raw) as {
+            goal?: string
+            plan?: Array<Record<string, unknown>>
+            updatedAt?: string | null
+          }
+          setWorkspaceGoal(parsed.goal ?? '')
+          setWorkspacePlan(normalizeWorkspacePlan(parsed.plan ?? []))
+          setWorkspaceUpdatedAt(parsed.updatedAt ?? null)
+        }
+      } catch {
+        // Ignore corrupted local state and continue with fresh state.
+      }
+    }
+
+    workspaceLoadedRef.current = true
+  }, [normalizeWorkspacePlan])
+
+  const persistWorkspaceState = useCallback(async (nextGoal: string, nextPlan: WorkspaceStep[]) => {
+    if (window.paxion) {
+      const result = await window.paxion.workspace
+        .save({ goal: nextGoal, plan: nextPlan as unknown as Array<Record<string, unknown>> })
+        .catch(() => null)
+      if (result?.ok && result.updatedAt) {
+        setWorkspaceUpdatedAt(result.updatedAt)
+      }
+      return
+    }
+
+    const payload = {
+      goal: nextGoal,
+      plan: nextPlan,
+      updatedAt: new Date().toISOString(),
+    }
+
+    localStorage.setItem('paxion-workspace-state', JSON.stringify(payload))
+    setWorkspaceUpdatedAt(payload.updatedAt)
+  }, [])
 
   // Keep admin session status fresh.
   useEffect(() => {
@@ -235,7 +329,22 @@ function App() {
     return () => {
       window.clearInterval(intervalId)
     }
-  }, [])
+  }, [refreshAdminStatus])
+
+  // Restore workspace mission state from persistence.
+  useEffect(() => {
+    queueMicrotask(() => {
+      loadWorkspaceState()
+    })
+  }, [loadWorkspaceState])
+
+  // Autosave workspace mission state after local updates are initialized.
+  useEffect(() => {
+    if (!workspaceLoadedRef.current) return
+    queueMicrotask(() => {
+      persistWorkspaceState(workspaceGoal, workspacePlan)
+    })
+  }, [workspaceGoal, workspacePlan, persistWorkspaceState])
 
   const selectedAction = useMemo(
     () => actionPresets.find((preset) => preset.id === selectedActionId) ?? actionPresets[0],
@@ -399,6 +508,23 @@ function App() {
 
   // ── Workspace tab handlers ──
 
+  function hasUnresolvedDependency(plan: WorkspaceStep[], index: number): boolean {
+    for (let i = 0; i < index; i += 1) {
+      if (plan[i].status !== 'executed') {
+        return true
+      }
+    }
+    return false
+  }
+
+  function getFirstResumeIndex(plan: WorkspaceStep[]): number {
+    const failedIndex = plan.findIndex((step) => step.status === 'failed')
+    if (failedIndex >= 0) return failedIndex
+
+    const pendingIndex = plan.findIndex((step) => step.status !== 'executed')
+    return pendingIndex
+  }
+
   function createWorkspacePlan() {
     if (!workspaceGoal.trim()) {
       setWorkspaceMessage('Enter a mission goal first.')
@@ -420,6 +546,22 @@ function App() {
     setWorkspaceMessage('Running dry-run policy checks...')
 
     for (const step of workspacePlan) {
+      const idx = workspacePlan.findIndex((entry) => entry.id === step.id)
+      if (hasUnresolvedDependency(workspacePlan, idx)) {
+        setWorkspacePlan((prev) =>
+          prev.map((item) =>
+            item.id === step.id
+              ? {
+                  ...item,
+                  status: 'dry-run-deny',
+                  result: 'Dry run denied: blocked by unresolved previous step.',
+                }
+              : item,
+          ),
+        )
+        continue
+      }
+
       const baseDecision = window.paxion
         ? await window.paxion.policy.evaluate(step.request)
         : evaluateActionPolicy(step.request)
@@ -457,11 +599,29 @@ function App() {
     setWorkspaceMessage('Dry run complete.')
   }
 
-  async function executeWorkspaceStep(stepId: string) {
-    const step = workspacePlan.find((item) => item.id === stepId)
-    if (!step || !window.paxion) return
+  async function executeWorkspaceStep(stepId: string, managedByQueue = false): Promise<boolean> {
+    const stepIndex = workspacePlan.findIndex((item) => item.id === stepId)
+    const step = stepIndex >= 0 ? workspacePlan[stepIndex] : undefined
+    if (!step || !window.paxion) return false
 
-    setWorkspaceRunning(true)
+    if (hasUnresolvedDependency(workspacePlan, stepIndex)) {
+      setWorkspacePlan((prev) =>
+        prev.map((item) =>
+          item.id === stepId
+            ? {
+                ...item,
+                status: 'failed',
+                result: 'Execution blocked: complete previous steps first.',
+              }
+            : item,
+        ),
+      )
+      return false
+    }
+
+    if (!managedByQueue) {
+      setWorkspaceRunning(true)
+    }
     const result = await window.paxion.action.execute({
       request: step.request,
       adminCodeword,
@@ -485,20 +645,99 @@ function App() {
       await loadAuditIfAllowed()
     }
 
-    setWorkspaceRunning(false)
+    if (!managedByQueue) {
+      setWorkspaceRunning(false)
+    }
+
+    return result.finalDecision.allowed
   }
 
-  async function executeWorkspaceQueue() {
+  async function executeWorkspaceQueue(fromIndex = 0) {
     if (workspacePlan.length === 0) {
       setWorkspaceMessage('No mission plan available. Generate plan first.')
       return
     }
 
-    for (const step of workspacePlan) {
-      await executeWorkspaceStep(step.id)
+    setWorkspaceQueueStopped(false)
+    setWorkspaceQueuePaused(false)
+    workspaceQueueStoppedRef.current = false
+    workspaceQueuePausedRef.current = false
+    setWorkspaceRunning(true)
+    setWorkspaceMessage('Mission queue started...')
+
+    for (let i = fromIndex; i < workspacePlan.length; i += 1) {
+      if (workspaceQueueStoppedRef.current) {
+        setWorkspaceMessage('Mission queue stopped by admin.')
+        break
+      }
+
+      while (workspaceQueuePausedRef.current) {
+        await sleep(250)
+        if (workspaceQueueStoppedRef.current) {
+          break
+        }
+      }
+
+      const step = workspacePlan[i]
+      if (!step) {
+        continue
+      }
+
+      const executed = await executeWorkspaceStep(step.id, true)
+      if (!executed) {
+        setWorkspaceMessage('Mission queue paused due to failed step.')
+        break
+      }
     }
 
-    setWorkspaceMessage('Mission execution queue finished.')
+    setWorkspaceRunning(false)
+    if (!workspaceQueueStoppedRef.current) {
+      setWorkspaceMessage('Mission execution queue finished.')
+    }
+  }
+
+  function pauseWorkspaceQueue() {
+    workspaceQueuePausedRef.current = true
+    setWorkspaceQueuePaused(true)
+    setWorkspaceMessage('Mission queue paused.')
+  }
+
+  function resumeWorkspaceQueue() {
+    workspaceQueuePausedRef.current = false
+    setWorkspaceQueuePaused(false)
+    setWorkspaceMessage('Mission queue resumed.')
+  }
+
+  function stopWorkspaceQueue() {
+    workspaceQueueStoppedRef.current = true
+    workspaceQueuePausedRef.current = false
+    setWorkspaceQueueStopped(true)
+    setWorkspaceQueuePaused(false)
+    setWorkspaceRunning(false)
+    setWorkspaceMessage('Mission queue stop requested.')
+  }
+
+  async function resumeWorkspaceFromFailure() {
+    const startIndex = getFirstResumeIndex(workspacePlan)
+    if (startIndex < 0) {
+      setWorkspaceMessage('All steps already executed.')
+      return
+    }
+
+    await executeWorkspaceQueue(startIndex)
+  }
+
+  async function clearWorkspaceMission() {
+    setWorkspaceGoal('')
+    setWorkspacePlan([])
+    setWorkspaceMessage('Mission cleared.')
+    setWorkspaceUpdatedAt(null)
+
+    if (window.paxion) {
+      await window.paxion.workspace.clear().catch(() => undefined)
+    } else {
+      localStorage.removeItem('paxion-workspace-state')
+    }
   }
 
   // ── Chat tab handlers ──
@@ -926,14 +1165,55 @@ function App() {
             </button>
             <button
               className="run-button"
-              onClick={executeWorkspaceQueue}
+              onClick={() => {
+                void executeWorkspaceQueue()
+              }}
               disabled={workspaceRunning || workspacePlan.length === 0}
             >
               Execute Queue
             </button>
+            {!workspaceQueuePaused ? (
+              <button
+                className="run-button"
+                onClick={pauseWorkspaceQueue}
+                disabled={!workspaceRunning}
+              >
+                Pause
+              </button>
+            ) : (
+              <button className="run-button" onClick={resumeWorkspaceQueue} disabled={!workspaceRunning}>
+                Resume
+              </button>
+            )}
+            <button className="run-button" onClick={stopWorkspaceQueue} disabled={!workspaceRunning}>
+              Stop
+            </button>
+            <button
+              className="run-button"
+              onClick={resumeWorkspaceFromFailure}
+              disabled={workspaceRunning || workspacePlan.length === 0}
+            >
+              Resume From Failure
+            </button>
+            <button className="run-button" onClick={clearWorkspaceMission} disabled={workspaceRunning}>
+              Clear Mission
+            </button>
           </div>
 
           {workspaceMessage && <p className="muted">{workspaceMessage}</p>}
+          <p className="muted">
+            Queue state:{' '}
+            {workspaceRunning
+              ? workspaceQueuePaused
+                ? 'Paused'
+                : 'Running'
+              : workspaceQueueStopped
+                ? 'Stopped'
+                : 'Idle'}
+          </p>
+          {workspaceUpdatedAt && (
+            <p className="muted">Last mission save: {new Date(workspaceUpdatedAt).toLocaleString()}</p>
+          )}
 
           <div className="workspace-step-list">
             {workspacePlan.length === 0 ? (
@@ -955,6 +1235,15 @@ function App() {
                     >
                       Execute Step
                     </button>
+                    {step.status === 'failed' && (
+                      <button
+                        className="run-button"
+                        onClick={() => executeWorkspaceStep(step.id)}
+                        disabled={workspaceRunning}
+                      >
+                        Retry
+                      </button>
+                    )}
                   </div>
                 </article>
               ))
