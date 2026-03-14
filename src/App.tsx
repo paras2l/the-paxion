@@ -239,6 +239,12 @@ type TargetWorkflowPack = {
   verificationChecks: string[]
   rollbackSteps: string[]
   variableHints?: string[]
+  compatibilityProfiles?: Array<{
+    appKey: string
+    constraints: string[]
+    selectors?: Record<string, string>
+    fallbackSelectors?: string[]
+  }>
 }
 
 type ExecutionSession = {
@@ -250,6 +256,8 @@ type ExecutionSession = {
   packName: string
   surface: string
   appType: string
+  appKey?: string
+  appVersion?: string
   targetUrl: string
   intent: string
   executionSteps: string[]
@@ -260,6 +268,18 @@ type ExecutionSession = {
   verificationNotes: string
   rollbackNotes: string
   artifactPath: string
+  compatibilityProfile?: Record<string, unknown> | null
+  stepStates?: Array<{
+    id: string
+    index: number
+    title: string
+    status: string
+    evidenceRefs: string[]
+    attestationHash: string | null
+    updatedAt: string
+  }>
+  rollbackTransactions?: Array<Record<string, unknown>>
+  latestAttestationHash?: string | null
 }
 
 type ObservationSnapshot = {
@@ -299,6 +319,27 @@ type EvolutionPipeline = {
   stages: string[]
   history: Array<{ stage: string; note: string; timestamp: string }>
   artifactPath: string
+  governance?: {
+    minTestsForReview: number
+    minTestsForDeploy: number
+    requiredPolicySignatures: number
+    signatures: Array<{ signature: string; signer: string; signedAt: string; note: string }>
+    metrics: { testsPassed: number; lintPassed: boolean; buildPassed: boolean }
+  }
+}
+
+type GraphQueryPage = {
+  cursor: number
+  nextCursor: number | null
+  limit: number
+  totalNodes: number
+  totalEdges: number
+}
+
+type GraphIndexStats = {
+  totalSourceNodes: number
+  totalSourceEdges: number
+  distinctKinds: number
 }
 
 type VisionJob = {
@@ -575,6 +616,30 @@ function App() {
   const [evidenceScreenshotPath, setEvidenceScreenshotPath] = useState('')
   const [evidenceArtifactHash, setEvidenceArtifactHash] = useState('')
   const [evidenceArtifactPath, setEvidenceArtifactPath] = useState('')
+  const [targetAppKey, setTargetAppKey] = useState('')
+  const [targetAppVersion, setTargetAppVersion] = useState('')
+  const [nativeActionSessionId, setNativeActionSessionId] = useState('')
+  const [nativeActionStepId, setNativeActionStepId] = useState('step-1')
+  const [nativeActionType, setNativeActionType] = useState<'click' | 'fill' | 'select' | 'extractText' | 'command'>('click')
+  const [nativeActionSelector, setNativeActionSelector] = useState('')
+  const [nativeActionFallbackSelectors, setNativeActionFallbackSelectors] = useState('')
+  const [nativeActionCommand, setNativeActionCommand] = useState('')
+  const [nativeActionDomSnapshot, setNativeActionDomSnapshot] = useState('')
+  const [nativeActionPermission, setNativeActionPermission] = useState(false)
+  const [graphQueryText, setGraphQueryText] = useState('')
+  const [graphQueryKinds, setGraphQueryKinds] = useState('')
+  const [graphQueryEdgeKind, setGraphQueryEdgeKind] = useState('')
+  const [graphCursor, setGraphCursor] = useState(0)
+  const [graphPage, setGraphPage] = useState<GraphQueryPage | null>(null)
+  const [graphIndexStats, setGraphIndexStats] = useState<GraphIndexStats | null>(null)
+  const [governancePipelineId, setGovernancePipelineId] = useState('')
+  const [governanceSignatureNote, setGovernanceSignatureNote] = useState('')
+  const [governanceTestsPassed, setGovernanceTestsPassed] = useState('5')
+  const [governanceLintPassed, setGovernanceLintPassed] = useState(true)
+  const [governanceBuildPassed, setGovernanceBuildPassed] = useState(true)
+  const [attestationFingerprint, setAttestationFingerprint] = useState('')
+  const [attestationLastHash, setAttestationLastHash] = useState('')
+  const [attestationRotationReason, setAttestationRotationReason] = useState('Routine rotation')
   const [readinessMessage, setReadinessMessage] = useState('')
 
   // Library state
@@ -744,6 +809,10 @@ function App() {
       setLearningGraph({ nodes: [], edges: [], updatedAt: null })
       setEvolutionPipelines([])
       setVisionJobs([])
+      setGraphPage(null)
+      setGraphIndexStats(null)
+      setAttestationFingerprint('')
+      setAttestationLastHash('')
       return
     }
 
@@ -756,6 +825,8 @@ function App() {
       setLearningGraph({ nodes: [], edges: [], updatedAt: null })
       setEvolutionPipelines([])
       setVisionJobs([])
+      setGraphPage(null)
+      setGraphIndexStats(null)
       return
     }
 
@@ -766,6 +837,11 @@ function App() {
     setLearningGraph(result.learningGraph)
     setEvolutionPipelines(result.evolutionPipelines)
     setVisionJobs(result.visionJobs)
+    const attestation = await window.paxion.readiness.attestationStatus().catch(() => null)
+    if (attestation?.ok) {
+      setAttestationFingerprint(attestation.status.publicKeyFingerprint)
+      setAttestationLastHash(attestation.status.lastEntryHash)
+    }
   }, [])
 
   const recordLearning = useCallback(
@@ -1979,6 +2055,8 @@ function App() {
         packId: selectedTargetPackId,
         variables: targetPackVariables,
         explicitPermission: targetPackPermission,
+        appKey: targetAppKey.trim() || undefined,
+        appVersion: targetAppVersion.trim() || undefined,
       })
       .catch(() => null)
 
@@ -1990,6 +2068,8 @@ function App() {
     setExecutionSessions(result.executionSessions)
     setLearningGraph(result.learningGraph)
     setTargetPackPermission(false)
+    setNativeActionSessionId(result.session.id)
+    setEvidenceSessionId(result.session.id)
     setReadinessMessage(`Prepared workflow session: ${result.session.packName}`)
   }
 
@@ -2038,6 +2118,26 @@ function App() {
     setLearningGraph(result.learningGraph)
     setSessionNotes('')
     setReadinessMessage(`Rollback prepared for session ${sessionId}.`)
+  }
+
+  async function executeRollbackTransactionById(sessionId: string) {
+    if (!window.paxion) return
+    const result = await window.paxion.readiness
+      .executeRollback({
+        sessionId,
+        notes: sessionNotes,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setReadinessMessage(result?.reason ?? 'Failed to execute rollback transaction.')
+      return
+    }
+
+    setExecutionSessions(result.executionSessions)
+    setLearningGraph(result.learningGraph)
+    setSessionNotes('')
+    setReadinessMessage(`Rollback transaction ${String(result.transaction.id || '')} completed.`)
   }
 
   async function captureObservation() {
@@ -2105,6 +2205,7 @@ function App() {
     }
 
     setEvolutionPipelines(result.evolutionPipelines)
+    setGovernancePipelineId(result.pipeline.id)
     setEvolutionTitle('')
     setEvolutionObjective('')
     setReadinessMessage(`Evolution pipeline created: ${result.pipeline.title}`)
@@ -2180,6 +2281,7 @@ function App() {
         imagePath: ocrImagePath.trim() || undefined,
         language: ocrLanguage.trim() || 'eng',
         notes: visionNotes,
+        sessionId: evidenceSessionId.trim() || undefined,
       })
       .catch(() => null)
 
@@ -2195,6 +2297,118 @@ function App() {
     setReadinessMessage(
       `OCR completed (${result.language}) with confidence ${result.confidence.toFixed(1)}.`,
     )
+  }
+
+  async function runNativeActionExecution() {
+    if (!window.paxion) return
+    const sessionId = nativeActionSessionId.trim()
+    const fallbackSelectors = nativeActionFallbackSelectors
+      .split('\n')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+
+    const result = await window.paxion.readiness
+      .executeNativeAction({
+        sessionId: sessionId || undefined,
+        stepId: nativeActionStepId.trim() || undefined,
+        action: nativeActionType,
+        selector: nativeActionSelector.trim() || undefined,
+        fallbackSelectors,
+        command: nativeActionCommand.trim() || undefined,
+        appType: observationAppType,
+        appKey: targetAppKey.trim() || undefined,
+        appVersion: targetAppVersion.trim() || undefined,
+        intendedStep: `Native ${nativeActionType} via Workspace`,
+        domSnapshot: nativeActionDomSnapshot,
+        explicitPermission: nativeActionPermission,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setReadinessMessage(result?.reason ?? 'Failed to execute native action.')
+      return
+    }
+
+    setExecutionSessions(result.executionSessions ?? [])
+    setLearningGraph(result.learningGraph ?? { nodes: [], edges: [], updatedAt: null })
+    setNativeActionPermission(false)
+    if (result.commandOutput) {
+      setEvidenceCommandOutput(result.commandOutput)
+    }
+    setReadinessMessage(`Native action executed: ${nativeActionType}.`)
+  }
+
+  async function queryLearningGraph(cursorOverride?: number) {
+    if (!window.paxion) return
+    const kinds = graphQueryKinds
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+    const cursor = typeof cursorOverride === 'number' ? cursorOverride : graphCursor
+    const result = await window.paxion.readiness
+      .queryGraph({
+        text: graphQueryText,
+        kinds,
+        edgeKind: graphQueryEdgeKind.trim() || undefined,
+        cursor,
+        limit: 40,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setReadinessMessage(result?.reason ?? 'Failed to query learning graph.')
+      return
+    }
+
+    setLearningGraph(result.learningGraph)
+    setGraphCursor(cursor)
+    setGraphPage(result.page)
+    setGraphIndexStats(result.indexStats)
+    setReadinessMessage(`Graph query returned ${result.learningGraph.nodes.length} node(s).`)
+  }
+
+  async function signGovernanceForPipeline(pipelineId: string) {
+    if (!window.paxion) return
+    const result = await window.paxion.readiness
+      .signGovernancePolicy({
+        pipelineId,
+        note: governanceSignatureNote || 'Approved for progression gate.',
+        testsPassed: Number(governanceTestsPassed || '0'),
+        lintPassed: governanceLintPassed,
+        buildPassed: governanceBuildPassed,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setReadinessMessage(result?.reason ?? 'Failed to sign governance policy.')
+      return
+    }
+
+    setEvolutionPipelines(result.evolutionPipelines)
+    setReadinessMessage(`Governance signature recorded for pipeline ${pipelineId}.`)
+  }
+
+  async function refreshAttestationStatus() {
+    if (!window.paxion) return
+    const result = await window.paxion.readiness.attestationStatus().catch(() => null)
+    if (!result?.ok) {
+      return
+    }
+    setAttestationFingerprint(result.status.publicKeyFingerprint)
+    setAttestationLastHash(result.status.lastEntryHash)
+  }
+
+  async function rotateAttestationKeyNow() {
+    if (!window.paxion) return
+    const result = await window.paxion.readiness
+      .rotateAttestationKey({ reason: attestationRotationReason })
+      .catch(() => null)
+    if (!result?.ok) {
+      setReadinessMessage(result?.reason ?? 'Failed to rotate attestation key.')
+      return
+    }
+    await refreshAttestationStatus()
+    setReadinessMessage('Attestation key rotated and chain anchor updated.')
   }
 
   async function createEvidenceArtifact() {
@@ -3400,6 +3614,24 @@ function App() {
                 </div>
               </div>
             )}
+            <div className="control-group">
+              <label htmlFor="target-app-key">Target app key (optional)</label>
+              <input
+                id="target-app-key"
+                value={targetAppKey}
+                onChange={(event) => setTargetAppKey(event.target.value)}
+                placeholder="wordpress, github, figma, vscode"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="target-app-version">Target app version (optional)</label>
+              <input
+                id="target-app-version"
+                value={targetAppVersion}
+                onChange={(event) => setTargetAppVersion(event.target.value)}
+                placeholder="Example: 6.7.1"
+              />
+            </div>
             <label className="muted">
               <input
                 type="checkbox"
@@ -3453,7 +3685,18 @@ function App() {
                         >
                           Prepare Rollback
                         </button>
+                        <button
+                          className="run-button"
+                          onClick={() => void executeRollbackTransactionById(session.id)}
+                        >
+                          Execute Rollback
+                        </button>
                       </div>
+                      {session.compatibilityProfile ? (
+                        <p className="muted">Compatibility profile matched for versioned execution.</p>
+                      ) : (
+                        <p className="muted">Compatibility profile: default</p>
+                      )}
                     </article>
                   ))}
               </div>
@@ -3552,6 +3795,99 @@ function App() {
                 Evidence hash: {evidenceArtifactHash.slice(0, 20)}... | path: {evidenceArtifactPath}
               </p>
             )}
+          </div>
+
+          <div className="decision-card">
+            <strong>Native Execution Engine</strong>
+            <p>
+              Execute deterministic native actions with fallback selectors and automatic evidence capture
+              on each action.
+            </p>
+            <div className="control-group">
+              <label htmlFor="native-session-id">Session ID</label>
+              <input
+                id="native-session-id"
+                value={nativeActionSessionId}
+                onChange={(event) => setNativeActionSessionId(event.target.value)}
+                placeholder="session-..."
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="native-step-id">Step ID</label>
+              <input
+                id="native-step-id"
+                value={nativeActionStepId}
+                onChange={(event) => setNativeActionStepId(event.target.value)}
+                placeholder="step-1"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="native-action-type">Action type</label>
+              <select
+                id="native-action-type"
+                value={nativeActionType}
+                onChange={(event) =>
+                  setNativeActionType(
+                    event.target.value as 'click' | 'fill' | 'select' | 'extractText' | 'command',
+                  )
+                }
+              >
+                <option value="click">click</option>
+                <option value="fill">fill</option>
+                <option value="select">select</option>
+                <option value="extractText">extractText</option>
+                <option value="command">command</option>
+              </select>
+            </div>
+            <div className="control-group">
+              <label htmlFor="native-selector">Primary selector</label>
+              <input
+                id="native-selector"
+                value={nativeActionSelector}
+                onChange={(event) => setNativeActionSelector(event.target.value)}
+                placeholder="#publish"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="native-fallback">Fallback selectors (one per line)</label>
+              <textarea
+                id="native-fallback"
+                className="lib-paste-area"
+                value={nativeActionFallbackSelectors}
+                onChange={(event) => setNativeActionFallbackSelectors(event.target.value)}
+                rows={3}
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="native-command">Allowlisted command (command action only)</label>
+              <input
+                id="native-command"
+                value={nativeActionCommand}
+                onChange={(event) => setNativeActionCommand(event.target.value)}
+                placeholder="npm run lint"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="native-dom">DOM/state snapshot (optional)</label>
+              <textarea
+                id="native-dom"
+                className="lib-paste-area"
+                value={nativeActionDomSnapshot}
+                onChange={(event) => setNativeActionDomSnapshot(event.target.value)}
+                rows={3}
+              />
+            </div>
+            <label className="muted">
+              <input
+                type="checkbox"
+                checked={nativeActionPermission}
+                onChange={(event) => setNativeActionPermission(event.target.checked)}
+              />{' '}
+              I give explicit permission to execute this native action.
+            </label>
+            <button className="run-button" onClick={() => void runNativeActionExecution()}>
+              Execute Native Action
+            </button>
           </div>
 
           <div className="decision-card">
@@ -3663,6 +3999,64 @@ function App() {
               Graph nodes: {learningGraph.nodes.length} | edges: {learningGraph.edges.length}
               {learningGraph.updatedAt ? ` | updated ${new Date(learningGraph.updatedAt).toLocaleString()}` : ''}
             </p>
+            <div className="control-group">
+              <label htmlFor="graph-query-text">Graph query text</label>
+              <input
+                id="graph-query-text"
+                value={graphQueryText}
+                onChange={(event) => setGraphQueryText(event.target.value)}
+                placeholder="skill, evidence, cms"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="graph-query-kinds">Kinds filter (comma separated)</label>
+              <input
+                id="graph-query-kinds"
+                value={graphQueryKinds}
+                onChange={(event) => setGraphQueryKinds(event.target.value)}
+                placeholder="skill,learning-log,execution"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="graph-query-edge">Edge kind filter</label>
+              <input
+                id="graph-query-edge"
+                value={graphQueryEdgeKind}
+                onChange={(event) => setGraphQueryEdgeKind(event.target.value)}
+                placeholder="teaches, suggests, runs"
+              />
+            </div>
+            <div className="workspace-actions">
+              <button className="run-button" onClick={() => void queryLearningGraph()}>
+                Query Graph
+              </button>
+              <button
+                className="run-button"
+                onClick={() => void queryLearningGraph(Math.max(0, graphCursor - 40))}
+                disabled={graphCursor <= 0}
+              >
+                Prev Page
+              </button>
+              <button
+                className="run-button"
+                onClick={() => void queryLearningGraph(graphPage?.nextCursor ?? graphCursor)}
+                disabled={graphPage?.nextCursor == null}
+              >
+                Next Page
+              </button>
+            </div>
+            {graphPage && (
+              <p className="muted">
+                Page cursor {graphPage.cursor}, total nodes {graphPage.totalNodes}, total edges{' '}
+                {graphPage.totalEdges}
+              </p>
+            )}
+            {graphIndexStats && (
+              <p className="muted">
+                Index stats: source nodes {graphIndexStats.totalSourceNodes}, source edges{' '}
+                {graphIndexStats.totalSourceEdges}, kinds {graphIndexStats.distinctKinds}
+              </p>
+            )}
             {learningGraph.nodes.length > 0 && (
               <div className="learning-log-list">
                 {learningGraph.nodes.slice(0, 8).map((node) => (
@@ -3700,6 +4094,57 @@ function App() {
             <button className="run-button" onClick={() => void createEvolutionPipeline()}>
               Create Evolution Pipeline
             </button>
+            <div className="control-group">
+              <label htmlFor="gov-pipeline-id">Governance sign pipeline ID</label>
+              <input
+                id="gov-pipeline-id"
+                value={governancePipelineId}
+                onChange={(event) => setGovernancePipelineId(event.target.value)}
+                placeholder="evo-..."
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="gov-note">Governance note</label>
+              <textarea
+                id="gov-note"
+                className="lib-paste-area"
+                value={governanceSignatureNote}
+                onChange={(event) => setGovernanceSignatureNote(event.target.value)}
+                rows={2}
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="gov-tests">Tests passed</label>
+              <input
+                id="gov-tests"
+                value={governanceTestsPassed}
+                onChange={(event) => setGovernanceTestsPassed(event.target.value)}
+                placeholder="5"
+              />
+            </div>
+            <label className="muted">
+              <input
+                type="checkbox"
+                checked={governanceLintPassed}
+                onChange={(event) => setGovernanceLintPassed(event.target.checked)}
+              />{' '}
+              Lint passed
+            </label>
+            <label className="muted">
+              <input
+                type="checkbox"
+                checked={governanceBuildPassed}
+                onChange={(event) => setGovernanceBuildPassed(event.target.checked)}
+              />{' '}
+              Build passed
+            </label>
+            <button
+              className="run-button"
+              onClick={() => void signGovernanceForPipeline(governancePipelineId.trim())}
+              disabled={!governancePipelineId.trim()}
+            >
+              Sign Governance Policy
+            </button>
             {evolutionPipelines.length > 0 && (
               <div className="learning-log-list">
                 {[...evolutionPipelines]
@@ -3709,6 +4154,15 @@ function App() {
                     <article className="learning-log-item" key={pipeline.id}>
                       <strong>{pipeline.title}</strong>
                       <p className="muted">Current stage: {pipeline.currentStage}</p>
+                      {pipeline.governance && (
+                        <p className="muted">
+                          Gates: tests {pipeline.governance.metrics.testsPassed} | lint{' '}
+                          {pipeline.governance.metrics.lintPassed ? 'pass' : 'fail'} | build{' '}
+                          {pipeline.governance.metrics.buildPassed ? 'pass' : 'fail'} | signatures{' '}
+                          {pipeline.governance.signatures.length}/
+                          {pipeline.governance.requiredPolicySignatures}
+                        </p>
+                      )}
                       <button
                         className="run-button"
                         onClick={() => void advanceEvolutionPipelineById(pipeline.id)}
@@ -3719,6 +4173,36 @@ function App() {
                   ))}
               </div>
             )}
+          </div>
+
+          <div className="decision-card">
+            <strong>Cryptographic Attestation</strong>
+            <p>
+              Manage attestation signing identity and verify active chain anchor for high-assurance
+              evidence custody.
+            </p>
+            <p className="muted">
+              Key fingerprint: {attestationFingerprint ? `${attestationFingerprint.slice(0, 24)}...` : 'unavailable'}
+            </p>
+            <p className="muted">
+              Chain head: {attestationLastHash ? `${attestationLastHash.slice(0, 24)}...` : 'unavailable'}
+            </p>
+            <div className="control-group">
+              <label htmlFor="attestation-rotation-reason">Rotation reason</label>
+              <input
+                id="attestation-rotation-reason"
+                value={attestationRotationReason}
+                onChange={(event) => setAttestationRotationReason(event.target.value)}
+              />
+            </div>
+            <div className="workspace-actions">
+              <button className="run-button" onClick={() => void refreshAttestationStatus()}>
+                Refresh Status
+              </button>
+              <button className="run-button" onClick={() => void rotateAttestationKeyNow()}>
+                Rotate Attestation Key
+              </button>
+            </div>
           </div>
 
           <div className="decision-card">
@@ -4015,7 +4499,7 @@ function App() {
       <footer className="footer">
         <span>Profile: Paro the Chief</span>
         <span>Mode: Policy-Enforced Build</span>
-        <span>Version: v0.17.0-native-evidence-governance</span>
+        <span>Version: v0.18.0-readiness-closure</span>
       </footer>
     </div>
   )

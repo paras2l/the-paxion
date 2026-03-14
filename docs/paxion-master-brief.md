@@ -122,11 +122,14 @@ This file is the single source of truth for what The Paxion is and what it is be
 ## Native execution, attestation, and governance hardening
 - Native action execution engine is available through guarded IPC with deterministic selector + fallback paths and supervised command execution allowlists.
 - Automatic step evidence hooks now run at session-step boundaries (state snapshot, command transcript, and best-effort auto screenshot capture).
+- Automatic DOM extraction fallback now runs from target session URL when explicit DOM snapshot is not supplied.
 - Evidence and governance actions are anchored into a signed attestation hash chain with persisted signer fingerprint metadata.
+- Attestation key lifecycle now includes admin-gated key status inspection and controlled key rotation anchored in the custody chain.
 - Rollback now supports transaction execution across rollback step lists with per-step outcomes and captured rollback evidence.
 - Learning graph now has paginated query/index APIs to support larger histories without full graph payload fetch every time.
 - Target workflow packs include versioned compatibility profiles with selector fallback packs per platform family.
 - Self-evolution promotion now enforces stronger gates (test thresholds, lint/build checks, and governance policy signatures) before deploy-stage advancement.
+- Workspace operators now have direct controls for native action execution, rollback execution, graph query pagination, governance signing, and attestation operations in one panel for long sessions.
 
 ## Out of scope for v1
 - Unrestricted autonomous operations.

@@ -59,6 +59,8 @@ contextBridge.exposeInMainWorld('paxion', {
     planMission: (input) => ipcRenderer.invoke('paxion:readiness:planMission', input),
     graph: () => ipcRenderer.invoke('paxion:readiness:graph'),
     queryGraph: (input) => ipcRenderer.invoke('paxion:readiness:queryGraph', input),
+    attestationStatus: () => ipcRenderer.invoke('paxion:readiness:attestationStatus'),
+    rotateAttestationKey: (input) => ipcRenderer.invoke('paxion:readiness:rotateAttestationKey', input),
     createEvolutionPipeline: (input) => ipcRenderer.invoke('paxion:readiness:createEvolutionPipeline', input),
     advanceEvolutionPipeline: (input) => ipcRenderer.invoke('paxion:readiness:advanceEvolutionPipeline', input),
     signGovernancePolicy: (input) => ipcRenderer.invoke('paxion:readiness:signGovernancePolicy', input),

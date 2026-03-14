@@ -1013,6 +1013,91 @@ function registerIpcHandlers(mainWindow) {
     return entry
   }
 
+  function attestationPublicStatus() {
+    ensureAttestationState()
+    return {
+      publicKeyFingerprint: attestationState.publicKeyFingerprint,
+      lastEntryHash: attestationState.lastEntryHash,
+      hasChain: fs.existsSync(attestationChainFilePath),
+    }
+  }
+
+  function rotateAttestationKey(input) {
+    ensureAttestationState()
+    const keyPair = crypto.generateKeyPairSync('ed25519')
+    const previousFingerprint = attestationState.publicKeyFingerprint
+    attestationState.privateKeyPem = keyPair.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+    attestationState.publicKeyPem = keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString()
+    attestationState.publicKeyFingerprint = sha256Hex(attestationState.publicKeyPem)
+    attestationState.loaded = true
+
+    const rotationAnchor = createHashChainEntry(
+      {
+        scope: 'attestation-key-rotation',
+        reason: String(input?.reason || 'manual-rotation'),
+        previousFingerprint,
+        nextFingerprint: attestationState.publicKeyFingerprint,
+      },
+      attestationState.lastEntryHash,
+    )
+    attestationState.lastEntryHash = rotationAnchor.entryHash
+    fs.appendFileSync(
+      attestationChainFilePath,
+      JSON.stringify({
+        ...rotationAnchor,
+        signer: 'paxion-attestor',
+        signature: null,
+        publicKeyFingerprint: attestationState.publicKeyFingerprint,
+      }) + '\n',
+      'utf8',
+    )
+
+    fs.writeFileSync(
+      attestationStateFilePath,
+      JSON.stringify(
+        {
+          privateKeyPem: attestationState.privateKeyPem,
+          publicKeyPem: attestationState.publicKeyPem,
+          publicKeyFingerprint: attestationState.publicKeyFingerprint,
+          lastEntryHash: attestationState.lastEntryHash,
+          updatedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    )
+
+    return {
+      previousFingerprint,
+      currentFingerprint: attestationState.publicKeyFingerprint,
+      lastEntryHash: attestationState.lastEntryHash,
+    }
+  }
+
+  async function autoExtractDomSnapshotFromSession(session) {
+    const targetUrl = String(session?.targetUrl || '').trim()
+    if (!/^https?:\/\//i.test(targetUrl)) {
+      return ''
+    }
+    try {
+      const response = await fetch(targetUrl, { method: 'GET' })
+      if (!response.ok) {
+        return ''
+      }
+      const html = await response.text()
+      return String(html)
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, ' ')
+        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 12000)
+    } catch {
+      return ''
+    }
+  }
+
   async function captureDesktopScreenshot(sessionId, stepId) {
     try {
       const sources = await desktopCapturer.getSources({
@@ -1053,7 +1138,8 @@ function registerIpcHandlers(mainWindow) {
     const sessionDir = path.join(workspaceRootPath(), 'evidence-auto', sanitizeRelativePath(sessionId))
     fs.mkdirSync(sessionDir, { recursive: true })
 
-    const domSnapshot = String(input?.domSnapshot || '').trim()
+    const suppliedDomSnapshot = String(input?.domSnapshot || '').trim()
+    const domSnapshot = suppliedDomSnapshot || (await autoExtractDomSnapshotFromSession(session))
     const commandOutput = String(input?.commandOutput || '').trim()
     const stateSnapshot = {
       capturedAt: now,
@@ -3413,6 +3499,34 @@ function registerIpcHandlers(mainWindow) {
         publicKeyFingerprint: attestation.publicKeyFingerprint,
       },
       evolutionPipelines: learningState.evolutionPipelines || [],
+    }
+  })
+
+  ipcMain.handle('paxion:readiness:attestationStatus', () => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to inspect attestation status.' }
+    }
+    return {
+      ok: true,
+      status: attestationPublicStatus(),
+    }
+  })
+
+  ipcMain.handle('paxion:readiness:rotateAttestationKey', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to rotate attestation key.' }
+    }
+    const result = rotateAttestationKey(input)
+    appendAuditEntry('action_result', {
+      actionId: 'readiness.rotateAttestationKey',
+      status: 'allowed',
+      previousFingerprint: result.previousFingerprint,
+      currentFingerprint: result.currentFingerprint,
+      reason: String(input?.reason || 'manual-rotation'),
+    })
+    return {
+      ok: true,
+      rotation: result,
     }
   })
 

@@ -738,6 +738,28 @@ declare global {
               }
             }
         >
+        attestationStatus(): Promise<
+          | {
+              ok: true
+              status: {
+                publicKeyFingerprint: string
+                lastEntryHash: string
+                hasChain: boolean
+              }
+            }
+          | { ok: false; reason: string }
+        >
+        rotateAttestationKey(input: { reason?: string }): Promise<
+          | {
+              ok: true
+              rotation: {
+                previousFingerprint: string
+                currentFingerprint: string
+                lastEntryHash: string
+              }
+            }
+          | { ok: false; reason: string }
+        >
         createEvolutionPipeline(input: {
           title: string
           objective: string
