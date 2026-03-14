@@ -10,6 +10,7 @@ const pdfParse = require('pdf-parse')
 const ADMIN_CODEWORD = 'paro the chief'
 const ADMIN_SESSION_TTL_MS = 15 * 60 * 1000
 const APPROVAL_TTL_MS = 5 * 60 * 1000
+const REPLAY_PREVIEW_TTL_MS = 5 * 60 * 1000
 
 const DEFAULT_CAPABILITIES = {
   workspaceExecution: true,
@@ -113,23 +114,24 @@ const AUTOMATION_ADAPTER_PROFILE_DEFS = [
     name: 'WordPress Post Update',
     appType: 'cms',
     adapterId: 'browser.formFill.basic',
-    targetUrl: 'https://example.com/wp-admin/post.php',
-    intent: 'Update post title and content, then trigger save.',
+    targetUrl: 'https://{{wordpressHost}}/wp-admin/post.php?post={{postId}}&action=edit',
+    intent: 'Update WordPress post {{postId}} on {{wordpressHost}}, then trigger save.',
     stepTemplate: [
-      'fill|#title|Paxion updated title',
-      'fill|#content|Updated content from approved mission context.',
+      'fill|#title|{{postTitle}}',
+      'fill|#content|{{postContent}}',
       'click|#publish',
       'wait||1500',
     ],
     gainedSkills: ['CMS Content Editing', 'Publishing Workflow'],
+    variableHints: ['wordpressHost', 'postId', 'postTitle', 'postContent'],
   },
   {
     id: 'profile.figma-export-flow',
     name: 'Figma Export Flow',
     appType: 'design',
     adapterId: 'browser.clickFlow.basic',
-    targetUrl: 'https://www.figma.com/',
-    intent: 'Open design file and run export checklist in supervised mode.',
+    targetUrl: 'https://www.figma.com/file/{{fileKey}}/{{fileName}}',
+    intent: 'Open Figma file {{fileName}} and run export checklist in supervised mode.',
     stepTemplate: [
       'click|[data-testid="recent-file"]',
       'click|[data-testid="export-button"]',
@@ -137,14 +139,15 @@ const AUTOMATION_ADAPTER_PROFILE_DEFS = [
       'extractText|[data-testid="export-status"]',
     ],
     gainedSkills: ['Design Operations', 'Asset Export Workflow'],
+    variableHints: ['fileKey', 'fileName'],
   },
   {
     id: 'profile.github-pr-review',
     name: 'GitHub PR Review Prep',
     appType: 'code-editor',
     adapterId: 'browser.clickFlow.basic',
-    targetUrl: 'https://github.com/',
-    intent: 'Open pull request diff and capture review context.',
+    targetUrl: 'https://github.com/{{repoOwner}}/{{repoName}}/pull/{{pullNumber}}',
+    intent: 'Open PR {{pullNumber}} for {{repoOwner}}/{{repoName}} and capture review context.',
     stepTemplate: [
       'click|a[href*="/pull/"]',
       'click|button[aria-label="Files changed"]',
@@ -152,6 +155,7 @@ const AUTOMATION_ADAPTER_PROFILE_DEFS = [
       'extractText|.js-file-content',
     ],
     gainedSkills: ['Code Review Workflow', 'Project Navigation'],
+    variableHints: ['repoOwner', 'repoName', 'pullNumber'],
   },
 ]
 
@@ -160,31 +164,37 @@ const SKILL_CAPABILITY_SUGGESTION_RULES = [
     capability: 'workspaceTooling',
     anySkills: ['Workspace Automation', 'Debugging Workflow', 'Project Navigation'],
     reason: 'Frequent workflow/build patterns indicate tooling automation readiness.',
+    prerequisites: ['workspaceExecution'],
   },
   {
     capability: 'webAppAutomation',
     anySkills: ['CMS Content Editing', 'Web Research', 'Form Operations'],
     reason: 'Web operation patterns suggest supervised web automation can be expanded.',
+    prerequisites: ['workspaceExecution'],
   },
   {
     capability: 'desktopAppAutomation',
     anySkills: ['Design Operations', 'Code Editing Workflow', 'UI Composition'],
     reason: 'Desktop workflow skill signals indicate app automation potential.',
+    prerequisites: ['workspaceExecution'],
   },
   {
     capability: 'mediaGeneration',
     anySkills: ['Media Generation Workflow', 'Asset Export Workflow'],
     reason: 'Media-oriented skills suggest enabling media generation adapters.',
+    prerequisites: ['workspaceExecution'],
   },
   {
     capability: 'vscodeControl',
     anySkills: ['Code Editing Workflow', 'TypeScript Engineering', 'Project Navigation'],
     reason: 'IDE-centric skills suggest VS Code command bridge usage.',
+    prerequisites: ['workspaceExecution'],
   },
   {
     capability: 'selfEvolution',
     anySkills: ['Task-specific UI Automation', 'Security Policy Design', 'Debugging Workflow'],
     reason: 'Mature automation and policy skills suggest controlled self-evolution phase.',
+    prerequisites: ['workspaceTooling', 'vscodeControl'],
   },
 ]
 
@@ -410,6 +420,7 @@ function registerIpcHandlers(mainWindow) {
   const learningStateFilePath = path.join(app.getPath('userData'), 'paxion-learning-state.json')
   const adminSession = buildAdminSessionState()
   const approvalTickets = new Map()
+  const replayPreviewApprovals = new Map()
   let capabilityState = { ...DEFAULT_CAPABILITIES }
   let learningState = {
     skills: [],
@@ -417,6 +428,7 @@ function registerIpcHandlers(mainWindow) {
     videoPlans: [],
     automationTemplates: OBSERVE_LEARN_TEMPLATE_DEFS,
     automationProfiles: AUTOMATION_ADAPTER_PROFILE_DEFS,
+    automationProfilePresets: [],
     executionRecords: [],
     updatedAt: null,
   }
@@ -626,6 +638,7 @@ function registerIpcHandlers(mainWindow) {
         videoPlans: [],
         automationTemplates: OBSERVE_LEARN_TEMPLATE_DEFS,
         automationProfiles: AUTOMATION_ADAPTER_PROFILE_DEFS,
+        automationProfilePresets: [],
         executionRecords: [],
         updatedAt: null,
       }
@@ -647,6 +660,10 @@ function registerIpcHandlers(mainWindow) {
           Array.isArray(parsed?.automationProfiles) && parsed.automationProfiles.length > 0
             ? parsed.automationProfiles.filter((x) => x && typeof x === 'object')
             : AUTOMATION_ADAPTER_PROFILE_DEFS,
+        automationProfilePresets:
+          Array.isArray(parsed?.automationProfilePresets)
+            ? parsed.automationProfilePresets.filter((x) => x && typeof x === 'object')
+            : [],
         executionRecords:
           Array.isArray(parsed?.executionRecords)
             ? parsed.executionRecords.filter((x) => x && typeof x === 'object')
@@ -660,27 +677,133 @@ function registerIpcHandlers(mainWindow) {
         videoPlans: [],
         automationTemplates: OBSERVE_LEARN_TEMPLATE_DEFS,
         automationProfiles: AUTOMATION_ADAPTER_PROFILE_DEFS,
+        automationProfilePresets: [],
         executionRecords: [],
         updatedAt: null,
       }
     }
   }
 
+  function cleanupExpiredReplayPreviewApprovals() {
+    const now = Date.now()
+    for (const [token, approval] of replayPreviewApprovals.entries()) {
+      if (!approval || approval.expiresAt < now) {
+        replayPreviewApprovals.delete(token)
+      }
+    }
+  }
+
+  function issueReplayPreviewApproval(recordId, sessionId) {
+    cleanupExpiredReplayPreviewApprovals()
+    const createdAt = Date.now()
+    const token = makeId()
+    replayPreviewApprovals.set(token, {
+      token,
+      recordId,
+      sessionId: typeof sessionId === 'string' ? sessionId : null,
+      createdAt,
+      expiresAt: createdAt + REPLAY_PREVIEW_TTL_MS,
+    })
+    return token
+  }
+
+  function consumeReplayPreviewApproval(token, recordId) {
+    cleanupExpiredReplayPreviewApprovals()
+    const approval = replayPreviewApprovals.get(token)
+    if (!approval) {
+      return false
+    }
+
+    replayPreviewApprovals.delete(token)
+    if (approval.recordId !== recordId) {
+      return false
+    }
+
+    return Date.now() <= approval.expiresAt
+  }
+
+  function getExecutionSessionId(record) {
+    return typeof record?.metadata?.sessionId === 'string' ? record.metadata.sessionId : null
+  }
+
+  function getExecutionSequence(records, sourceRecord) {
+    const sessionId = getExecutionSessionId(sourceRecord)
+    const sequence = sessionId
+      ? records.filter((entry) => getExecutionSessionId(entry) === sessionId)
+      : [sourceRecord]
+
+    return [...sequence].sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || '')))
+  }
+
   function computeCapabilitySuggestions() {
     const skills = Array.isArray(learningState.skills) ? learningState.skills : []
     const lowerSkills = skills.map((s) => s.toLowerCase())
 
-    return SKILL_CAPABILITY_SUGGESTION_RULES.filter((rule) => {
-      if (capabilityState[rule.capability] === true) {
-        return false
+    return SKILL_CAPABILITY_SUGGESTION_RULES.map((rule) => {
+      const matchedSkills = rule.anySkills.filter((skill) => lowerSkills.includes(String(skill).toLowerCase()))
+      if (capabilityState[rule.capability] === true || matchedSkills.length === 0) {
+        return null
       }
 
-      return rule.anySkills.some((skill) => lowerSkills.includes(String(skill).toLowerCase()))
-    }).map((rule) => ({
-      capability: rule.capability,
-      reason: rule.reason,
-      recommendedAction: `Review and optionally enable capability \"${rule.capability}\" in Access tab.`,
-    }))
+      const unmetPrerequisites = Array.isArray(rule.prerequisites)
+        ? rule.prerequisites.filter((capability) => capabilityState[capability] !== true)
+        : []
+      const confidence = Math.max(
+        5,
+        Math.min(
+          100,
+          Math.round((matchedSkills.length / rule.anySkills.length) * 75 + (unmetPrerequisites.length === 0 ? 25 : 10)),
+        ),
+      )
+
+      return {
+        capability: rule.capability,
+        reason: rule.reason,
+        recommendedAction:
+          unmetPrerequisites.length === 0
+            ? `Ready to enable capability \"${rule.capability}\" from the workspace suggestion panel.`
+            : `Enable prerequisite capabilities first: ${unmetPrerequisites.join(', ')}.`,
+        confidence,
+        matchedSkills,
+        unmetPrerequisites,
+        readyToEnable: unmetPrerequisites.length === 0,
+      }
+    })
+      .filter(Boolean)
+      .sort((a, b) => {
+        if (a.readyToEnable !== b.readyToEnable) {
+          return a.readyToEnable ? -1 : 1
+        }
+        return b.confidence - a.confidence
+      })
+  }
+
+  function buildReplayPreview(sourceRecord) {
+    const records = Array.isArray(learningState.executionRecords) ? learningState.executionRecords : []
+    const relatedRecords = getExecutionSequence(records, sourceRecord)
+    const targetUrl =
+      typeof sourceRecord?.metadata?.targetUrl === 'string' ? sourceRecord.metadata.targetUrl : null
+    const intent = typeof sourceRecord?.metadata?.intent === 'string' ? sourceRecord.metadata.intent : null
+    const sessionId = getExecutionSessionId(sourceRecord)
+    const previewToken = issueReplayPreviewApproval(sourceRecord.id, sessionId)
+
+    return {
+      previewToken,
+      sourceRecord,
+      relatedRecords,
+      targetUrl,
+      intent,
+      stepDiffs: relatedRecords.map((record) => ({
+        recordId: record.id,
+        originalIntendedStep: record.intendedStep,
+        replayIntendedStep: record.intendedStep,
+        originalPerformedStep: record.performedStep,
+        replayPerformedStep: `Replay executed from record ${record.id}.`,
+        originalResult: record.result,
+        replayResult: 'replayed',
+      })),
+      expiresAt: Date.now() + REPLAY_PREVIEW_TTL_MS,
+    }
   }
 
   function appendExecutionRecord(input) {
@@ -1479,6 +1602,7 @@ function registerIpcHandlers(mainWindow) {
         reason: 'Admin session required to load automation state.',
         templates: OBSERVE_LEARN_TEMPLATE_DEFS,
         profiles: AUTOMATION_ADAPTER_PROFILE_DEFS,
+        presets: [],
         records: [],
         suggestions: [],
         updatedAt: learningState.updatedAt,
@@ -1489,9 +1613,150 @@ function registerIpcHandlers(mainWindow) {
       ok: true,
       templates: learningState.automationTemplates || OBSERVE_LEARN_TEMPLATE_DEFS,
       profiles: learningState.automationProfiles || AUTOMATION_ADAPTER_PROFILE_DEFS,
+      presets: learningState.automationProfilePresets || [],
       records: learningState.executionRecords || [],
       suggestions: computeCapabilitySuggestions(),
       updatedAt: learningState.updatedAt,
+    }
+  })
+
+  ipcMain.handle('paxion:automation:savePreset', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return {
+        ok: false,
+        reason: 'Admin session required to save automation preset.',
+      }
+    }
+
+    const profileId = String(input?.profileId || '').trim()
+    const name = String(input?.name || '').trim()
+    const profile = (learningState.automationProfiles || AUTOMATION_ADAPTER_PROFILE_DEFS).find(
+      (entry) => entry.id === profileId,
+    )
+
+    if (!profile) {
+      return {
+        ok: false,
+        reason: 'Automation profile not found for preset save.',
+      }
+    }
+
+    if (!name) {
+      return {
+        ok: false,
+        reason: 'Preset name is required.',
+      }
+    }
+
+    const variables =
+      input?.variables && typeof input.variables === 'object'
+        ? Object.fromEntries(
+            Object.entries(input.variables)
+              .filter(([key, value]) => typeof key === 'string' && key.trim() && typeof value === 'string')
+              .map(([key, value]) => [String(key).trim(), String(value)]),
+          )
+        : {}
+
+    const existing = Array.isArray(learningState.automationProfilePresets)
+      ? learningState.automationProfilePresets
+      : []
+    const now = new Date().toISOString()
+    const normalizedName = name.toLowerCase()
+    const existingIndex = existing.findIndex(
+      (preset) =>
+        String(preset?.profileId || '') === profileId &&
+        String(preset?.name || '').trim().toLowerCase() === normalizedName,
+    )
+
+    const preset = {
+      id: existingIndex >= 0 ? existing[existingIndex].id : `preset-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      profileId,
+      name,
+      variables,
+      updatedAt: now,
+    }
+
+    const nextPresets = existing.filter((presetEntry, index) => index !== existingIndex)
+    nextPresets.push(preset)
+
+    learningState = {
+      ...learningState,
+      automationProfilePresets: nextPresets
+        .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))
+        .slice(0, 150),
+      updatedAt: now,
+    }
+    saveLearningState()
+
+    appendLearningLog({
+      title: `Automation preset saved: ${name}`,
+      detail: `Saved preset for profile ${profile.name}.`,
+      source: 'automation-preset',
+      newSkills: [],
+    })
+
+    return {
+      ok: true,
+      preset,
+      presets: learningState.automationProfilePresets || [],
+    }
+  })
+
+  ipcMain.handle('paxion:automation:deletePreset', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return {
+        ok: false,
+        reason: 'Admin session required to delete automation preset.',
+      }
+    }
+
+    const presetId = String(input?.presetId || '').trim()
+    const existing = Array.isArray(learningState.automationProfilePresets)
+      ? learningState.automationProfilePresets
+      : []
+    const nextPresets = existing.filter((preset) => String(preset?.id || '') !== presetId)
+
+    if (nextPresets.length === existing.length) {
+      return {
+        ok: false,
+        reason: 'Automation preset not found.',
+      }
+    }
+
+    learningState = {
+      ...learningState,
+      automationProfilePresets: nextPresets,
+      updatedAt: new Date().toISOString(),
+    }
+    saveLearningState()
+
+    return {
+      ok: true,
+      presets: learningState.automationProfilePresets || [],
+    }
+  })
+
+  ipcMain.handle('paxion:automation:previewReplay', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return {
+        ok: false,
+        reason: 'Admin session required to preview replay.',
+      }
+    }
+
+    const recordId = String(input?.recordId || '').trim()
+    const records = Array.isArray(learningState.executionRecords) ? learningState.executionRecords : []
+    const sourceRecord = records.find((entry) => entry.id === recordId)
+    if (!sourceRecord) {
+      return {
+        ok: false,
+        reason: 'Execution record not found.',
+      }
+    }
+
+    return {
+      ok: true,
+      preview: buildReplayPreview(sourceRecord),
     }
   })
 
@@ -1539,6 +1804,8 @@ function registerIpcHandlers(mainWindow) {
       return normalized
     }
 
+    const sessionId = `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+
     await shell.openExternal(targetUrl)
 
     const records = []
@@ -1558,6 +1825,7 @@ function registerIpcHandlers(mainWindow) {
         result: 'queued-supervised',
         newSkills: gained,
         metadata: {
+          sessionId,
           targetUrl,
           intent: String(input?.intent || ''),
           step,
@@ -1581,6 +1849,7 @@ function registerIpcHandlers(mainWindow) {
       records,
       templates: learningState.automationTemplates || OBSERVE_LEARN_TEMPLATE_DEFS,
       profiles: learningState.automationProfiles || AUTOMATION_ADAPTER_PROFILE_DEFS,
+      presets: learningState.automationProfilePresets || [],
       executionRecords: learningState.executionRecords || [],
       suggestions: computeCapabilitySuggestions(),
       skills: learningState.skills,
@@ -1635,6 +1904,7 @@ function registerIpcHandlers(mainWindow) {
     if (sourceTags.includes('design')) inferred.push('Design Operations')
 
     const learnedSkills = Array.from(new Set([...(template.skillSignals || []), ...inferred]))
+    const sessionId = `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
 
     const runRecords = (template.observe || []).map((item) =>
       appendExecutionRecord({
@@ -1645,6 +1915,11 @@ function registerIpcHandlers(mainWindow) {
         performedStep: `Observed workflow pattern: ${item}`,
         result: 'learned',
         newSkills: learnedSkills,
+        metadata: {
+          sessionId,
+          templateId: template.id,
+          appType: template.appType,
+        },
         simpleLog: `Learned workflow pattern in ${template.appType}: ${item}`,
       }),
     )
@@ -1662,6 +1937,7 @@ function registerIpcHandlers(mainWindow) {
       records: runRecords,
       templates: learningState.automationTemplates || OBSERVE_LEARN_TEMPLATE_DEFS,
       profiles: learningState.automationProfiles || AUTOMATION_ADAPTER_PROFILE_DEFS,
+      presets: learningState.automationProfilePresets || [],
       executionRecords: learningState.executionRecords || [],
       suggestions: computeCapabilitySuggestions(),
       skills: learningState.skills,
@@ -1685,6 +1961,7 @@ function registerIpcHandlers(mainWindow) {
     }
 
     const recordId = String(input?.recordId || '').trim()
+    const previewToken = String(input?.previewToken || '').trim()
     const records = Array.isArray(learningState.executionRecords) ? learningState.executionRecords : []
     const sourceRecord = records.find((entry) => entry.id === recordId)
     if (!sourceRecord) {
@@ -1694,30 +1971,49 @@ function registerIpcHandlers(mainWindow) {
       }
     }
 
+    if (!previewToken || !consumeReplayPreviewApproval(previewToken, recordId)) {
+      return {
+        ok: false,
+        reason: 'Replay preview approval is required or has expired. Preview the replay again.',
+      }
+    }
+
+    const sourceRecords = getExecutionSequence(records, sourceRecord)
+
     const targetUrl = sourceRecord?.metadata?.targetUrl
     if (typeof targetUrl === 'string' && /^https?:\/\//i.test(targetUrl)) {
       await shell.openExternal(targetUrl)
     }
 
-    const replayRecord = appendExecutionRecord({
-      domain: sourceRecord.domain,
-      adapterId: sourceRecord.adapterId,
-      templateId: sourceRecord.templateId,
-      appType: sourceRecord.appType,
-      intendedStep: sourceRecord.intendedStep,
-      performedStep: `Replay executed from record ${sourceRecord.id}.`,
-      result: 'replayed',
-      newSkills: [],
-      metadata: {
-        sourceRecordId: sourceRecord.id,
-        targetUrl: typeof targetUrl === 'string' ? targetUrl : undefined,
-      },
-      simpleLog: `Replayed execution record ${sourceRecord.id} in supervised mode.`,
-    })
+    const replaySessionId = `replay-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+    const replayRecords = sourceRecords.map((record) =>
+      appendExecutionRecord({
+        domain: record.domain,
+        adapterId: record.adapterId,
+        templateId: record.templateId,
+        appType: record.appType,
+        intendedStep: record.intendedStep,
+        performedStep: `Replay executed from record ${record.id}.`,
+        result: 'replayed',
+        newSkills: [],
+        metadata: {
+          sessionId: replaySessionId,
+          sourceRecordId: record.id,
+          sourceSessionId: getExecutionSessionId(sourceRecord),
+          targetUrl: typeof targetUrl === 'string' ? targetUrl : undefined,
+          intent: typeof sourceRecord?.metadata?.intent === 'string' ? sourceRecord.metadata.intent : undefined,
+          step: record?.metadata?.step,
+        },
+        simpleLog: `Replayed execution record ${record.id} in supervised mode.`,
+      }),
+    )
+
+    const replayRecord = replayRecords.at(-1) || null
 
     return {
       ok: true,
       replayRecord,
+      replayRecords,
       executionRecords: learningState.executionRecords || [],
       suggestions: computeCapabilitySuggestions(),
       updatedAt: learningState.updatedAt,

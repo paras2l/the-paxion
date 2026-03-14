@@ -93,8 +93,13 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Observe+Learn templates exist for code editor, CMS, and design app workflows.
 - Execution recorder captures intended step, performed step, result, and new skill gained in simple language.
 - Adapter profiles now include real target workflows (example CMS update, design export flow, PR review prep).
+- Adapter profiles support variable placeholders so one template can be reused for real WordPress, design, and repo targets.
+- Profile presets persist repeated target values so real workflows can be reloaded without retyping variables.
 - Recorder replay mode is available with explicit permission and admin session.
+- Replay now requires a preview token with step-diff visibility before rerun, so the operator sees exactly what will be replayed.
 - Skill-to-capability suggestion engine recommends next capability unlocks based on learned skills.
+- Suggestions can be applied directly from the workspace panel, and recent execution records can be selected for replay without manual ID copy.
+- Capability suggestions are now ranked by confidence and blocked until prerequisite capabilities are enabled.
 
 ## Out of scope for v1
 - Unrestricted autonomous operations.

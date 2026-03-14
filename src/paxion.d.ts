@@ -207,12 +207,45 @@ interface PaxionAutomationProfile {
   intent: string
   stepTemplate: string[]
   gainedSkills: string[]
+  variableHints?: string[]
+}
+
+interface PaxionAutomationProfilePreset {
+  id: string
+  profileId: string
+  name: string
+  variables: Record<string, string>
+  updatedAt: string
 }
 
 interface PaxionCapabilitySuggestion {
   capability: string
   reason: string
   recommendedAction: string
+  confidence: number
+  matchedSkills: string[]
+  unmetPrerequisites: string[]
+  readyToEnable: boolean
+}
+
+interface PaxionReplayStepDiff {
+  recordId: string
+  originalIntendedStep: string
+  replayIntendedStep: string
+  originalPerformedStep: string
+  replayPerformedStep: string
+  originalResult: string
+  replayResult: string
+}
+
+interface PaxionReplayPreview {
+  previewToken: string
+  sourceRecord: PaxionExecutionRecord
+  relatedRecords: PaxionExecutionRecord[]
+  targetUrl: string | null
+  intent: string | null
+  stepDiffs: PaxionReplayStepDiff[]
+  expiresAt: number
 }
 
 interface PaxionAutomationLoadResult {
@@ -220,6 +253,7 @@ interface PaxionAutomationLoadResult {
   reason?: string
   templates: PaxionAutomationTemplate[]
   profiles: PaxionAutomationProfile[]
+  presets: PaxionAutomationProfilePreset[]
   records: PaxionExecutionRecord[]
   suggestions: PaxionCapabilitySuggestion[]
   updatedAt: string | null
@@ -311,6 +345,32 @@ declare global {
       }
       automation: {
         load(): Promise<PaxionAutomationLoadResult>
+        savePreset(input: {
+          profileId: string
+          name: string
+          variables: Record<string, string>
+        }): Promise<
+          | {
+              ok: true
+              preset: PaxionAutomationProfilePreset
+              presets: PaxionAutomationProfilePreset[]
+            }
+          | { ok: false; reason: string }
+        >
+        deletePreset(input: { presetId: string }): Promise<
+          | {
+              ok: true
+              presets: PaxionAutomationProfilePreset[]
+            }
+          | { ok: false; reason: string }
+        >
+        previewReplay(input: { recordId: string }): Promise<
+          | {
+              ok: true
+              preview: PaxionReplayPreview
+            }
+          | { ok: false; reason: string }
+        >
         runAdapter(input: {
           adapterId: 'browser.formFill.basic' | 'browser.clickFlow.basic'
           targetUrl: string
@@ -325,6 +385,7 @@ declare global {
               records: PaxionExecutionRecord[]
               templates: PaxionAutomationTemplate[]
               profiles: PaxionAutomationProfile[]
+              presets: PaxionAutomationProfilePreset[]
               executionRecords: PaxionExecutionRecord[]
               suggestions: PaxionCapabilitySuggestion[]
               skills: string[]
@@ -342,6 +403,7 @@ declare global {
               records: PaxionExecutionRecord[]
               templates: PaxionAutomationTemplate[]
               profiles: PaxionAutomationProfile[]
+              presets: PaxionAutomationProfilePreset[]
               executionRecords: PaxionExecutionRecord[]
               suggestions: PaxionCapabilitySuggestion[]
               skills: string[]
@@ -351,11 +413,13 @@ declare global {
         >
         replayRecord(input: {
           recordId: string
+          previewToken: string
           explicitPermission: boolean
         }): Promise<
           | {
               ok: true
-              replayRecord: PaxionExecutionRecord
+              replayRecord: PaxionExecutionRecord | null
+              replayRecords: PaxionExecutionRecord[]
               executionRecords: PaxionExecutionRecord[]
               suggestions: PaxionCapabilitySuggestion[]
               updatedAt: string | null

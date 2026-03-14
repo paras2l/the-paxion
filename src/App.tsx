@@ -49,6 +49,8 @@ const policyLines = [
   'The app cannot self-grant permissions or hide actions from logs.',
 ]
 
+const profileVariablePattern = /{{\s*([a-zA-Z0-9_-]+)\s*}}/g
+
 type ActionPreset = {
   id: string
   label: string
@@ -184,12 +186,45 @@ type AutomationProfile = {
   intent: string
   stepTemplate: string[]
   gainedSkills: string[]
+  variableHints?: string[]
+}
+
+type AutomationProfilePreset = {
+  id: string
+  profileId: string
+  name: string
+  variables: Record<string, string>
+  updatedAt: string
 }
 
 type CapabilitySuggestion = {
   capability: string
   reason: string
   recommendedAction: string
+  confidence: number
+  matchedSkills: string[]
+  unmetPrerequisites: string[]
+  readyToEnable: boolean
+}
+
+type ReplayStepDiff = {
+  recordId: string
+  originalIntendedStep: string
+  replayIntendedStep: string
+  originalPerformedStep: string
+  replayPerformedStep: string
+  originalResult: string
+  replayResult: string
+}
+
+type ReplayPreview = {
+  previewToken: string
+  sourceRecord: ExecutionRecord
+  relatedRecords: ExecutionRecord[]
+  targetUrl: string | null
+  intent: string | null
+  stepDiffs: ReplayStepDiff[]
+  expiresAt: number
 }
 
 type AutomationStepInput = {
@@ -401,8 +436,12 @@ function App() {
   const [videoSegmentSkills, setVideoSegmentSkills] = useState('')
   const [automationTemplates, setAutomationTemplates] = useState<AutomationTemplate[]>([])
   const [automationProfiles, setAutomationProfiles] = useState<AutomationProfile[]>([])
+  const [automationProfilePresets, setAutomationProfilePresets] = useState<AutomationProfilePreset[]>([])
   const [executionRecords, setExecutionRecords] = useState<ExecutionRecord[]>([])
   const [capabilitySuggestions, setCapabilitySuggestions] = useState<CapabilitySuggestion[]>([])
+  const [selectedAutomationProfileId, setSelectedAutomationProfileId] = useState('')
+  const [automationPresetName, setAutomationPresetName] = useState('')
+  const [automationProfileVariables, setAutomationProfileVariables] = useState<Record<string, string>>({})
   const [automationAdapterId, setAutomationAdapterId] = useState<'browser.formFill.basic' | 'browser.clickFlow.basic'>('browser.formFill.basic')
   const [automationTargetUrl, setAutomationTargetUrl] = useState('')
   const [automationIntent, setAutomationIntent] = useState('')
@@ -412,6 +451,7 @@ function App() {
   const [automationSourceKnowledge, setAutomationSourceKnowledge] = useState('')
   const [replayRecordId, setReplayRecordId] = useState('')
   const [replayPermission, setReplayPermission] = useState(false)
+  const [replayPreview, setReplayPreview] = useState<ReplayPreview | null>(null)
   const [automationMessage, setAutomationMessage] = useState('')
 
   // Library state
@@ -544,8 +584,10 @@ function App() {
     if (!window.paxion) {
       setAutomationTemplates([])
       setAutomationProfiles([])
+      setAutomationProfilePresets([])
       setExecutionRecords([])
       setCapabilitySuggestions([])
+      setReplayPreview(null)
       return
     }
 
@@ -553,13 +595,16 @@ function App() {
     if (!result?.ok) {
       setAutomationTemplates([])
       setAutomationProfiles([])
+      setAutomationProfilePresets([])
       setExecutionRecords([])
       setCapabilitySuggestions([])
+      setReplayPreview(null)
       return
     }
 
     setAutomationTemplates(result.templates)
     setAutomationProfiles(result.profiles)
+    setAutomationProfilePresets(result.presets)
     setExecutionRecords(result.records)
     setCapabilitySuggestions(result.suggestions)
     if (!automationTemplateId && result.templates.length > 0) {
@@ -1486,6 +1531,7 @@ function App() {
     setExecutionRecords(result.executionRecords)
     setAutomationTemplates(result.templates)
     setAutomationProfiles(result.profiles)
+    setAutomationProfilePresets(result.presets)
     setCapabilitySuggestions(result.suggestions)
     setLearnedSkills(result.skills)
     setLearningUpdatedAt(result.updatedAt)
@@ -1512,6 +1558,7 @@ function App() {
     setExecutionRecords(result.executionRecords)
     setAutomationTemplates(result.templates)
     setAutomationProfiles(result.profiles)
+    setAutomationProfilePresets(result.presets)
     setCapabilitySuggestions(result.suggestions)
     setLearnedSkills(result.skills)
     setLearningUpdatedAt(result.updatedAt)
@@ -1528,11 +1575,169 @@ function App() {
       return
     }
 
+    const variableKeys = Array.from(
+      new Set(
+        [
+          ...(profile.variableHints ?? []),
+          ...Array.from(
+            `${profile.targetUrl}\n${profile.intent}\n${profile.stepTemplate.join('\n')}`.matchAll(
+              profileVariablePattern,
+            ),
+          ).map((match) => match[1]),
+        ].filter(Boolean),
+      ),
+    )
+
+    setSelectedAutomationProfileId(profile.id)
+    setReplayPreview(null)
+    setAutomationProfileVariables(
+      Object.fromEntries(variableKeys.map((key) => [key, automationProfileVariables[key] ?? ''])),
+    )
     setAutomationAdapterId(profile.adapterId)
     setAutomationTargetUrl(profile.targetUrl)
     setAutomationIntent(profile.intent)
     setAutomationStepsText(profile.stepTemplate.join('\n'))
     setAutomationMessage(`Loaded profile: ${profile.name}`)
+  }
+
+  function resolveProfileTemplate(template: string, variables: Record<string, string>) {
+    return template.replace(profileVariablePattern, (_full, key: string) => variables[key] ?? `{{${key}}}`)
+  }
+
+  function applyAutomationProfileVariables() {
+    const profile = automationProfiles.find((entry) => entry.id === selectedAutomationProfileId)
+    if (!profile) {
+      setAutomationMessage('Select an automation profile before applying variables.')
+      return
+    }
+
+    setAutomationAdapterId(profile.adapterId)
+    setAutomationTargetUrl(resolveProfileTemplate(profile.targetUrl, automationProfileVariables))
+    setAutomationIntent(resolveProfileTemplate(profile.intent, automationProfileVariables))
+    setAutomationStepsText(
+      profile.stepTemplate.map((step) => resolveProfileTemplate(step, automationProfileVariables)).join('\n'),
+    )
+    setAutomationMessage(`Applied variables for profile: ${profile.name}`)
+  }
+
+  function updateAutomationProfileVariable(key: string, value: string) {
+    setAutomationProfileVariables((prev) => ({
+      ...prev,
+      [key]: value,
+    }))
+  }
+
+  function loadAutomationPreset(presetId: string) {
+    const preset = automationProfilePresets.find((entry) => entry.id === presetId)
+    if (!preset) {
+      setAutomationMessage('Automation preset not found.')
+      return
+    }
+
+    const profile = automationProfiles.find((entry) => entry.id === preset.profileId)
+    if (!profile) {
+      setAutomationMessage('Preset profile is no longer available.')
+      return
+    }
+
+    setSelectedAutomationProfileId(profile.id)
+    setAutomationPresetName(preset.name)
+    setAutomationProfileVariables(preset.variables)
+    setAutomationAdapterId(profile.adapterId)
+    setAutomationTargetUrl(resolveProfileTemplate(profile.targetUrl, preset.variables))
+    setAutomationIntent(resolveProfileTemplate(profile.intent, preset.variables))
+    setAutomationStepsText(
+      profile.stepTemplate.map((step) => resolveProfileTemplate(step, preset.variables)).join('\n'),
+    )
+    setAutomationMessage(`Loaded preset: ${preset.name}`)
+  }
+
+  async function saveAutomationPreset() {
+    if (!window.paxion) return
+    if (!selectedAutomationProfileId) {
+      setAutomationMessage('Select a profile before saving a preset.')
+      return
+    }
+
+    const name = automationPresetName.trim()
+    if (!name) {
+      setAutomationMessage('Preset name is required.')
+      return
+    }
+
+    const result = await window.paxion.automation
+      .savePreset({
+        profileId: selectedAutomationProfileId,
+        name,
+        variables: automationProfileVariables,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setAutomationMessage(result?.reason ?? 'Failed to save automation preset.')
+      return
+    }
+
+    setAutomationProfilePresets(result.presets)
+    setAutomationMessage(`Saved preset: ${result.preset.name}`)
+  }
+
+  async function deleteAutomationPreset(presetId: string) {
+    if (!window.paxion) return
+    const result = await window.paxion.automation.deletePreset({ presetId }).catch(() => null)
+    if (!result?.ok) {
+      setAutomationMessage(result?.reason ?? 'Failed to delete automation preset.')
+      return
+    }
+
+    setAutomationProfilePresets(result.presets)
+    setAutomationMessage('Deleted automation preset.')
+  }
+
+  async function enableSuggestedCapability(suggestion: CapabilitySuggestion) {
+    if (!(suggestion.capability in capabilities)) {
+      setAutomationMessage(`Capability suggestion is not recognized: ${suggestion.capability}`)
+      return
+    }
+
+    if (!suggestion.readyToEnable) {
+      setAutomationMessage(
+        `Enable prerequisite capabilities first: ${suggestion.unmetPrerequisites.join(', ')}`,
+      )
+      return
+    }
+
+    await setCapability(suggestion.capability as CapabilityKey, true)
+    const result = await window.paxion?.automation.suggestions().catch(() => null)
+    if (result?.ok) {
+      setCapabilitySuggestions(result.suggestions)
+    }
+    setAutomationMessage(`Capability ${suggestion.capability} enabled from suggestion panel.`)
+  }
+
+  function selectReplayRecord(recordId: string) {
+    setReplayRecordId(recordId)
+    setReplayPreview(null)
+    setAutomationMessage(`Selected execution record for replay: ${recordId}`)
+  }
+
+  async function previewReplayExecutionRecord() {
+    if (!window.paxion) return
+    const id = replayRecordId.trim()
+    if (!id) {
+      setAutomationMessage('Select or enter an execution record ID to preview replay.')
+      return
+    }
+
+    const result = await window.paxion.automation.previewReplay({ recordId: id }).catch(() => null)
+    if (!result?.ok) {
+      setReplayPreview(null)
+      setAutomationMessage(result?.reason ?? 'Failed to preview replay.')
+      return
+    }
+
+    setReplayPreview(result.preview)
+    setAutomationMessage(`Replay preview prepared for ${result.preview.relatedRecords.length} step(s).`)
   }
 
   async function replayExecutionRecord() {
@@ -1543,9 +1748,15 @@ function App() {
       return
     }
 
+    if (!replayPreview || replayPreview.sourceRecord.id !== id) {
+      setAutomationMessage('Preview the replay and approve it before running.')
+      return
+    }
+
     const result = await window.paxion.automation
       .replayRecord({
         recordId: id,
+        previewToken: replayPreview.previewToken,
         explicitPermission: replayPermission,
       })
       .catch(() => null)
@@ -1558,8 +1769,11 @@ function App() {
     setExecutionRecords(result.executionRecords)
     setCapabilitySuggestions(result.suggestions)
     setLearningUpdatedAt(result.updatedAt)
+    setReplayPreview(null)
     await loadLearningState()
-    setAutomationMessage(`Replay completed for record: ${id}`)
+    setAutomationMessage(
+      `Replay completed for record: ${id} with ${result.replayRecords.length} replay step(s).`,
+    )
     setReplayPermission(false)
   }
 
@@ -2393,7 +2607,7 @@ function App() {
               <label htmlFor="automation-profile">Profile (real app templates)</label>
               <select
                 id="automation-profile"
-                value=""
+                value={selectedAutomationProfileId}
                 onChange={(event) => {
                   const id = event.target.value
                   if (id) {
@@ -2409,6 +2623,69 @@ function App() {
                 ))}
               </select>
             </div>
+            {selectedAutomationProfileId && Object.keys(automationProfileVariables).length > 0 && (
+              <div className="control-group">
+                <label>Profile variables</label>
+                <div className="learning-log-list">
+                  {Object.keys(automationProfileVariables).map((key) => (
+                    <label className="muted" key={key}>
+                      {key}
+                      <input
+                        value={automationProfileVariables[key] ?? ''}
+                        onChange={(event) => updateAutomationProfileVariable(key, event.target.value)}
+                        placeholder={`Value for ${key}`}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <button className="run-button" onClick={applyAutomationProfileVariables}>
+                  Apply Profile Variables
+                </button>
+              </div>
+            )}
+            {selectedAutomationProfileId && (
+              <div className="control-group">
+                <label htmlFor="automation-preset-name">Preset name</label>
+                <input
+                  id="automation-preset-name"
+                  value={automationPresetName}
+                  onChange={(event) => setAutomationPresetName(event.target.value)}
+                  placeholder="Example: production blog update"
+                />
+                <div className="workspace-actions">
+                  <button className="run-button" onClick={() => void saveAutomationPreset()}>
+                    Save Preset
+                  </button>
+                </div>
+                {automationProfilePresets.filter((preset) => preset.profileId === selectedAutomationProfileId)
+                  .length > 0 && (
+                  <div className="learning-log-list">
+                    {automationProfilePresets
+                      .filter((preset) => preset.profileId === selectedAutomationProfileId)
+                      .slice(0, 6)
+                      .map((preset) => (
+                        <article className="learning-log-item" key={preset.id}>
+                          <strong>{preset.name}</strong>
+                          <p className="muted">
+                            Updated {new Date(preset.updatedAt).toLocaleString()}
+                          </p>
+                          <div className="workspace-step-actions">
+                            <button className="run-button" onClick={() => loadAutomationPreset(preset.id)}>
+                              Load Preset
+                            </button>
+                            <button
+                              className="run-button"
+                              onClick={() => void deleteAutomationPreset(preset.id)}
+                            >
+                              Delete Preset
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="control-group">
               <label htmlFor="automation-adapter">Adapter</label>
               <select
@@ -2477,7 +2754,21 @@ function App() {
                   <article className="learning-log-item" key={suggestion.capability}>
                     <strong>Capability suggestion: {suggestion.capability}</strong>
                     <p className="muted">{suggestion.reason}</p>
+                    <p className="muted">Confidence: {suggestion.confidence}%</p>
+                    <p className="muted">Matched skills: {suggestion.matchedSkills.join(', ')}</p>
+                    {suggestion.unmetPrerequisites.length > 0 && (
+                      <p className="muted">
+                        Unmet prerequisites: {suggestion.unmetPrerequisites.join(', ')}
+                      </p>
+                    )}
                     <p className="muted">{suggestion.recommendedAction}</p>
+                    <button
+                      className="run-button"
+                      onClick={() => void enableSuggestedCapability(suggestion)}
+                      disabled={!suggestion.readyToEnable}
+                    >
+                      Enable Suggested Capability
+                    </button>
                   </article>
                 ))}
               </div>
@@ -2547,10 +2838,40 @@ function App() {
               I give explicit permission to replay this record.
             </label>
             <div className="workspace-actions">
+              <button className="run-button" onClick={() => void previewReplayExecutionRecord()}>
+                Preview Replay
+              </button>
               <button className="run-button" onClick={() => void replayExecutionRecord()}>
                 Replay Record
               </button>
             </div>
+            {replayPreview && replayPreview.sourceRecord.id === replayRecordId.trim() && (
+              <div className="learning-log-list">
+                <article className="learning-log-item">
+                  <strong>Replay preview ready</strong>
+                  <p className="muted">Steps to replay: {replayPreview.relatedRecords.length}</p>
+                  {replayPreview.targetUrl && (
+                    <p className="muted">Target URL: {replayPreview.targetUrl}</p>
+                  )}
+                  {replayPreview.intent && <p className="muted">Intent: {replayPreview.intent}</p>}
+                  <p className="muted">
+                    Preview expires at {new Date(replayPreview.expiresAt).toLocaleTimeString()}
+                  </p>
+                </article>
+                {replayPreview.stepDiffs.slice(0, 8).map((diff) => (
+                  <article className="learning-log-item" key={diff.recordId}>
+                    <strong>Step diff: {diff.recordId}</strong>
+                    <p className="muted">Original intended: {diff.originalIntendedStep}</p>
+                    <p className="muted">Replay intended: {diff.replayIntendedStep}</p>
+                    <p className="muted">Original performed: {diff.originalPerformedStep}</p>
+                    <p className="muted">Replay performed: {diff.replayPerformedStep}</p>
+                    <p className="muted">
+                      Result change: {diff.originalResult} -&gt; {diff.replayResult}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            )}
             {executionRecords.length === 0 ? (
               <p className="muted">No execution records yet. Run adapter or template to populate.</p>
             ) : (
@@ -2561,6 +2882,7 @@ function App() {
                   .map((record) => (
                     <article className="learning-log-item" key={record.id}>
                       <strong>{record.simpleLog}</strong>
+                      <p className="muted">Record ID: {record.id}</p>
                       <p className="muted">Intended: {record.intendedStep}</p>
                       <p className="muted">Performed: {record.performedStep}</p>
                       <p className="muted">Result: {record.result}</p>
@@ -2569,6 +2891,9 @@ function App() {
                       ) : (
                         <p className="muted">New skill gained: none</p>
                       )}
+                      <button className="run-button" onClick={() => selectReplayRecord(record.id)}>
+                        Use For Replay
+                      </button>
                     </article>
                   ))}
               </div>
@@ -2764,7 +3089,7 @@ function App() {
       <footer className="footer">
         <span>Profile: Paro the Chief</span>
         <span>Mode: Policy-Enforced Build</span>
-        <span>Version: v0.13.0-profiles-replay-suggest</span>
+        <span>Version: v0.14.0-automation-readiness</span>
       </footer>
     </div>
   )

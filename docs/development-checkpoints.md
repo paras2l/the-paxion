@@ -41,3 +41,5 @@ Use this file to protect continuity and prevent missing work.
 - v0.11.0-video-and-bridges: allowlisted workspace tool runner, VS Code command bridge, media adapter job artifacts, and YouTube segmented learning planner with parallel batch opening.
 - v0.12.0-automation-recorder: strict task-specific UI adapters, observe+learn templates by app type, and execution recorder panel with simple-language skill gain logs.
 - v0.13.0-profiles-replay-suggest: real app adapter profiles, execution recorder replay mode, and skill-to-capability auto-suggestion engine.
+- v0.13.1-automation-operability: profile variable injection, one-click replay record selection, and direct capability enable flow from suggestions.
+- v0.14.0-automation-readiness: saved automation presets, replay preview approval tokens with step diffs, and ranked capability suggestions with prerequisite checks.

@@ -39,6 +39,9 @@ contextBridge.exposeInMainWorld('paxion', {
   },
   automation: {
     load: () => ipcRenderer.invoke('paxion:automation:load'),
+    savePreset: (input) => ipcRenderer.invoke('paxion:automation:savePreset', input),
+    deletePreset: (input) => ipcRenderer.invoke('paxion:automation:deletePreset', input),
+    previewReplay: (input) => ipcRenderer.invoke('paxion:automation:previewReplay', input),
     runAdapter: (input) => ipcRenderer.invoke('paxion:automation:runAdapter', input),
     observeLearn: (input) => ipcRenderer.invoke('paxion:automation:observeLearn', input),
     replayRecord: (input) => ipcRenderer.invoke('paxion:automation:replayRecord', input),
