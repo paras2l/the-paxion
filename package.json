@@ -10,7 +10,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "desktop": "npm run build && electron .",
-    "dist:win": "npm run build && electron-builder --win nsis",
+    "icon:win": "node scripts/generate-app-icon.mjs",
+    "dist:win": "npm run icon:win && npm run build && electron-builder --win nsis",
     "lint": "eslint .",
     "test": "node --test electron/readiness-utils.test.cjs electron/readiness-integration.test.cjs electron/compliance-engine.test.cjs electron/domain-engines.test.cjs electron/advanced-systems.test.cjs",
     "preview": "vite preview"
@@ -28,11 +29,15 @@
       "package.json"
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "public/paxion.ico"
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "public/paxion.ico",
+      "uninstallerIcon": "public/paxion.ico",
+      "installerHeaderIcon": "public/paxion.ico"
     }
   },
   "dependencies": {
@@ -53,6 +58,8 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
+    "png-to-ico": "^2.1.8",
+    "sharp": "^0.34.4",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.56.1",
     "vite": "^5.4.19"
