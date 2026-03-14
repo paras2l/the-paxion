@@ -6,4 +6,6 @@ export type ChatMessage = {
   content: string
   timestamp: string
   contextDocs: string[]
+  reasoningSteps?: string[]
+  confidence?: 'high' | 'medium' | 'low' | 'none'
 }
