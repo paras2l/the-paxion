@@ -755,6 +755,9 @@ function App() {
   const [perceptionSummary, setPerceptionSummary] = useState('')
   const [perceptionSceneGraph, setPerceptionSceneGraph] = useState<Record<string, unknown> | null>(null)
   const [perceptionMessage, setPerceptionMessage] = useState('')
+  const [weeklyOptimizationMessage, setWeeklyOptimizationMessage] = useState('')
+  const [weeklyOptimizationAutoTune, setWeeklyOptimizationAutoTune] = useState(true)
+  const [weeklyOptimizationReport, setWeeklyOptimizationReport] = useState<Record<string, unknown> | null>(null)
   const [showThought, setShowThought] = useState<string | null>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null)
@@ -1151,6 +1154,7 @@ function App() {
       void loadBridgeStatus()
       void loadRelayStatus()
       void loadThreatDashboard()
+      void loadWeeklyOptimizationStatus()
     })
   }, [adminUnlocked, loadAutomationState, loadLearningState, loadReadinessState])
 
@@ -1193,6 +1197,7 @@ function App() {
 
     void loadVoiceRuntimeState()
     void loadRelayStatus()
+    void loadWeeklyOptimizationStatus()
   }, [])
 
   useEffect(() => {
@@ -1493,6 +1498,42 @@ function App() {
     setCloudRelayTokenConfigured(Boolean(config.tokenConfigured))
     setCloudRelayRequests(Array.isArray(relay.requests) ? (relay.requests as Array<Record<string, unknown>>) : [])
     setCloudRelayLastSyncAt(typeof relay.lastCloudSyncAt === 'string' ? relay.lastCloudSyncAt : null)
+  }
+
+  async function loadWeeklyOptimizationStatus() {
+    if (!window.paxion?.optimization?.status) {
+      return
+    }
+    const result = await window.paxion.optimization.status().catch(() => null)
+    if (!result?.ok) {
+      setWeeklyOptimizationMessage(result?.reason || 'Failed to load weekly optimization status.')
+      return
+    }
+    const optimization = (result.optimization || {}) as Record<string, unknown>
+    setWeeklyOptimizationAutoTune(optimization.autoTune !== false)
+    const reports = Array.isArray(optimization.reports) ? optimization.reports : []
+    const latest = reports.length > 0 ? reports[reports.length - 1] : null
+    setWeeklyOptimizationReport((latest || null) as Record<string, unknown> | null)
+  }
+
+  async function runWeeklyOptimization() {
+    if (!window.paxion?.optimization?.run) {
+      setWeeklyOptimizationMessage('Weekly optimization is unavailable in this runtime.')
+      return
+    }
+    const result = await window.paxion.optimization
+      .run({
+        autoTune: weeklyOptimizationAutoTune,
+      })
+      .catch(() => null)
+    if (!result?.ok) {
+      setWeeklyOptimizationMessage(result?.reason || 'Failed to run weekly optimization.')
+      return
+    }
+    setWeeklyOptimizationMessage('Weekly optimization completed successfully.')
+    setWeeklyOptimizationReport((result.report || null) as Record<string, unknown> | null)
+    await loadVoiceRuntimeState()
+    await loadRelayStatus()
   }
 
   async function saveCloudRelayConfig() {
@@ -4530,6 +4571,56 @@ function App() {
             {/* Hidden elements used by perception capture loop */}
             <video ref={perceptionVideoRef} style={{ display: 'none' }} autoPlay muted playsInline />
           </div>
+
+            <div className="decision-card">
+              <strong>Weekly Self-Evaluation + Auto-Tuning</strong>
+              <p className="muted">
+                Reviews recent runtime quality and applies safe tuning to voice, wake-word, and relay settings.
+              </p>
+              <div className="capability-item">
+                <span>Auto-apply tuning changes</span>
+                <input
+                  type="checkbox"
+                  checked={weeklyOptimizationAutoTune}
+                  onChange={(event) => setWeeklyOptimizationAutoTune(event.target.checked)}
+                />
+              </div>
+              <div className="workspace-actions">
+                <button className="run-button" onClick={() => void loadWeeklyOptimizationStatus()}>
+                  Refresh Optimizer Status
+                </button>
+                <button className="run-button" onClick={() => void runWeeklyOptimization()}>
+                  Run Weekly Optimization
+                </button>
+              </div>
+              {weeklyOptimizationMessage && <p className="muted">{weeklyOptimizationMessage}</p>}
+              {weeklyOptimizationReport ? (
+                <div className="capability-list">
+                  <div className="capability-item">
+                    <span>Last run</span>
+                    <strong>{String(weeklyOptimizationReport.generatedAt || 'unknown')}</strong>
+                  </div>
+                  <div className="capability-item">
+                    <span>Applied changes</span>
+                    <strong>
+                      {Array.isArray(weeklyOptimizationReport.applied)
+                        ? weeklyOptimizationReport.applied.length
+                        : 0}
+                    </strong>
+                  </div>
+                  <div className="capability-item">
+                    <span>Recommendations</span>
+                    <strong>
+                      {Array.isArray(weeklyOptimizationReport.recommendations)
+                        ? weeklyOptimizationReport.recommendations.length
+                        : 0}
+                    </strong>
+                  </div>
+                </div>
+              ) : (
+                <p className="muted">No weekly optimization report yet.</p>
+              )}
+            </div>
 
           <div className="control-group">
             <label htmlFor="action-preset">Action preset</label>

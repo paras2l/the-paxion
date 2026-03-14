@@ -170,6 +170,14 @@ interface PaxionRelayResult {
   request?: Record<string, unknown>
 }
 
+interface PaxionOptimizationResult {
+  ok: boolean
+  reason?: string
+  optimization?: Record<string, unknown>
+  report?: Record<string, unknown>
+  state?: Record<string, unknown>
+}
+
 interface PaxionTerminalPlanResult {
   ok: boolean
   reason?: string
@@ -1094,6 +1102,14 @@ declare global {
           interruptions?: number
           latencyMs?: number
         }): Promise<{ ok: boolean; session?: Record<string, unknown> }>
+      }
+      optimization: {
+        status(): Promise<PaxionOptimizationResult>
+        run(input?: {
+          autoTune?: boolean
+          falseWakeCount?: number
+          missedWakeCount?: number
+        }): Promise<PaxionOptimizationResult>
       }
       relay: {
         status(): Promise<PaxionRelayResult>

@@ -50,6 +50,7 @@ const { registerEcosystemAdapter, planDeviceAction } = require('./device-ecosyst
 const { registerActuator, buildActuationPlan } = require('./robotics-control.cjs')
 const { summarizeVaultProviders, configureVaultProvider } = require('./secret-vault.cjs')
 const { buildSceneGraph, groundPerceptionFrame } = require('./multimodal-perception.cjs')
+const { runWeeklyOptimization } = require('./weekly-optimizer.cjs')
 
 const ADMIN_SESSION_TTL_MS = 15 * 60 * 1000
 const APPROVAL_TTL_MS = 5 * 60 * 1000
@@ -725,6 +726,7 @@ function registerIpcHandlers(mainWindow) {
     robotics: { actuators: [], plans: [], updatedAt: null },
     vault: { activeProvider: 'local-safeStorage', providers: [], updatedAt: null },
     perception: { sceneGraphs: [], frames: [], updatedAt: null },
+    optimization: { reports: [], lastRunAt: null, autoTune: true, updatedAt: null },
   }
 
   function loadAuditEntriesFromDisk() {
@@ -1222,6 +1224,12 @@ function registerIpcHandlers(mainWindow) {
         requests: Array.isArray(advancedState?.relay?.requests) ? advancedState.relay.requests : [],
         updatedAt: advancedState?.relay?.updatedAt || null,
         lastCloudSyncAt: advancedState?.relay?.lastCloudSyncAt || null,
+      },
+      optimization: {
+        reports: Array.isArray(advancedState?.optimization?.reports) ? advancedState.optimization.reports : [],
+        lastRunAt: advancedState?.optimization?.lastRunAt || null,
+        autoTune: advancedState?.optimization?.autoTune !== false,
+        updatedAt: advancedState?.optimization?.updatedAt || null,
       },
     }
   }
@@ -5163,6 +5171,41 @@ function registerIpcHandlers(mainWindow) {
 
   ipcMain.handle('paxion:voiceQuality:evaluate', (_event, input) => {
     return evaluateDuplexSession(input)
+  })
+
+  ipcMain.handle('paxion:optimization:status', () => {
+    return {
+      ok: true,
+      optimization: advancedState.optimization || {
+        reports: [],
+        lastRunAt: null,
+        autoTune: true,
+        updatedAt: null,
+      },
+    }
+  })
+
+  ipcMain.handle('paxion:optimization:run', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to run weekly optimization.' }
+    }
+    const result = runWeeklyOptimization(advancedState, {
+      autoTune: input?.autoTune,
+      falseWakeCount: input?.falseWakeCount,
+      missedWakeCount: input?.missedWakeCount,
+    })
+    advancedState = result.state
+    saveDomainStates()
+    return {
+      ok: true,
+      report: result.report,
+      optimization: advancedState.optimization,
+      state: {
+        voiceQuality: advancedState.voiceQuality,
+        wakeword: advancedState.wakeword,
+        relay: advancedState.relay,
+      },
+    }
   })
 
   ipcMain.handle('paxion:relay:status', () => {

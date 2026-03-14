@@ -151,6 +151,10 @@ contextBridge.exposeInMainWorld('paxion', {
     update: (input) => ipcRenderer.invoke('paxion:voiceQuality:update', input),
     evaluate: (input) => ipcRenderer.invoke('paxion:voiceQuality:evaluate', input),
   },
+  optimization: {
+    status: () => ipcRenderer.invoke('paxion:optimization:status'),
+    run: (input) => ipcRenderer.invoke('paxion:optimization:run', input),
+  },
   relay: {
     status: () => ipcRenderer.invoke('paxion:relay:status'),
     configure: (input) => ipcRenderer.invoke('paxion:relay:configure', input),
