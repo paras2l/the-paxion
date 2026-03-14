@@ -33,6 +33,13 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Build for explainability: action previews, source citations, and traceable decisions.
 - Keep local control as default and never allow silent self-escalation.
 
+## Security enforcement baseline
+- Immutable core: security policy, approval logic, and audit controls cannot be changed by generated code.
+- Controlled self-coding: AI can create new code only inside approved workspace paths.
+- Sensitive operations require admin verification and explicit approval ticketing.
+- Audit is append-only and hash-chained to make tampering visible.
+- Blocked operations remain blocked regardless of prompt context.
+
 ## Out of scope for v1
 - Unrestricted autonomous operations.
 - Unrestricted web crawling.

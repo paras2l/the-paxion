@@ -29,3 +29,4 @@ Use this file to protect continuity and prevent missing work.
 
 ## Current milestone log
 - v0.1.0-foundation: React + TypeScript + Electron base, five-tab shell, policy framing docs.
+- v0.2.0-security-core: immutable policy guardrails, approval ticketing, and hash-chained audit logs wired into Access and Logs tabs.
