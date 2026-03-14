@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: paxion-cloud-relay
+    runtime: node
+    rootDir: relay
+    buildCommand: npm install
+    startCommand: npm start
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: PAXION_RELAY_TOKEN
+        sync: false

@@ -30,6 +30,15 @@ npm run dev
 npm run desktop
 ```
 
+## Web and cloud deployment
+
+Hosted web/PWA deployment and cloud relay setup are documented in [docs/web-and-cloud-deployment.md](d:/Antigravity/amazing/docs/web-and-cloud-deployment.md).
+
+Recommended free setup:
+
+1. Vercel for the installable web app
+2. Render for the cloud relay backend
+
 ## Optional desktop dev server flow
 Start Vite, then in another terminal run:
 

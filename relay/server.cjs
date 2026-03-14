@@ -3,7 +3,7 @@
 const http = require('http')
 const crypto = require('crypto')
 
-const PORT = Number(process.env.PAXION_RELAY_PORT || 8787)
+const PORT = Number(process.env.PORT || process.env.PAXION_RELAY_PORT || 8787)
 const RELAY_TOKEN = String(process.env.PAXION_RELAY_TOKEN || '').trim()
 const pending = new Map()
 

@@ -116,6 +116,11 @@ type SpeechRecognitionLike = {
 
 type SpeechRecognitionCtorLike = new () => SpeechRecognitionLike
 
+type BeforeInstallPromptEventLike = Event & {
+  prompt: () => Promise<void>
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
+}
+
 type ChatMode = 'local' | 'desktop-relay'
 type AssistantMode = 'chat' | 'voice'
 
@@ -569,6 +574,9 @@ function App() {
   const [adminUnlocked, setAdminUnlocked] = useState(false)
   const [adminExpiresAt, setAdminExpiresAt] = useState<number | null>(null)
   const [adminMessage, setAdminMessage] = useState('')
+  const [pwaInstallEvent, setPwaInstallEvent] = useState<BeforeInstallPromptEventLike | null>(null)
+  const [pwaInstallMessage, setPwaInstallMessage] = useState('')
+  const [pwaInstalled, setPwaInstalled] = useState(false)
   const [capabilities, setCapabilities] = useState<CapabilityState>(defaultCapabilityState)
   const [accessMessage, setAccessMessage] = useState('')
   const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus>(defaultIntegrationStatus)
@@ -768,8 +776,6 @@ function App() {
   const voiceLoopEnabledRef = useRef(false)
   const wakeArmedRef = useRef(true)
   const voiceCommandInFlightRef = useRef(false)
-  const voiceCommandStartedAtRef = useRef<number | null>(null)
-  const voiceInterruptionsRef = useRef(0)
 
   // Workspace mission executor state
   const [workspaceGoal, setWorkspaceGoal] = useState('')
@@ -1198,6 +1204,28 @@ function App() {
     void loadVoiceRuntimeState()
     void loadRelayStatus()
     void loadWeeklyOptimizationStatus()
+  }, [])
+
+  useEffect(() => {
+    const onBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault()
+      setPwaInstallEvent(event as BeforeInstallPromptEventLike)
+      setPwaInstallMessage('Install Paxion on this device for faster mobile access.')
+    }
+
+    const onAppInstalled = () => {
+      setPwaInstalled(true)
+      setPwaInstallEvent(null)
+      setPwaInstallMessage('Paxion has been installed on this device.')
+    }
+
+    window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt)
+    window.addEventListener('appinstalled', onAppInstalled)
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt)
+      window.removeEventListener('appinstalled', onAppInstalled)
+    }
   }, [])
 
   useEffect(() => {
@@ -1905,6 +1933,22 @@ function App() {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel()
     }
+  }
+
+  async function installPaxionWebApp() {
+    if (!pwaInstallEvent) {
+      setPwaInstallMessage('Open the browser menu and use Add to Home Screen / Install App.')
+      return
+    }
+    await pwaInstallEvent.prompt().catch(() => undefined)
+    const choice = await pwaInstallEvent.userChoice.catch(() => null)
+    if (choice?.outcome === 'accepted') {
+      setPwaInstalled(true)
+      setPwaInstallEvent(null)
+      setPwaInstallMessage('Paxion install accepted.')
+      return
+    }
+    setPwaInstallMessage('Install was dismissed. You can try again anytime.')
   }
 
   async function relayVoiceCall(commandText: string) {
@@ -3734,10 +3778,20 @@ function App() {
           </p>
           {chatNotice && <p className="muted">{chatNotice}</p>}
           {isWebRuntime && isMobileDevice && (
-            <p className="muted">
-              Mobile companion mode active. Voice chat works in browser-supported engines; desktop-only actions
-              (tray runtime, native automation, direct dialer relay) require the Electron app.
-            </p>
+            <div className="decision-card">
+              <p className="muted">
+                Mobile companion mode active. Voice chat works in browser-supported engines; desktop-only actions
+                (tray runtime, native automation, direct dialer relay) require the Electron app or future cloud backend.
+              </p>
+              <div className="workspace-actions">
+                {!pwaInstalled && (
+                  <button className="run-button" onClick={() => void installPaxionWebApp()}>
+                    Install On Phone
+                  </button>
+                )}
+              </div>
+              {pwaInstallMessage && <p className="muted">{pwaInstallMessage}</p>}
+            </div>
           )}
 
           {/* Messages */}
@@ -4560,6 +4614,16 @@ function App() {
                 <span>Frames grounded</span>
                 <strong>{perceptionFrames.length}</strong>
               </div>
+              {perceptionSceneGraph && (
+                <div className="capability-item">
+                  <span>Scene graph objects</span>
+                  <strong>
+                    {Array.isArray((perceptionSceneGraph as { objects?: unknown[] }).objects)
+                      ? ((perceptionSceneGraph as { objects?: unknown[] }).objects || []).length
+                      : 0}
+                  </strong>
+                </div>
+              )}
               {perceptionSummary && (
                 <div className="capability-item">
                   <span>Latest frame</span>
