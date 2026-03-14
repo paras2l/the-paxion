@@ -259,6 +259,129 @@ interface PaxionAutomationLoadResult {
   updatedAt: string | null
 }
 
+interface PaxionTargetWorkflowPack {
+  id: string
+  name: string
+  surface: string
+  appType: string
+  requiredCapability: string
+  targetUrl: string
+  intent: string
+  executionSteps: string[]
+  verificationChecks: string[]
+  rollbackSteps: string[]
+  variableHints?: string[]
+}
+
+interface PaxionExecutionSession {
+  id: string
+  createdAt: string
+  updatedAt: string
+  status: string
+  packId: string
+  packName: string
+  surface: string
+  appType: string
+  targetUrl: string
+  intent: string
+  executionSteps: string[]
+  verificationChecks: string[]
+  rollbackSteps: string[]
+  variables: Record<string, string>
+  evidence: string[]
+  verificationNotes: string
+  rollbackNotes: string
+  artifactPath: string
+}
+
+interface PaxionObservationSnapshot {
+  id: string
+  createdAt: string
+  title: string
+  appType: string
+  visibleText: string
+  notes: string
+  screenshotPath: string
+  inferredSkills: string[]
+}
+
+interface PaxionCrossAppMissionPhase {
+  id: string
+  title: string
+  surface: string
+  objective: string
+}
+
+interface PaxionCrossAppMission {
+  id: string
+  goal: string
+  surfaces: string[]
+  recommendedPacks: Array<{ id: string; name: string; surface: string }>
+  phases: PaxionCrossAppMissionPhase[]
+  createdAt: string
+  status: string
+}
+
+interface PaxionLearningGraphNode {
+  id: string
+  kind: string
+  label: string
+}
+
+interface PaxionLearningGraphEdge {
+  from: string
+  to: string
+  kind: string
+}
+
+interface PaxionLearningGraphSnapshot {
+  nodes: PaxionLearningGraphNode[]
+  edges: PaxionLearningGraphEdge[]
+  updatedAt: string | null
+}
+
+interface PaxionEvolutionPipelineHistoryEntry {
+  stage: string
+  note: string
+  timestamp: string
+}
+
+interface PaxionEvolutionPipeline {
+  id: string
+  title: string
+  objective: string
+  createdAt: string
+  updatedAt: string
+  currentStage: string
+  stages: string[]
+  history: PaxionEvolutionPipelineHistoryEntry[]
+  artifactPath: string
+}
+
+interface PaxionVisionJob {
+  id: string
+  objective: string
+  screenshotPath: string
+  extractedText: string
+  notes: string
+  status: string
+  createdAt: string
+  updatedAt: string
+  inferredSkills: string[]
+}
+
+interface PaxionReadinessLoadResult {
+  ok: boolean
+  reason?: string
+  targetPacks: PaxionTargetWorkflowPack[]
+  executionSessions: PaxionExecutionSession[]
+  observations: PaxionObservationSnapshot[]
+  missions: PaxionCrossAppMission[]
+  learningGraph: PaxionLearningGraphSnapshot
+  evolutionPipelines: PaxionEvolutionPipeline[]
+  visionJobs: PaxionVisionJob[]
+}
+
 type PaxionAutomationStepInput = {
   action: 'fill' | 'click' | 'select' | 'wait' | 'extractText'
   selector?: string
@@ -429,6 +552,104 @@ declare global {
         suggestions(): Promise<
           | { ok: true; suggestions: PaxionCapabilitySuggestion[] }
           | { ok: false; reason: string; suggestions: PaxionCapabilitySuggestion[] }
+        >
+      }
+      readiness: {
+        load(): Promise<PaxionReadinessLoadResult>
+        runTargetPack(input: {
+          packId: string
+          variables: Record<string, string>
+          explicitPermission: boolean
+        }): Promise<
+          | {
+              ok: true
+              session: PaxionExecutionSession
+              executionSessions: PaxionExecutionSession[]
+              learningGraph: PaxionLearningGraphSnapshot
+            }
+          | { ok: false; reason: string }
+        >
+        verifySession(input: {
+          sessionId: string
+          evidence: string[]
+          notes: string
+          outcome: string
+        }): Promise<
+          | {
+              ok: true
+              session: PaxionExecutionSession
+              executionSessions: PaxionExecutionSession[]
+              learningGraph: PaxionLearningGraphSnapshot
+            }
+          | { ok: false; reason: string }
+        >
+        rollbackSession(input: { sessionId: string; notes: string }): Promise<
+          | {
+              ok: true
+              session: PaxionExecutionSession
+              executionSessions: PaxionExecutionSession[]
+              learningGraph: PaxionLearningGraphSnapshot
+            }
+          | { ok: false; reason: string }
+        >
+        captureObservation(input: {
+          title: string
+          appType: string
+          visibleText: string
+          notes: string
+          screenshotPath: string
+        }): Promise<
+          | {
+              ok: true
+              snapshot: PaxionObservationSnapshot
+              observations: PaxionObservationSnapshot[]
+              learningGraph: PaxionLearningGraphSnapshot
+              skills: string[]
+            }
+          | { ok: false; reason: string }
+        >
+        planMission(input: { goal: string; surfaces: string[] }): Promise<
+          | { ok: true; mission: PaxionCrossAppMission; missions: PaxionCrossAppMission[] }
+          | { ok: false; reason: string }
+        >
+        graph(): Promise<
+          | { ok: true; learningGraph: PaxionLearningGraphSnapshot }
+          | { ok: false; reason: string; learningGraph: PaxionLearningGraphSnapshot }
+        >
+        createEvolutionPipeline(input: {
+          title: string
+          objective: string
+          note: string
+        }): Promise<
+          | { ok: true; pipeline: PaxionEvolutionPipeline; evolutionPipelines: PaxionEvolutionPipeline[] }
+          | { ok: false; reason: string }
+        >
+        advanceEvolutionPipeline(input: { pipelineId: string; note: string }): Promise<
+          | { ok: true; pipeline: PaxionEvolutionPipeline; evolutionPipelines: PaxionEvolutionPipeline[] }
+          | { ok: false; reason: string }
+        >
+        createVisionJob(input: {
+          objective: string
+          screenshotPath: string
+          extractedText: string
+          notes: string
+        }): Promise<
+          | {
+              ok: true
+              job: PaxionVisionJob
+              visionJobs: PaxionVisionJob[]
+              learningGraph: PaxionLearningGraphSnapshot
+            }
+          | { ok: false; reason: string }
+        >
+        reviewVisionJob(input: { jobId: string; notes: string }): Promise<
+          | {
+              ok: true
+              job: PaxionVisionJob
+              visionJobs: PaxionVisionJob[]
+              learningGraph: PaxionLearningGraphSnapshot
+            }
+          | { ok: false; reason: string }
         >
       }
       workspace: {

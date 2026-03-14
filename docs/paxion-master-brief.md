@@ -101,6 +101,17 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Suggestions can be applied directly from the workspace panel, and recent execution records can be selected for replay without manual ID copy.
 - Capability suggestions are now ranked by confidence and blocked until prerequisite capabilities are enabled.
 
+## Readiness foundation systems
+- Target workflow packs now exist for real browser/editor/design targets with explicit verification and rollback checklists.
+- Execution sessions persist prepared steps, evidence, verification notes, and rollback status.
+- Observation capture stores visible app state, screenshot path, and inferred skills for later learning.
+- Cross-app mission planning now creates multi-surface phases with recommended workflow packs.
+- Learning graph snapshots connect logs, execution records, observations, vision jobs, and skills.
+- Self-evolution now runs through staged pipelines: proposal, scaffold, test, review, and deploy.
+- Vision/OCR jobs now exist as local review queue items with extracted text and review status.
+- Pure readiness helper logic is covered by executable node:test coverage for suggestion ranking, replay preview grouping, mission planning, and graph linking.
+- These systems remain permission-gated, admin-gated, and local-first rather than silent autonomous execution.
+
 ## Out of scope for v1
 - Unrestricted autonomous operations.
 - Unrestricted web crawling.

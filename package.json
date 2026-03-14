@@ -9,6 +9,7 @@
     "build": "tsc -b && vite build",
     "desktop": "npm run build && electron .",
     "lint": "eslint .",
+    "test": "node --test electron/readiness-utils.test.cjs",
     "preview": "vite preview"
   },
   "dependencies": {

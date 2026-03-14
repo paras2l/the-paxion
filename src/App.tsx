@@ -227,6 +227,92 @@ type ReplayPreview = {
   expiresAt: number
 }
 
+type TargetWorkflowPack = {
+  id: string
+  name: string
+  surface: string
+  appType: string
+  requiredCapability: string
+  targetUrl: string
+  intent: string
+  executionSteps: string[]
+  verificationChecks: string[]
+  rollbackSteps: string[]
+  variableHints?: string[]
+}
+
+type ExecutionSession = {
+  id: string
+  createdAt: string
+  updatedAt: string
+  status: string
+  packId: string
+  packName: string
+  surface: string
+  appType: string
+  targetUrl: string
+  intent: string
+  executionSteps: string[]
+  verificationChecks: string[]
+  rollbackSteps: string[]
+  variables: Record<string, string>
+  evidence: string[]
+  verificationNotes: string
+  rollbackNotes: string
+  artifactPath: string
+}
+
+type ObservationSnapshot = {
+  id: string
+  createdAt: string
+  title: string
+  appType: string
+  visibleText: string
+  notes: string
+  screenshotPath: string
+  inferredSkills: string[]
+}
+
+type CrossAppMission = {
+  id: string
+  goal: string
+  surfaces: string[]
+  recommendedPacks: Array<{ id: string; name: string; surface: string }>
+  phases: Array<{ id: string; title: string; surface: string; objective: string }>
+  createdAt: string
+  status: string
+}
+
+type LearningGraphSnapshot = {
+  nodes: Array<{ id: string; kind: string; label: string }>
+  edges: Array<{ from: string; to: string; kind: string }>
+  updatedAt: string | null
+}
+
+type EvolutionPipeline = {
+  id: string
+  title: string
+  objective: string
+  createdAt: string
+  updatedAt: string
+  currentStage: string
+  stages: string[]
+  history: Array<{ stage: string; note: string; timestamp: string }>
+  artifactPath: string
+}
+
+type VisionJob = {
+  id: string
+  objective: string
+  screenshotPath: string
+  extractedText: string
+  notes: string
+  status: string
+  createdAt: string
+  updatedAt: string
+  inferredSkills: string[]
+}
+
 type AutomationStepInput = {
   action: 'fill' | 'click' | 'select' | 'wait' | 'extractText'
   selector?: string
@@ -453,6 +539,31 @@ function App() {
   const [replayPermission, setReplayPermission] = useState(false)
   const [replayPreview, setReplayPreview] = useState<ReplayPreview | null>(null)
   const [automationMessage, setAutomationMessage] = useState('')
+  const [targetPacks, setTargetPacks] = useState<TargetWorkflowPack[]>([])
+  const [executionSessions, setExecutionSessions] = useState<ExecutionSession[]>([])
+  const [observationSnapshots, setObservationSnapshots] = useState<ObservationSnapshot[]>([])
+  const [crossAppMissions, setCrossAppMissions] = useState<CrossAppMission[]>([])
+  const [learningGraph, setLearningGraph] = useState<LearningGraphSnapshot>({ nodes: [], edges: [], updatedAt: null })
+  const [evolutionPipelines, setEvolutionPipelines] = useState<EvolutionPipeline[]>([])
+  const [visionJobs, setVisionJobs] = useState<VisionJob[]>([])
+  const [selectedTargetPackId, setSelectedTargetPackId] = useState('')
+  const [targetPackVariables, setTargetPackVariables] = useState<Record<string, string>>({})
+  const [targetPackPermission, setTargetPackPermission] = useState(false)
+  const [sessionEvidenceText, setSessionEvidenceText] = useState('')
+  const [sessionNotes, setSessionNotes] = useState('')
+  const [observationTitle, setObservationTitle] = useState('')
+  const [observationAppType, setObservationAppType] = useState('code-editor')
+  const [observationVisibleText, setObservationVisibleText] = useState('')
+  const [observationNotes, setObservationNotes] = useState('')
+  const [observationScreenshotPath, setObservationScreenshotPath] = useState('')
+  const [crossAppSurfacesText, setCrossAppSurfacesText] = useState('browser, editor, workspace')
+  const [evolutionTitle, setEvolutionTitle] = useState('')
+  const [evolutionObjective, setEvolutionObjective] = useState('')
+  const [visionObjective, setVisionObjective] = useState('')
+  const [visionScreenshotPath, setVisionScreenshotPath] = useState('')
+  const [visionExtractedText, setVisionExtractedText] = useState('')
+  const [visionNotes, setVisionNotes] = useState('')
+  const [readinessMessage, setReadinessMessage] = useState('')
 
   // Library state
   const libraryStore = useMemo(() => new LibraryStore(), [])
@@ -611,6 +722,39 @@ function App() {
       setAutomationTemplateId(result.templates[0].id)
     }
   }, [automationTemplateId])
+
+  const loadReadinessState = useCallback(async () => {
+    if (!window.paxion) {
+      setTargetPacks([])
+      setExecutionSessions([])
+      setObservationSnapshots([])
+      setCrossAppMissions([])
+      setLearningGraph({ nodes: [], edges: [], updatedAt: null })
+      setEvolutionPipelines([])
+      setVisionJobs([])
+      return
+    }
+
+    const result = await window.paxion.readiness.load().catch(() => null)
+    if (!result?.ok) {
+      setTargetPacks([])
+      setExecutionSessions([])
+      setObservationSnapshots([])
+      setCrossAppMissions([])
+      setLearningGraph({ nodes: [], edges: [], updatedAt: null })
+      setEvolutionPipelines([])
+      setVisionJobs([])
+      return
+    }
+
+    setTargetPacks(result.targetPacks)
+    setExecutionSessions(result.executionSessions)
+    setObservationSnapshots(result.observations)
+    setCrossAppMissions(result.missions)
+    setLearningGraph(result.learningGraph)
+    setEvolutionPipelines(result.evolutionPipelines)
+    setVisionJobs(result.visionJobs)
+  }, [])
 
   const recordLearning = useCallback(
     async (input: { title: string; detail: string; source: string; newSkills: string[] }) => {
@@ -796,6 +940,7 @@ function App() {
       loadIntegrationStatus()
       loadLearningState()
       loadAutomationState()
+      loadReadinessState()
     })
 
     const intervalId = window.setInterval(() => {
@@ -805,15 +950,16 @@ function App() {
     return () => {
       window.clearInterval(intervalId)
     }
-  }, [loadAutomationState, loadCapabilities, loadIntegrationStatus, loadLearningState, refreshAdminStatus])
+  }, [loadAutomationState, loadCapabilities, loadIntegrationStatus, loadLearningState, loadReadinessState, refreshAdminStatus])
 
   useEffect(() => {
     if (!adminUnlocked) return
     queueMicrotask(() => {
       loadLearningState()
       loadAutomationState()
+      loadReadinessState()
     })
-  }, [adminUnlocked, loadAutomationState, loadLearningState])
+  }, [adminUnlocked, loadAutomationState, loadLearningState, loadReadinessState])
 
   // Restore workspace mission state from persistence.
   useEffect(() => {
@@ -1775,6 +1921,243 @@ function App() {
       `Replay completed for record: ${id} with ${result.replayRecords.length} replay step(s).`,
     )
     setReplayPermission(false)
+  }
+
+  function selectTargetPack(packId: string) {
+    const pack = targetPacks.find((entry) => entry.id === packId)
+    if (!pack) {
+      setReadinessMessage('Target workflow pack not found.')
+      return
+    }
+
+    const keys = Array.from(
+      new Set(
+        [
+          ...(pack.variableHints ?? []),
+          ...Array.from(
+            `${pack.targetUrl}\n${pack.intent}\n${pack.executionSteps.join('\n')}`.matchAll(
+              profileVariablePattern,
+            ),
+          ).map((match) => match[1]),
+        ].filter(Boolean),
+      ),
+    )
+
+    setSelectedTargetPackId(pack.id)
+    setTargetPackVariables(Object.fromEntries(keys.map((key) => [key, targetPackVariables[key] ?? ''])))
+    setReadinessMessage(`Selected target pack: ${pack.name}`)
+  }
+
+  function updateTargetPackVariable(key: string, value: string) {
+    setTargetPackVariables((prev) => ({
+      ...prev,
+      [key]: value,
+    }))
+  }
+
+  async function runTargetWorkflowPack() {
+    if (!window.paxion) return
+    if (!selectedTargetPackId) {
+      setReadinessMessage('Select a target workflow pack first.')
+      return
+    }
+
+    const result = await window.paxion.readiness
+      .runTargetPack({
+        packId: selectedTargetPackId,
+        variables: targetPackVariables,
+        explicitPermission: targetPackPermission,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setReadinessMessage(result?.reason ?? 'Failed to prepare target workflow pack.')
+      return
+    }
+
+    setExecutionSessions(result.executionSessions)
+    setLearningGraph(result.learningGraph)
+    setTargetPackPermission(false)
+    setReadinessMessage(`Prepared workflow session: ${result.session.packName}`)
+  }
+
+  async function verifyExecutionSessionById(sessionId: string, outcome: 'verified' | 'failed') {
+    if (!window.paxion) return
+    const evidence = sessionEvidenceText
+      .split('\n')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+    const result = await window.paxion.readiness
+      .verifySession({
+        sessionId,
+        evidence,
+        notes: sessionNotes,
+        outcome,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setReadinessMessage(result?.reason ?? 'Failed to verify execution session.')
+      return
+    }
+
+    setExecutionSessions(result.executionSessions)
+    setLearningGraph(result.learningGraph)
+    setSessionEvidenceText('')
+    setSessionNotes('')
+    setReadinessMessage(`Session ${sessionId} updated as ${result.session.status}.`)
+  }
+
+  async function rollbackExecutionSessionById(sessionId: string) {
+    if (!window.paxion) return
+    const result = await window.paxion.readiness
+      .rollbackSession({
+        sessionId,
+        notes: sessionNotes,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setReadinessMessage(result?.reason ?? 'Failed to rollback execution session.')
+      return
+    }
+
+    setExecutionSessions(result.executionSessions)
+    setLearningGraph(result.learningGraph)
+    setSessionNotes('')
+    setReadinessMessage(`Rollback prepared for session ${sessionId}.`)
+  }
+
+  async function captureObservation() {
+    if (!window.paxion) return
+    const result = await window.paxion.readiness
+      .captureObservation({
+        title: observationTitle,
+        appType: observationAppType,
+        visibleText: observationVisibleText,
+        notes: observationNotes,
+        screenshotPath: observationScreenshotPath,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setReadinessMessage(result?.reason ?? 'Failed to capture observation.')
+      return
+    }
+
+    setObservationSnapshots(result.observations)
+    setLearningGraph(result.learningGraph)
+    setLearnedSkills(result.skills)
+    setObservationTitle('')
+    setObservationVisibleText('')
+    setObservationNotes('')
+    setObservationScreenshotPath('')
+    setReadinessMessage(`Captured observation: ${result.snapshot.title}`)
+  }
+
+  async function planCrossAppMission() {
+    if (!window.paxion) return
+    const surfaces = crossAppSurfacesText
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+    const result = await window.paxion.readiness
+      .planMission({
+        goal: workspaceGoal,
+        surfaces,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setReadinessMessage(result?.reason ?? 'Failed to plan cross-app mission.')
+      return
+    }
+
+    setCrossAppMissions(result.missions)
+    setReadinessMessage(`Cross-app mission planned with ${result.mission.phases.length} phases.`)
+  }
+
+  async function createEvolutionPipeline() {
+    if (!window.paxion) return
+    const result = await window.paxion.readiness
+      .createEvolutionPipeline({
+        title: evolutionTitle,
+        objective: evolutionObjective,
+        note: 'Pipeline created from workspace control panel.',
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setReadinessMessage(result?.reason ?? 'Failed to create evolution pipeline.')
+      return
+    }
+
+    setEvolutionPipelines(result.evolutionPipelines)
+    setEvolutionTitle('')
+    setEvolutionObjective('')
+    setReadinessMessage(`Evolution pipeline created: ${result.pipeline.title}`)
+  }
+
+  async function advanceEvolutionPipelineById(pipelineId: string) {
+    if (!window.paxion) return
+    const result = await window.paxion.readiness
+      .advanceEvolutionPipeline({
+        pipelineId,
+        note: 'Advanced from workspace control panel.',
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setReadinessMessage(result?.reason ?? 'Failed to advance evolution pipeline.')
+      return
+    }
+
+    setEvolutionPipelines(result.evolutionPipelines)
+    setReadinessMessage(`Evolution pipeline moved to ${result.pipeline.currentStage}.`)
+  }
+
+  async function createVisionJob() {
+    if (!window.paxion) return
+    const result = await window.paxion.readiness
+      .createVisionJob({
+        objective: visionObjective,
+        screenshotPath: visionScreenshotPath,
+        extractedText: visionExtractedText,
+        notes: visionNotes,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setReadinessMessage(result?.reason ?? 'Failed to create vision/OCR job.')
+      return
+    }
+
+    setVisionJobs(result.visionJobs)
+    setLearningGraph(result.learningGraph)
+    setVisionObjective('')
+    setVisionScreenshotPath('')
+    setVisionExtractedText('')
+    setVisionNotes('')
+    setReadinessMessage(`Vision/OCR job created: ${result.job.objective}`)
+  }
+
+  async function reviewVisionJob(jobId: string) {
+    if (!window.paxion) return
+    const result = await window.paxion.readiness
+      .reviewVisionJob({
+        jobId,
+        notes: 'Reviewed from workspace control panel.',
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setReadinessMessage(result?.reason ?? 'Failed to review vision/OCR job.')
+      return
+    }
+
+    setVisionJobs(result.visionJobs)
+    setLearningGraph(result.learningGraph)
+    setReadinessMessage(`Vision/OCR job reviewed: ${result.job.id}`)
   }
 
   // ── Chat tab handlers ──
@@ -2901,6 +3284,352 @@ function App() {
             {automationMessage && <p className="muted">{automationMessage}</p>}
           </div>
 
+          <div className="decision-card">
+            <strong>Target Workflow Packs</strong>
+            <p>
+              Prepare deterministic app-specific packs with verification and rollback steps for
+              browser, design, and editor workflows.
+            </p>
+            <div className="control-group">
+              <label htmlFor="target-pack">Target pack</label>
+              <select
+                id="target-pack"
+                value={selectedTargetPackId}
+                onChange={(event) => {
+                  const nextId = event.target.value
+                  if (nextId) {
+                    selectTargetPack(nextId)
+                  }
+                }}
+              >
+                <option value="">Select target pack...</option>
+                {targetPacks.map((pack) => (
+                  <option key={pack.id} value={pack.id}>
+                    {pack.name} ({pack.surface})
+                  </option>
+                ))}
+              </select>
+            </div>
+            {selectedTargetPackId && Object.keys(targetPackVariables).length > 0 && (
+              <div className="control-group">
+                <label>Target variables</label>
+                <div className="learning-log-list">
+                  {Object.keys(targetPackVariables).map((key) => (
+                    <label className="muted" key={key}>
+                      {key}
+                      <input
+                        value={targetPackVariables[key] ?? ''}
+                        onChange={(event) => updateTargetPackVariable(key, event.target.value)}
+                        placeholder={`Value for ${key}`}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            <label className="muted">
+              <input
+                type="checkbox"
+                checked={targetPackPermission}
+                onChange={(event) => setTargetPackPermission(event.target.checked)}
+              />{' '}
+              I give explicit permission to prepare this target workflow pack.
+            </label>
+            <div className="workspace-actions">
+              <button className="run-button" onClick={() => void runTargetWorkflowPack()}>
+                Prepare Target Pack
+              </button>
+            </div>
+            {executionSessions.length > 0 && (
+              <div className="learning-log-list">
+                {[...executionSessions]
+                  .reverse()
+                  .slice(0, 6)
+                  .map((session) => (
+                    <article className="learning-log-item" key={session.id}>
+                      <strong>{session.packName}</strong>
+                      <p className="muted">Status: {session.status}</p>
+                      <p className="muted">Intent: {session.intent}</p>
+                      <p className="muted">Verification checks: {session.verificationChecks.length}</p>
+                      <div className="workspace-step-actions">
+                        <button
+                          className="run-button"
+                          onClick={() => void verifyExecutionSessionById(session.id, 'verified')}
+                        >
+                          Verify Pass
+                        </button>
+                        <button
+                          className="run-button"
+                          onClick={() => void verifyExecutionSessionById(session.id, 'failed')}
+                        >
+                          Mark Failed
+                        </button>
+                        <button
+                          className="run-button"
+                          onClick={() => void rollbackExecutionSessionById(session.id)}
+                        >
+                          Prepare Rollback
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+              </div>
+            )}
+            <div className="control-group">
+              <label htmlFor="session-evidence">Verification evidence</label>
+              <textarea
+                id="session-evidence"
+                className="lib-paste-area"
+                value={sessionEvidenceText}
+                onChange={(event) => setSessionEvidenceText(event.target.value)}
+                rows={3}
+                placeholder="One evidence item per line"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="session-notes">Verification / rollback notes</label>
+              <textarea
+                id="session-notes"
+                className="lib-paste-area"
+                value={sessionNotes}
+                onChange={(event) => setSessionNotes(event.target.value)}
+                rows={3}
+                placeholder="Summary of what was verified or why rollback is needed"
+              />
+            </div>
+          </div>
+
+          <div className="decision-card">
+            <strong>Observation Capture</strong>
+            <p>Store real app-state observations and inferred skills for later graph learning.</p>
+            <div className="control-group">
+              <label htmlFor="observation-title">Observation title</label>
+              <input
+                id="observation-title"
+                value={observationTitle}
+                onChange={(event) => setObservationTitle(event.target.value)}
+                placeholder="Example: WordPress editor publish screen"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="observation-app-type">App type</label>
+              <input
+                id="observation-app-type"
+                value={observationAppType}
+                onChange={(event) => setObservationAppType(event.target.value)}
+                placeholder="code-editor, cms, design"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="observation-visible">Visible state / OCR text</label>
+              <textarea
+                id="observation-visible"
+                className="lib-paste-area"
+                value={observationVisibleText}
+                onChange={(event) => setObservationVisibleText(event.target.value)}
+                rows={3}
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="observation-notes">Notes</label>
+              <textarea
+                id="observation-notes"
+                className="lib-paste-area"
+                value={observationNotes}
+                onChange={(event) => setObservationNotes(event.target.value)}
+                rows={3}
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="observation-path">Screenshot path</label>
+              <input
+                id="observation-path"
+                value={observationScreenshotPath}
+                onChange={(event) => setObservationScreenshotPath(event.target.value)}
+                placeholder="Optional local screenshot path"
+              />
+            </div>
+            <button className="run-button" onClick={() => void captureObservation()}>
+              Save Observation
+            </button>
+            {observationSnapshots.length > 0 && (
+              <div className="learning-log-list">
+                {[...observationSnapshots]
+                  .reverse()
+                  .slice(0, 5)
+                  .map((snapshot) => (
+                    <article className="learning-log-item" key={snapshot.id}>
+                      <strong>{snapshot.title}</strong>
+                      <p className="muted">{snapshot.appType}</p>
+                      <p className="muted">Skills: {snapshot.inferredSkills.join(', ') || 'none'}</p>
+                    </article>
+                  ))}
+              </div>
+            )}
+          </div>
+
+          <div className="decision-card">
+            <strong>Cross-App Mission Planner</strong>
+            <p>Create multi-surface plans that connect browser, editor, design, and workspace phases.</p>
+            <div className="control-group">
+              <label htmlFor="cross-app-surfaces">Surfaces (comma separated)</label>
+              <input
+                id="cross-app-surfaces"
+                value={crossAppSurfacesText}
+                onChange={(event) => setCrossAppSurfacesText(event.target.value)}
+                placeholder="browser, editor, workspace"
+              />
+            </div>
+            <button className="run-button" onClick={() => void planCrossAppMission()}>
+              Plan Cross-App Mission
+            </button>
+            {crossAppMissions.length > 0 && (
+              <div className="learning-log-list">
+                {[...crossAppMissions]
+                  .reverse()
+                  .slice(0, 4)
+                  .map((mission) => (
+                    <article className="learning-log-item" key={mission.id}>
+                      <strong>{mission.goal}</strong>
+                      <p className="muted">Surfaces: {mission.surfaces.join(', ')}</p>
+                      <p className="muted">Phases: {mission.phases.length}</p>
+                      <p className="muted">
+                        Recommended packs: {mission.recommendedPacks.map((pack) => pack.name).join(', ') || 'none'}
+                      </p>
+                    </article>
+                  ))}
+              </div>
+            )}
+          </div>
+
+          <div className="decision-card">
+            <strong>Learning Graph</strong>
+            <p>
+              Graph nodes: {learningGraph.nodes.length} | edges: {learningGraph.edges.length}
+              {learningGraph.updatedAt ? ` | updated ${new Date(learningGraph.updatedAt).toLocaleString()}` : ''}
+            </p>
+            {learningGraph.nodes.length > 0 && (
+              <div className="learning-log-list">
+                {learningGraph.nodes.slice(0, 8).map((node) => (
+                  <article className="learning-log-item" key={node.id}>
+                    <strong>{node.label}</strong>
+                    <p className="muted">{node.kind}</p>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="decision-card">
+            <strong>Self-Evolution Pipeline</strong>
+            <p>Create staged self-evolution flows with proposal, scaffold, test, review, and deploy stages.</p>
+            <div className="control-group">
+              <label htmlFor="evolution-title">Pipeline title</label>
+              <input
+                id="evolution-title"
+                value={evolutionTitle}
+                onChange={(event) => setEvolutionTitle(event.target.value)}
+                placeholder="Example: add safer browser verification module"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="evolution-objective">Objective</label>
+              <textarea
+                id="evolution-objective"
+                className="lib-paste-area"
+                value={evolutionObjective}
+                onChange={(event) => setEvolutionObjective(event.target.value)}
+                rows={3}
+              />
+            </div>
+            <button className="run-button" onClick={() => void createEvolutionPipeline()}>
+              Create Evolution Pipeline
+            </button>
+            {evolutionPipelines.length > 0 && (
+              <div className="learning-log-list">
+                {[...evolutionPipelines]
+                  .reverse()
+                  .slice(0, 5)
+                  .map((pipeline) => (
+                    <article className="learning-log-item" key={pipeline.id}>
+                      <strong>{pipeline.title}</strong>
+                      <p className="muted">Current stage: {pipeline.currentStage}</p>
+                      <button
+                        className="run-button"
+                        onClick={() => void advanceEvolutionPipelineById(pipeline.id)}
+                      >
+                        Advance Stage
+                      </button>
+                    </article>
+                  ))}
+              </div>
+            )}
+          </div>
+
+          <div className="decision-card">
+            <strong>Vision / OCR Queue</strong>
+            <p>Create local screenshot review jobs and feed extracted text into the learning graph.</p>
+            <div className="control-group">
+              <label htmlFor="vision-objective">Objective</label>
+              <input
+                id="vision-objective"
+                value={visionObjective}
+                onChange={(event) => setVisionObjective(event.target.value)}
+                placeholder="Example: read modal text from admin panel screenshot"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="vision-path">Screenshot path</label>
+              <input
+                id="vision-path"
+                value={visionScreenshotPath}
+                onChange={(event) => setVisionScreenshotPath(event.target.value)}
+                placeholder="Optional local image path"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="vision-text">Extracted text</label>
+              <textarea
+                id="vision-text"
+                className="lib-paste-area"
+                value={visionExtractedText}
+                onChange={(event) => setVisionExtractedText(event.target.value)}
+                rows={3}
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="vision-notes">Notes</label>
+              <textarea
+                id="vision-notes"
+                className="lib-paste-area"
+                value={visionNotes}
+                onChange={(event) => setVisionNotes(event.target.value)}
+                rows={2}
+              />
+            </div>
+            <button className="run-button" onClick={() => void createVisionJob()}>
+              Queue Vision Job
+            </button>
+            {visionJobs.length > 0 && (
+              <div className="learning-log-list">
+                {[...visionJobs]
+                  .reverse()
+                  .slice(0, 5)
+                  .map((job) => (
+                    <article className="learning-log-item" key={job.id}>
+                      <strong>{job.objective}</strong>
+                      <p className="muted">Status: {job.status}</p>
+                      <p className="muted">Skills: {job.inferredSkills.join(', ') || 'none'}</p>
+                      <button className="run-button" onClick={() => void reviewVisionJob(job.id)}>
+                        Mark Reviewed
+                      </button>
+                    </article>
+                  ))}
+              </div>
+            )}
+            {readinessMessage && <p className="muted">{readinessMessage}</p>}
+          </div>
+
           <div className="control-group">
             <label htmlFor="workspace-goal">Mission goal</label>
             <input
@@ -3089,7 +3818,7 @@ function App() {
       <footer className="footer">
         <span>Profile: Paro the Chief</span>
         <span>Mode: Policy-Enforced Build</span>
-        <span>Version: v0.14.0-automation-readiness</span>
+        <span>Version: v0.15.0-readiness-foundations</span>
       </footer>
     </div>
   )

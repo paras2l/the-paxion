@@ -43,3 +43,4 @@ Use this file to protect continuity and prevent missing work.
 - v0.13.0-profiles-replay-suggest: real app adapter profiles, execution recorder replay mode, and skill-to-capability auto-suggestion engine.
 - v0.13.1-automation-operability: profile variable injection, one-click replay record selection, and direct capability enable flow from suggestions.
 - v0.14.0-automation-readiness: saved automation presets, replay preview approval tokens with step diffs, and ranked capability suggestions with prerequisite checks.
+- v0.15.0-readiness-foundations: target workflow packs, execution session verification/rollback, observation capture, cross-app mission plans, learning graph snapshots, staged self-evolution pipelines, local vision/OCR jobs, and node:test coverage for pure readiness logic.

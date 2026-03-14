@@ -6,6 +6,15 @@ const fs = require('fs')
 const path = require('path')
 const { exec } = require('child_process')
 const pdfParse = require('pdf-parse')
+const {
+  buildCrossAppMission,
+  buildLearningGraphSnapshot,
+  buildReplayPreviewPayload,
+  getExecutionSequence,
+  getExecutionSessionId,
+  rankCapabilitySuggestions,
+  resolveTemplateVariables,
+} = require('./readiness-utils.cjs')
 
 const ADMIN_CODEWORD = 'paro the chief'
 const ADMIN_SESSION_TTL_MS = 15 * 60 * 1000
@@ -159,6 +168,98 @@ const AUTOMATION_ADAPTER_PROFILE_DEFS = [
   },
 ]
 
+const TARGET_WORKFLOW_PACK_DEFS = [
+  {
+    id: 'pack.wordpress.release',
+    name: 'WordPress Editorial Release',
+    surface: 'browser',
+    appType: 'cms',
+    requiredCapability: 'webAppAutomation',
+    targetUrl: 'https://{{wordpressHost}}/wp-admin/post.php?post={{postId}}&action=edit',
+    intent: 'Update post {{postId}}, verify title/content, and publish safely.',
+    executionSteps: [
+      'Open WordPress editor for the approved post.',
+      'Apply approved title and body changes.',
+      'Run preview check before publish.',
+      'Publish or update post after verification.',
+    ],
+    verificationChecks: [
+      'Title field matches approved title.',
+      'Content body contains approved update block.',
+      'Post status reflects expected publish state.',
+    ],
+    rollbackSteps: [
+      'Restore previous title from mission backup.',
+      'Restore previous content revision if publish verification fails.',
+      'Return post status to draft if rollback is needed.',
+    ],
+    variableHints: ['wordpressHost', 'postId', 'postTitle', 'postContent'],
+  },
+  {
+    id: 'pack.github.review',
+    name: 'GitHub PR Review Loop',
+    surface: 'browser',
+    appType: 'code-review',
+    requiredCapability: 'webAppAutomation',
+    targetUrl: 'https://github.com/{{repoOwner}}/{{repoName}}/pull/{{pullNumber}}',
+    intent: 'Review PR {{pullNumber}}, inspect diff, and capture verification notes.',
+    executionSteps: [
+      'Open pull request overview.',
+      'Inspect files changed and extract key risk areas.',
+      'Capture review notes and verification summary.',
+    ],
+    verificationChecks: [
+      'Pull request number matches requested target.',
+      'Files changed view opened successfully.',
+      'Review summary references concrete changed files or risks.',
+    ],
+    rollbackSteps: ['Close review draft and clear temporary notes if review target is wrong.'],
+    variableHints: ['repoOwner', 'repoName', 'pullNumber'],
+  },
+  {
+    id: 'pack.figma.export',
+    name: 'Figma Export Verification',
+    surface: 'design',
+    appType: 'design',
+    requiredCapability: 'desktopAppAutomation',
+    targetUrl: 'https://www.figma.com/file/{{fileKey}}/{{fileName}}',
+    intent: 'Open design file {{fileName}} and verify export readiness.',
+    executionSteps: [
+      'Open target design file.',
+      'Check export settings and naming discipline.',
+      'Prepare export manifest for approved assets.',
+    ],
+    verificationChecks: [
+      'Export settings panel is reachable.',
+      'Target frame/component names match approved asset names.',
+      'Export manifest includes requested format list.',
+    ],
+    rollbackSteps: ['Revert export preset changes and clear generated asset manifest if verification fails.'],
+    variableHints: ['fileKey', 'fileName'],
+  },
+  {
+    id: 'pack.vscode.refactor',
+    name: 'VS Code Refactor Cycle',
+    surface: 'editor',
+    appType: 'code-editor',
+    requiredCapability: 'vscodeControl',
+    targetUrl: '',
+    intent: 'Run an approved VS Code refactor cycle for {{workspaceArea}}.',
+    executionSteps: [
+      'Open target workspace area.',
+      'Apply approved edit/refactor checklist.',
+      'Run verification command set and capture outcome.',
+    ],
+    verificationChecks: [
+      'Correct workspace area is selected.',
+      'Lint/build/test outputs are captured after edits.',
+      'Rollback patch is available if verification fails.',
+    ],
+    rollbackSteps: ['Apply rollback patch or revert edited files from mission artifact if verification fails.'],
+    variableHints: ['workspaceArea'],
+  },
+]
+
 const SKILL_CAPABILITY_SUGGESTION_RULES = [
   {
     capability: 'workspaceTooling',
@@ -284,7 +385,11 @@ function enforcePolicy(request) {
 }
 
 function finalizePolicyDecision(baseDecision, context) {
-  if (!baseDecision.allowed || !baseDecision.requiresApproval) {
+  if (!baseDecision.allowed) {
+    return baseDecision
+  }
+
+  if (!baseDecision.requiresApproval) {
     return baseDecision
   }
 
@@ -429,6 +534,11 @@ function registerIpcHandlers(mainWindow) {
     automationTemplates: OBSERVE_LEARN_TEMPLATE_DEFS,
     automationProfiles: AUTOMATION_ADAPTER_PROFILE_DEFS,
     automationProfilePresets: [],
+    executionSessions: [],
+    observationSnapshots: [],
+    crossAppMissions: [],
+    evolutionPipelines: [],
+    visionJobs: [],
     executionRecords: [],
     updatedAt: null,
   }
@@ -639,6 +749,11 @@ function registerIpcHandlers(mainWindow) {
         automationTemplates: OBSERVE_LEARN_TEMPLATE_DEFS,
         automationProfiles: AUTOMATION_ADAPTER_PROFILE_DEFS,
         automationProfilePresets: [],
+        executionSessions: [],
+        observationSnapshots: [],
+        crossAppMissions: [],
+        evolutionPipelines: [],
+        visionJobs: [],
         executionRecords: [],
         updatedAt: null,
       }
@@ -664,6 +779,26 @@ function registerIpcHandlers(mainWindow) {
           Array.isArray(parsed?.automationProfilePresets)
             ? parsed.automationProfilePresets.filter((x) => x && typeof x === 'object')
             : [],
+        executionSessions:
+          Array.isArray(parsed?.executionSessions)
+            ? parsed.executionSessions.filter((x) => x && typeof x === 'object')
+            : [],
+        observationSnapshots:
+          Array.isArray(parsed?.observationSnapshots)
+            ? parsed.observationSnapshots.filter((x) => x && typeof x === 'object')
+            : [],
+        crossAppMissions:
+          Array.isArray(parsed?.crossAppMissions)
+            ? parsed.crossAppMissions.filter((x) => x && typeof x === 'object')
+            : [],
+        evolutionPipelines:
+          Array.isArray(parsed?.evolutionPipelines)
+            ? parsed.evolutionPipelines.filter((x) => x && typeof x === 'object')
+            : [],
+        visionJobs:
+          Array.isArray(parsed?.visionJobs)
+            ? parsed.visionJobs.filter((x) => x && typeof x === 'object')
+            : [],
         executionRecords:
           Array.isArray(parsed?.executionRecords)
             ? parsed.executionRecords.filter((x) => x && typeof x === 'object')
@@ -678,6 +813,11 @@ function registerIpcHandlers(mainWindow) {
         automationTemplates: OBSERVE_LEARN_TEMPLATE_DEFS,
         automationProfiles: AUTOMATION_ADAPTER_PROFILE_DEFS,
         automationProfilePresets: [],
+        executionSessions: [],
+        observationSnapshots: [],
+        crossAppMissions: [],
+        evolutionPipelines: [],
+        visionJobs: [],
         executionRecords: [],
         updatedAt: null,
       }
@@ -896,6 +1036,212 @@ function registerIpcHandlers(mainWindow) {
     return entry
   }
 
+  function buildLearningGraph() {
+    return buildLearningGraphSnapshot({
+      skills: learningState.skills,
+      logs: learningState.logs,
+      executionRecords: learningState.executionRecords,
+      observations: learningState.observationSnapshots,
+      visionJobs: learningState.visionJobs,
+    })
+  }
+
+  function appendExecutionSession(input) {
+    const session = {
+      id: `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      status: typeof input?.status === 'string' ? input.status : 'prepared',
+      packId: typeof input?.packId === 'string' ? input.packId : '',
+      packName: typeof input?.packName === 'string' ? input.packName : '',
+      surface: typeof input?.surface === 'string' ? input.surface : 'workspace',
+      appType: typeof input?.appType === 'string' ? input.appType : 'unknown',
+      targetUrl: typeof input?.targetUrl === 'string' ? input.targetUrl : '',
+      intent: typeof input?.intent === 'string' ? input.intent : '',
+      executionSteps: Array.isArray(input?.executionSteps) ? input.executionSteps : [],
+      verificationChecks: Array.isArray(input?.verificationChecks) ? input.verificationChecks : [],
+      rollbackSteps: Array.isArray(input?.rollbackSteps) ? input.rollbackSteps : [],
+      variables: input?.variables && typeof input.variables === 'object' ? input.variables : {},
+      evidence: Array.isArray(input?.evidence) ? input.evidence : [],
+      verificationNotes: typeof input?.verificationNotes === 'string' ? input.verificationNotes : '',
+      rollbackNotes: typeof input?.rollbackNotes === 'string' ? input.rollbackNotes : '',
+      artifactPath: typeof input?.artifactPath === 'string' ? input.artifactPath : '',
+    }
+
+    learningState = {
+      ...learningState,
+      executionSessions: [...(learningState.executionSessions || []), session].slice(-200),
+      updatedAt: session.updatedAt,
+    }
+    saveLearningState()
+    return session
+  }
+
+  function updateExecutionSession(sessionId, updater) {
+    const sessions = Array.isArray(learningState.executionSessions) ? learningState.executionSessions : []
+    let updatedSession = null
+    const nextSessions = sessions.map((session) => {
+      if (session.id !== sessionId) {
+        return session
+      }
+      updatedSession = {
+        ...session,
+        ...updater(session),
+        updatedAt: new Date().toISOString(),
+      }
+      return updatedSession
+    })
+
+    if (!updatedSession) {
+      return null
+    }
+
+    learningState = {
+      ...learningState,
+      executionSessions: nextSessions,
+      updatedAt: updatedSession.updatedAt,
+    }
+    saveLearningState()
+    return updatedSession
+  }
+
+  function appendObservationSnapshot(input) {
+    const snapshot = {
+      id: `obs-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      createdAt: new Date().toISOString(),
+      title: typeof input?.title === 'string' ? input.title : 'Observation capture',
+      appType: typeof input?.appType === 'string' ? input.appType : 'unknown',
+      visibleText: typeof input?.visibleText === 'string' ? input.visibleText : '',
+      notes: typeof input?.notes === 'string' ? input.notes : '',
+      screenshotPath: typeof input?.screenshotPath === 'string' ? input.screenshotPath : '',
+      inferredSkills: Array.isArray(input?.inferredSkills) ? input.inferredSkills : [],
+    }
+
+    learningState = {
+      ...learningState,
+      observationSnapshots: [...(learningState.observationSnapshots || []), snapshot].slice(-240),
+      updatedAt: snapshot.createdAt,
+    }
+    saveLearningState()
+    return snapshot
+  }
+
+  function appendCrossAppMission(input) {
+    learningState = {
+      ...learningState,
+      crossAppMissions: [...(learningState.crossAppMissions || []), input].slice(-120),
+      updatedAt: input.createdAt,
+    }
+    saveLearningState()
+    return input
+  }
+
+  function appendEvolutionPipeline(input) {
+    const pipeline = {
+      id: `evo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      title: typeof input?.title === 'string' ? input.title : 'Evolution pipeline',
+      objective: typeof input?.objective === 'string' ? input.objective : '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      currentStage: 'proposal',
+      stages: ['proposal', 'scaffold', 'test', 'review', 'deploy'],
+      history: [
+        {
+          stage: 'proposal',
+          note: typeof input?.note === 'string' ? input.note : 'Pipeline created.',
+          timestamp: new Date().toISOString(),
+        },
+      ],
+      artifactPath: typeof input?.artifactPath === 'string' ? input.artifactPath : '',
+    }
+
+    learningState = {
+      ...learningState,
+      evolutionPipelines: [...(learningState.evolutionPipelines || []), pipeline].slice(-80),
+      updatedAt: pipeline.updatedAt,
+    }
+    saveLearningState()
+    return pipeline
+  }
+
+  function updateEvolutionPipeline(pipelineId, updater) {
+    const pipelines = Array.isArray(learningState.evolutionPipelines) ? learningState.evolutionPipelines : []
+    let updated = null
+    const nextPipelines = pipelines.map((pipeline) => {
+      if (pipeline.id !== pipelineId) {
+        return pipeline
+      }
+      updated = {
+        ...pipeline,
+        ...updater(pipeline),
+        updatedAt: new Date().toISOString(),
+      }
+      return updated
+    })
+
+    if (!updated) {
+      return null
+    }
+
+    learningState = {
+      ...learningState,
+      evolutionPipelines: nextPipelines,
+      updatedAt: updated.updatedAt,
+    }
+    saveLearningState()
+    return updated
+  }
+
+  function appendVisionJob(input) {
+    const job = {
+      id: `vision-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      objective: typeof input?.objective === 'string' ? input.objective : 'Vision/OCR review',
+      screenshotPath: typeof input?.screenshotPath === 'string' ? input.screenshotPath : '',
+      extractedText: typeof input?.extractedText === 'string' ? input.extractedText : '',
+      notes: typeof input?.notes === 'string' ? input.notes : '',
+      status: typeof input?.status === 'string' ? input.status : 'queued',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      inferredSkills: Array.isArray(input?.inferredSkills) ? input.inferredSkills : [],
+    }
+
+    learningState = {
+      ...learningState,
+      visionJobs: [...(learningState.visionJobs || []), job].slice(-160),
+      updatedAt: job.updatedAt,
+    }
+    saveLearningState()
+    return job
+  }
+
+  function updateVisionJob(jobId, updater) {
+    const jobs = Array.isArray(learningState.visionJobs) ? learningState.visionJobs : []
+    let updated = null
+    const nextJobs = jobs.map((job) => {
+      if (job.id !== jobId) {
+        return job
+      }
+      updated = {
+        ...job,
+        ...updater(job),
+        updatedAt: new Date().toISOString(),
+      }
+      return updated
+    })
+
+    if (!updated) {
+      return null
+    }
+
+    learningState = {
+      ...learningState,
+      visionJobs: nextJobs,
+      updatedAt: updated.updatedAt,
+    }
+    saveLearningState()
+    return updated
+  }
+
   function decideRequest(request, adminCodeword) {
     const baseDecision = enforcePolicy(request)
 
@@ -1028,6 +1374,20 @@ function registerIpcHandlers(mainWindow) {
     const pattern = new RegExp(`${key}\\s*=\\s*([^;\\n]+)`, 'i')
     const match = text.match(pattern)
     return match ? String(match[1]).trim() : ''
+  }
+  function inferSkills(text) {
+    const content = String(text || '')
+    const rules = [
+      { skill: 'React UI Development', pattern: /react|tsx|component|jsx/i },
+      { skill: 'TypeScript Engineering', pattern: /typescript|type|interface|refactor/i },
+      { skill: 'Design Operations', pattern: /design|figma|frame|export/i },
+      { skill: 'CMS Content Editing', pattern: /wordpress|cms|publish|content/i },
+      { skill: 'Project Navigation', pattern: /repo|workspace|file|navigation/i },
+      { skill: 'Vision Workflow', pattern: /ocr|vision|screenshot|screen/i },
+      { skill: 'Verification Workflow', pattern: /verify|validation|evidence|check/i },
+    ]
+
+    return Array.from(new Set(rules.filter((entry) => entry.pattern.test(content)).map((entry) => entry.skill)))
   }
 
   function normalizeYoutubeUrl(inputUrl) {
@@ -2033,6 +2393,351 @@ function registerIpcHandlers(mainWindow) {
       ok: true,
       suggestions: computeCapabilitySuggestions(),
     }
+  })
+
+  ipcMain.handle('paxion:readiness:load', () => {
+    if (!isAdminUnlocked(adminSession)) {
+      return {
+        ok: false,
+        reason: 'Admin session required to load readiness systems.',
+        targetPacks: TARGET_WORKFLOW_PACK_DEFS,
+        executionSessions: [],
+        observations: [],
+        missions: [],
+        learningGraph: { nodes: [], edges: [], updatedAt: null },
+        evolutionPipelines: [],
+        visionJobs: [],
+      }
+    }
+
+    return {
+      ok: true,
+      targetPacks: TARGET_WORKFLOW_PACK_DEFS,
+      executionSessions: learningState.executionSessions || [],
+      observations: learningState.observationSnapshots || [],
+      missions: learningState.crossAppMissions || [],
+      learningGraph: buildLearningGraph(),
+      evolutionPipelines: learningState.evolutionPipelines || [],
+      visionJobs: learningState.visionJobs || [],
+    }
+  })
+
+  ipcMain.handle('paxion:readiness:runTargetPack', async (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to run target workflow pack.' }
+    }
+
+    if (!Boolean(input?.explicitPermission)) {
+      return { ok: false, reason: 'Explicit permission is required to run target workflow pack.' }
+    }
+
+    const packId = String(input?.packId || '').trim()
+    const pack = TARGET_WORKFLOW_PACK_DEFS.find((entry) => entry.id === packId)
+    if (!pack) {
+      return { ok: false, reason: 'Target workflow pack not found.' }
+    }
+
+    if (pack.requiredCapability && capabilityState[pack.requiredCapability] === false) {
+      return { ok: false, reason: `Required capability disabled: ${pack.requiredCapability}` }
+    }
+
+    const variables =
+      input?.variables && typeof input.variables === 'object'
+        ? Object.fromEntries(
+            Object.entries(input.variables)
+              .filter(([key, value]) => typeof key === 'string' && typeof value === 'string')
+              .map(([key, value]) => [String(key).trim(), String(value)]),
+          )
+        : {}
+    const resolvedTargetUrl = resolveTemplateVariables(pack.targetUrl || '', variables)
+    const resolvedIntent = resolveTemplateVariables(pack.intent || '', variables)
+    const resolvedSteps = (pack.executionSteps || []).map((step) => resolveTemplateVariables(step, variables))
+    const resolvedVerification = (pack.verificationChecks || []).map((step) => resolveTemplateVariables(step, variables))
+    const resolvedRollback = (pack.rollbackSteps || []).map((step) => resolveTemplateVariables(step, variables))
+
+    const workspaceRoot = path.join(app.getPath('userData'), 'paxion-workspace')
+    const artifactPath = path.join(
+      workspaceRoot,
+      'readiness-sessions',
+      `${slugifyName(pack.name, 'pack')}-${Date.now()}.json`,
+    )
+    fs.mkdirSync(path.dirname(artifactPath), { recursive: true })
+    fs.writeFileSync(
+      artifactPath,
+      JSON.stringify(
+        {
+          packId: pack.id,
+          name: pack.name,
+          surface: pack.surface,
+          appType: pack.appType,
+          targetUrl: resolvedTargetUrl,
+          intent: resolvedIntent,
+          executionSteps: resolvedSteps,
+          verificationChecks: resolvedVerification,
+          rollbackSteps: resolvedRollback,
+          variables,
+          createdAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    )
+
+    if (resolvedTargetUrl && /^https?:\/\//i.test(resolvedTargetUrl)) {
+      await shell.openExternal(resolvedTargetUrl)
+    }
+
+    const session = appendExecutionSession({
+      packId: pack.id,
+      packName: pack.name,
+      surface: pack.surface,
+      appType: pack.appType,
+      targetUrl: resolvedTargetUrl,
+      intent: resolvedIntent,
+      executionSteps: resolvedSteps,
+      verificationChecks: resolvedVerification,
+      rollbackSteps: resolvedRollback,
+      variables,
+      artifactPath,
+      status: 'prepared',
+    })
+
+    appendLearningLog({
+      title: `Target workflow prepared: ${pack.name}`,
+      detail: `Prepared deterministic workflow pack with verification and rollback checklist.`,
+      source: 'target-pack',
+      newSkills: pack.appType === 'design' ? ['Design Operations'] : ['Task-specific UI Automation'],
+    })
+
+    return {
+      ok: true,
+      session,
+      executionSessions: learningState.executionSessions || [],
+      learningGraph: buildLearningGraph(),
+    }
+  })
+
+  ipcMain.handle('paxion:readiness:verifySession', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to verify execution session.' }
+    }
+
+    const sessionId = String(input?.sessionId || '').trim()
+    const evidence = Array.isArray(input?.evidence)
+      ? input.evidence.filter((entry) => typeof entry === 'string' && entry.trim()).map((entry) => entry.trim())
+      : []
+    const notes = String(input?.notes || '').trim()
+    const outcome = String(input?.outcome || 'verified').trim()
+
+    const session = updateExecutionSession(sessionId, (current) => ({
+      status: outcome === 'failed' ? 'verification-failed' : 'verified',
+      evidence: [...(Array.isArray(current.evidence) ? current.evidence : []), ...evidence].slice(-20),
+      verificationNotes: notes || current.verificationNotes || '',
+    }))
+
+    if (!session) {
+      return { ok: false, reason: 'Execution session not found.' }
+    }
+
+    appendLearningLog({
+      title: `Session verification: ${session.packName}`,
+      detail: notes || `Verification outcome recorded as ${session.status}.`,
+      source: 'verification',
+      newSkills: outcome === 'verified' ? ['Verification Workflow'] : [],
+    })
+
+    return { ok: true, session, executionSessions: learningState.executionSessions || [], learningGraph: buildLearningGraph() }
+  })
+
+  ipcMain.handle('paxion:readiness:rollbackSession', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to rollback execution session.' }
+    }
+
+    const sessionId = String(input?.sessionId || '').trim()
+    const notes = String(input?.notes || '').trim()
+    const session = updateExecutionSession(sessionId, (current) => ({
+      status: 'rolled-back',
+      rollbackNotes: notes || current.rollbackNotes || 'Rollback triggered by admin.',
+    }))
+    if (!session) {
+      return { ok: false, reason: 'Execution session not found.' }
+    }
+
+    appendLearningLog({
+      title: `Rollback prepared: ${session.packName}`,
+      detail: session.rollbackNotes,
+      source: 'rollback',
+      newSkills: ['Rollback Planning'],
+    })
+
+    return { ok: true, session, executionSessions: learningState.executionSessions || [], learningGraph: buildLearningGraph() }
+  })
+
+  ipcMain.handle('paxion:readiness:captureObservation', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to capture observation.' }
+    }
+
+    const appType = String(input?.appType || '').trim() || 'unknown'
+    const visibleText = String(input?.visibleText || '').trim()
+    const notes = String(input?.notes || '').trim()
+    const inferredSkills = inferSkills(`${appType}\n${visibleText}\n${notes}`)
+    const snapshot = appendObservationSnapshot({
+      title: String(input?.title || `Observation in ${appType}`),
+      appType,
+      visibleText,
+      notes,
+      screenshotPath: String(input?.screenshotPath || ''),
+      inferredSkills,
+    })
+
+    appendLearningLog({
+      title: `Observation captured: ${snapshot.title}`,
+      detail: notes || 'Captured visible workflow state for later learning.',
+      source: 'observation',
+      newSkills: inferredSkills,
+    })
+
+    return { ok: true, snapshot, observations: learningState.observationSnapshots || [], learningGraph: buildLearningGraph(), skills: learningState.skills }
+  })
+
+  ipcMain.handle('paxion:readiness:planMission', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to plan cross-app mission.' }
+    }
+
+    const surfaces = Array.isArray(input?.surfaces)
+      ? input.surfaces.filter((entry) => typeof entry === 'string' && entry.trim()).map((entry) => entry.trim())
+      : []
+    const mission = buildCrossAppMission(String(input?.goal || ''), surfaces, TARGET_WORKFLOW_PACK_DEFS)
+    appendCrossAppMission(mission)
+
+    return { ok: true, mission, missions: learningState.crossAppMissions || [] }
+  })
+
+  ipcMain.handle('paxion:readiness:graph', () => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to inspect learning graph.', learningGraph: { nodes: [], edges: [], updatedAt: null } }
+    }
+
+    return { ok: true, learningGraph: buildLearningGraph() }
+  })
+
+  ipcMain.handle('paxion:readiness:createEvolutionPipeline', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to create evolution pipeline.' }
+    }
+
+    if (capabilityState.selfEvolution === false) {
+      return { ok: false, reason: 'selfEvolution capability is disabled in Access tab.' }
+    }
+
+    const workspaceRoot = path.join(app.getPath('userData'), 'paxion-workspace')
+    const artifactPath = path.join(workspaceRoot, 'evolution', `pipeline-${Date.now()}.md`)
+    fs.mkdirSync(path.dirname(artifactPath), { recursive: true })
+    fs.writeFileSync(
+      artifactPath,
+      [
+        '# Paxion Evolution Pipeline',
+        `Title: ${String(input?.title || 'Evolution pipeline')}`,
+        '',
+        'Stages:',
+        '- proposal',
+        '- scaffold',
+        '- test',
+        '- review',
+        '- deploy',
+        '',
+        `Objective: ${String(input?.objective || '')}`,
+      ].join('\n'),
+      'utf8',
+    )
+
+    const pipeline = appendEvolutionPipeline({
+      title: String(input?.title || 'Evolution pipeline'),
+      objective: String(input?.objective || ''),
+      note: String(input?.note || 'Pipeline created by admin.'),
+      artifactPath,
+    })
+
+    return { ok: true, pipeline, evolutionPipelines: learningState.evolutionPipelines || [] }
+  })
+
+  ipcMain.handle('paxion:readiness:advanceEvolutionPipeline', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to advance evolution pipeline.' }
+    }
+
+    const pipelineId = String(input?.pipelineId || '').trim()
+    const note = String(input?.note || '').trim()
+    const pipeline = updateEvolutionPipeline(pipelineId, (current) => {
+      const stages = Array.isArray(current.stages) ? current.stages : []
+      const currentIndex = Math.max(0, stages.indexOf(current.currentStage))
+      const nextStage = stages[Math.min(stages.length - 1, currentIndex + 1)] || current.currentStage
+      return {
+        currentStage: nextStage,
+        history: [...(Array.isArray(current.history) ? current.history : []), { stage: nextStage, note, timestamp: new Date().toISOString() }],
+      }
+    })
+
+    if (!pipeline) {
+      return { ok: false, reason: 'Evolution pipeline not found.' }
+    }
+
+    return { ok: true, pipeline, evolutionPipelines: learningState.evolutionPipelines || [] }
+  })
+
+  ipcMain.handle('paxion:readiness:createVisionJob', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to create vision/OCR job.' }
+    }
+
+    if (capabilityState.desktopAppAutomation === false) {
+      return { ok: false, reason: 'desktopAppAutomation capability is required for vision/OCR jobs.' }
+    }
+
+    const objective = String(input?.objective || '').trim() || 'Review UI screenshot'
+    const extractedText = String(input?.extractedText || '').trim()
+    const notes = String(input?.notes || '').trim()
+    const inferredSkills = inferSkills(`${objective}\n${extractedText}\n${notes}`)
+    const job = appendVisionJob({
+      objective,
+      screenshotPath: String(input?.screenshotPath || ''),
+      extractedText,
+      notes,
+      status: 'queued',
+      inferredSkills,
+    })
+
+    appendLearningLog({
+      title: `Vision/OCR job created: ${objective}`,
+      detail: extractedText ? 'Queued screenshot review with extracted text context.' : 'Queued screenshot review for later OCR analysis.',
+      source: 'vision-job',
+      newSkills: inferredSkills,
+    })
+
+    return { ok: true, job, visionJobs: learningState.visionJobs || [], learningGraph: buildLearningGraph() }
+  })
+
+  ipcMain.handle('paxion:readiness:reviewVisionJob', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to review vision/OCR job.' }
+    }
+
+    const jobId = String(input?.jobId || '').trim()
+    const notes = String(input?.notes || '').trim()
+    const job = updateVisionJob(jobId, (current) => ({
+      status: 'reviewed',
+      notes: notes || current.notes || 'Vision job reviewed by admin.',
+    }))
+
+    if (!job) {
+      return { ok: false, reason: 'Vision/OCR job not found.' }
+    }
+
+    return { ok: true, job, visionJobs: learningState.visionJobs || [], learningGraph: buildLearningGraph() }
   })
 
   ipcMain.handle('paxion:learning:youtubePlanCreate', (_event, input) => {
