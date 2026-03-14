@@ -10,6 +10,20 @@ const ADMIN_CODEWORD = 'paro the chief'
 const ADMIN_SESSION_TTL_MS = 15 * 60 * 1000
 const APPROVAL_TTL_MS = 5 * 60 * 1000
 
+const DEFAULT_CAPABILITIES = {
+  workspaceExecution: true,
+  workspaceFileWrite: true,
+  libraryIngestLocal: true,
+  libraryIngestWeb: false,
+  voiceInput: true,
+  voiceOutput: true,
+}
+
+const ACTION_REQUIRED_CAPABILITY = {
+  'workspace.generateComponent': 'workspaceExecution',
+  'library.ingestDocument': 'libraryIngestLocal',
+}
+
 // ── Policy constants (authoritative main-process mirror of src/security/policy.ts) ──
 
 const BLOCKED_ACTION_IDS = new Set([
@@ -200,8 +214,10 @@ function registerIpcHandlers(mainWindow) {
   const auditFilePath = path.join(app.getPath('userData'), 'paxion-audit.jsonl')
   const approvalsFilePath = path.join(app.getPath('userData'), 'paxion-approvals.json')
   const workspaceStateFilePath = path.join(app.getPath('userData'), 'paxion-workspace-state.json')
+  const capabilityStateFilePath = path.join(app.getPath('userData'), 'paxion-capabilities.json')
   const adminSession = buildAdminSessionState()
   const approvalTickets = new Map()
+  let capabilityState = { ...DEFAULT_CAPABILITIES }
   const auditState = {
     lastHash: 'GENESIS',
     lastIndex: 0,
@@ -365,8 +381,52 @@ function registerIpcHandlers(mainWindow) {
     return String(codeword || '').trim().toLowerCase() === ADMIN_CODEWORD
   }
 
+  function loadCapabilityState() {
+    if (!fs.existsSync(capabilityStateFilePath)) {
+      capabilityState = { ...DEFAULT_CAPABILITIES }
+      return
+    }
+
+    try {
+      const raw = fs.readFileSync(capabilityStateFilePath, 'utf8')
+      const parsed = JSON.parse(raw)
+      capabilityState = {
+        ...DEFAULT_CAPABILITIES,
+        ...(parsed && typeof parsed === 'object' ? parsed : {}),
+      }
+    } catch {
+      capabilityState = { ...DEFAULT_CAPABILITIES }
+    }
+  }
+
+  function saveCapabilityState() {
+    fs.writeFileSync(capabilityStateFilePath, JSON.stringify(capabilityState, null, 2), 'utf8')
+  }
+
   function decideRequest(request, adminCodeword) {
     const baseDecision = enforcePolicy(request)
+
+    const requiredCapability = ACTION_REQUIRED_CAPABILITY[request?.actionId]
+    if (requiredCapability && capabilityState[requiredCapability] === false) {
+      const deniedDecision = {
+        allowed: false,
+        requiresApproval: false,
+        ruleId: 'capability-disabled',
+        reason: `Action blocked because capability "${requiredCapability}" is disabled in Access tab.`,
+      }
+
+      return {
+        baseDecision: deniedDecision,
+        finalDecision: deniedDecision,
+        context: {
+          adminSessionActive: isAdminUnlocked(adminSession),
+          adminVerified: false,
+          approvalGranted: false,
+          approvalTicketId: null,
+          approvalExpiresAt: null,
+        },
+      }
+    }
 
     if (!baseDecision.allowed || !baseDecision.requiresApproval) {
       return {
@@ -489,6 +549,7 @@ function registerIpcHandlers(mainWindow) {
 
   loadApprovalTickets()
   initializeAuditState()
+  loadCapabilityState()
 
   // Legacy endpoint for compatibility with existing renderer logging calls.
   ipcMain.handle('paxion:audit:append', (_event, input) => {
@@ -575,6 +636,43 @@ function registerIpcHandlers(mainWindow) {
   // Authoritative main-process policy evaluation.
   ipcMain.handle('paxion:policy:evaluate', (_event, request) => {
     return enforcePolicy(request)
+  })
+
+  ipcMain.handle('paxion:access:load', () => {
+    return {
+      ok: true,
+      capabilities: capabilityState,
+    }
+  })
+
+  ipcMain.handle('paxion:access:set', (_event, input) => {
+    const key = String(input?.key || '')
+    const enabled = Boolean(input?.enabled)
+
+    if (!(key in DEFAULT_CAPABILITIES)) {
+      return {
+        ok: false,
+        reason: 'Unknown capability key.',
+        capabilities: capabilityState,
+      }
+    }
+
+    capabilityState = {
+      ...capabilityState,
+      [key]: enabled,
+    }
+    saveCapabilityState()
+
+    appendAuditEntry('action_result', {
+      actionId: 'access.setCapability',
+      status: 'allowed',
+      reason: `Capability ${key} set to ${enabled ? 'enabled' : 'disabled'}`,
+    })
+
+    return {
+      ok: true,
+      capabilities: capabilityState,
+    }
   })
 
   // Full decision endpoint: policy evaluate + admin verify + approval ticket consume.

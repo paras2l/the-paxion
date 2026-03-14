@@ -664,6 +664,12 @@
   gap: 0.35rem;
 }
 
+.chat-voice-row {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
 /* Toggle reasoning button */
 .chat-toggle-thought {
   background: none;
@@ -751,4 +757,22 @@
   margin-top: 0.4rem;
   display: flex;
   gap: 0.4rem;
+}
+
+.capability-list {
+  margin-top: 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.capability-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--edge-soft);
+  border-radius: 0.45rem;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.82rem;
 }

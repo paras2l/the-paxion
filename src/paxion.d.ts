@@ -68,6 +68,21 @@ interface PaxionWorkspaceSaveResult {
   updatedAt?: string
 }
 
+type PaxionCapabilityState = {
+  workspaceExecution: boolean
+  workspaceFileWrite: boolean
+  libraryIngestLocal: boolean
+  libraryIngestWeb: boolean
+  voiceInput: boolean
+  voiceOutput: boolean
+}
+
+interface PaxionAccessResult {
+  ok: boolean
+  reason?: string
+  capabilities: PaxionCapabilityState
+}
+
 declare global {
   interface Window {
     readonly paxion?: {
@@ -92,6 +107,10 @@ declare global {
           request: ActionRequest
           adminCodeword?: string
         }): Promise<PaxionActionExecutionEnvelope>
+      }
+      access: {
+        load(): Promise<PaxionAccessResult>
+        set(input: { key: keyof PaxionCapabilityState; enabled: boolean }): Promise<PaxionAccessResult>
       }
       workspace: {
         load(): Promise<PaxionWorkspaceLoadResult>

@@ -34,3 +34,4 @@ Use this file to protect continuity and prevent missing work.
 - v0.4.0-chat: local-first chat tab with Library retrieval context.
 - v0.5.0-paxion-brain: no external API model path; local PaxionBrain and dark mission UI.
 - v0.6.0-workspace-mvp: admin session hardening, atomic main-process decision+execution+audit flow, persisted approvals, and workspace mission executor queue.
+- v0.7.0-access-voice: persisted capability registry in Access tab with policy blocking, plus local voice input/output controls in Chat.

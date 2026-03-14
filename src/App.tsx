@@ -73,6 +73,38 @@ type WorkspaceStep = {
   executionMode?: string
 }
 
+type CapabilityState = {
+  workspaceExecution: boolean
+  workspaceFileWrite: boolean
+  libraryIngestLocal: boolean
+  libraryIngestWeb: boolean
+  voiceInput: boolean
+  voiceOutput: boolean
+}
+
+type CapabilityKey = keyof CapabilityState
+
+type SpeechRecognitionResultLike = {
+  transcript: string
+}
+
+type SpeechRecognitionEventLike = {
+  results: SpeechRecognitionResultLike[][]
+}
+
+type SpeechRecognitionLike = {
+  lang: string
+  continuous: boolean
+  interimResults: boolean
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null
+  onend: (() => void) | null
+  onerror: (() => void) | null
+  start: () => void
+  stop: () => void
+}
+
+type SpeechRecognitionCtorLike = new () => SpeechRecognitionLike
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms)
@@ -111,6 +143,15 @@ const actionPresets: ActionPreset[] = [
 ]
 
 const immutableSummary = getImmutablePolicySummary()
+
+const defaultCapabilityState: CapabilityState = {
+  workspaceExecution: true,
+  workspaceFileWrite: true,
+  libraryIngestLocal: true,
+  libraryIngestWeb: false,
+  voiceInput: true,
+  voiceOutput: true,
+}
 
 function buildWorkspacePlan(goal: string): WorkspaceStep[] {
   const normalizedGoal = goal.toLowerCase()
@@ -171,6 +212,8 @@ function App() {
   const [adminUnlocked, setAdminUnlocked] = useState(false)
   const [adminExpiresAt, setAdminExpiresAt] = useState<number | null>(null)
   const [adminMessage, setAdminMessage] = useState('')
+  const [capabilities, setCapabilities] = useState<CapabilityState>(defaultCapabilityState)
+  const [accessMessage, setAccessMessage] = useState('')
 
   // Library state
   const libraryStore = useMemo(() => new LibraryStore(), [])
@@ -186,8 +229,13 @@ function App() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
+  const [chatNotice, setChatNotice] = useState('')
+  const [chatVoiceListening, setChatVoiceListening] = useState(false)
+  const [chatVoiceEnabled, setChatVoiceEnabled] = useState(true)
   const [showThought, setShowThought] = useState<string | null>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
+  const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null)
+  const lastSpokenMessageIdRef = useRef<string | null>(null)
 
   // Workspace mission executor state
   const [workspaceGoal, setWorkspaceGoal] = useState('')
@@ -231,6 +279,40 @@ function App() {
     auditLedger.loadExternal(result.entries)
     setAuditEntries(auditLedger.getAll())
   }, [auditLedger])
+
+  const loadCapabilities = useCallback(async () => {
+    if (!window.paxion) {
+      setCapabilities(defaultCapabilityState)
+      return
+    }
+
+    const result = await window.paxion.access.load().catch(() => null)
+    if (result?.ok) {
+      setCapabilities(result.capabilities)
+    }
+  }, [])
+
+  const setCapability = useCallback(async (key: CapabilityKey, enabled: boolean) => {
+    if (!window.paxion) {
+      setCapabilities((prev) => ({
+        ...prev,
+        [key]: enabled,
+      }))
+      return
+    }
+
+    const result = await window.paxion.access.set({ key, enabled }).catch(() => null)
+    if (!result?.ok) {
+      setAccessMessage(result?.reason ?? 'Failed to update capability.')
+      return
+    }
+
+    setCapabilities(result.capabilities)
+    setAccessMessage(`Capability ${key} is now ${enabled ? 'enabled' : 'disabled'}.`)
+    if (adminUnlocked) {
+      await loadAuditIfAllowed()
+    }
+  }, [adminUnlocked, loadAuditIfAllowed])
 
   const normalizeWorkspacePlan = useCallback((raw: Array<Record<string, unknown>>): WorkspaceStep[] => {
     return raw
@@ -320,6 +402,7 @@ function App() {
 
     queueMicrotask(() => {
       refreshAdminStatus()
+      loadCapabilities()
     })
 
     const intervalId = window.setInterval(() => {
@@ -329,7 +412,7 @@ function App() {
     return () => {
       window.clearInterval(intervalId)
     }
-  }, [refreshAdminStatus])
+  }, [loadCapabilities, refreshAdminStatus])
 
   // Restore workspace mission state from persistence.
   useEffect(() => {
@@ -355,6 +438,95 @@ function App() {
   useEffect(() => {
     chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [chatMessages, chatLoading])
+
+  // Voice output for assistant replies (local Web Speech API when available).
+  useEffect(() => {
+    if (!chatVoiceEnabled || !capabilities.voiceOutput) {
+      return
+    }
+
+    const latestAssistantMessage = [...chatMessages].reverse().find((m) => m.role === 'assistant')
+    if (!latestAssistantMessage) {
+      return
+    }
+
+    if (lastSpokenMessageIdRef.current === latestAssistantMessage.id) {
+      return
+    }
+
+    if (!('speechSynthesis' in window)) {
+      return
+    }
+
+    const utterance = new SpeechSynthesisUtterance(latestAssistantMessage.content.slice(0, 600))
+    utterance.rate = 1
+    utterance.pitch = 1
+    utterance.lang = 'en-US'
+    window.speechSynthesis.cancel()
+    window.speechSynthesis.speak(utterance)
+    lastSpokenMessageIdRef.current = latestAssistantMessage.id
+  }, [capabilities.voiceOutput, chatMessages, chatVoiceEnabled])
+
+  function toggleChatVoiceOutput() {
+    setChatVoiceEnabled((prev) => !prev)
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel()
+    }
+  }
+
+  function startVoiceInput() {
+    if (!capabilities.voiceInput) {
+      setChatNotice('Voice input is disabled in Access tab.')
+      return
+    }
+
+    const voiceWindow = window as Window & {
+      SpeechRecognition?: SpeechRecognitionCtorLike
+      webkitSpeechRecognition?: SpeechRecognitionCtorLike
+    }
+
+    const SpeechRecognitionCtor =
+      voiceWindow.SpeechRecognition ?? voiceWindow.webkitSpeechRecognition
+    if (!SpeechRecognitionCtor) {
+      setChatNotice('Voice input is not supported on this runtime.')
+      return
+    }
+
+    if (!speechRecognitionRef.current) {
+      const recognition = new SpeechRecognitionCtor()
+      recognition.lang = 'en-US'
+      recognition.continuous = false
+      recognition.interimResults = false
+
+      recognition.onresult = (event: SpeechRecognitionEventLike) => {
+        const transcript = String(event?.results?.[0]?.[0]?.transcript || '').trim()
+        if (transcript) {
+          setChatInput((prev) => (prev ? `${prev} ${transcript}` : transcript))
+          setChatNotice('Voice captured.')
+        }
+      }
+
+      recognition.onend = () => {
+        setChatVoiceListening(false)
+      }
+
+      recognition.onerror = () => {
+        setChatVoiceListening(false)
+      }
+
+      speechRecognitionRef.current = recognition
+    }
+
+    speechRecognitionRef.current.start()
+    setChatVoiceListening(true)
+    setChatNotice('Listening...')
+  }
+
+  function stopVoiceInput() {
+    if (!speechRecognitionRef.current) return
+    speechRecognitionRef.current.stop()
+    setChatVoiceListening(false)
+  }
 
   function syncAuditState() {
     setAuditEntries(auditLedger.getAll())
@@ -801,6 +973,22 @@ function App() {
             <span className={`chat-rank chat-rank-${lastConf ?? 'none'}`}>{rank}</span>
           </div>
 
+          <div className="chat-voice-row">
+            <button className="run-button" onClick={toggleChatVoiceOutput}>
+              Voice Output: {chatVoiceEnabled && capabilities.voiceOutput ? 'ON' : 'OFF'}
+            </button>
+            {!chatVoiceListening ? (
+              <button className="run-button" onClick={startVoiceInput}>
+                Start Voice Input
+              </button>
+            ) : (
+              <button className="run-button" onClick={stopVoiceInput}>
+                Stop Voice Input
+              </button>
+            )}
+          </div>
+          {chatNotice && <p className="muted">{chatNotice}</p>}
+
           {/* Messages */}
           <div className="chat-messages" ref={chatScrollRef}>
             {chatMessages.length === 0 ? (
@@ -1019,6 +1207,27 @@ function App() {
 
       return (
         <div className="tab-content-stack">
+          <div className="decision-card">
+            <strong>Capability Registry</strong>
+            <p>Admin controls what Paxion can access and execute.</p>
+            <div className="capability-list">
+              {(Object.keys(capabilities) as CapabilityKey[]).map((key) => (
+                <div className="capability-item" key={key}>
+                  <span>{key}</span>
+                  <button
+                    className="run-button"
+                    onClick={() => {
+                      void setCapability(key, !capabilities[key])
+                    }}
+                  >
+                    {capabilities[key] ? 'Disable' : 'Enable'}
+                  </button>
+                </div>
+              ))}
+            </div>
+            {accessMessage && <p className="muted">{accessMessage}</p>}
+          </div>
+
           <div className="control-group">
             <label htmlFor="action-preset">Action preset</label>
             <select
@@ -1330,7 +1539,7 @@ function App() {
       <footer className="footer">
         <span>Profile: Paro the Chief</span>
         <span>Mode: Policy-Enforced Build</span>
-        <span>Version: v0.6.0-workspace-mvp</span>
+        <span>Version: v0.7.0-access-voice</span>
       </footer>
     </div>
   )

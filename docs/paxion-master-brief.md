@@ -52,6 +52,12 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Supports per-step execution and queue execution through guarded main-process action endpoint.
 - Step timeline shows status and execution outcomes for each mission step.
 
+## Access and voice baseline
+- Access tab now controls a persisted capability registry (enable/disable execution abilities).
+- Policy decisions can be blocked by disabled capabilities (admin-managed).
+- Chat includes local voice input/output controls (no external API dependency).
+- Voice features respect Access capability toggles.
+
 ## Out of scope for v1
 - Unrestricted autonomous operations.
 - Unrestricted web crawling.
