@@ -171,7 +171,7 @@ export class PaxionBrain {
     // ── Boundary check ──
     if (BOUNDARY_PATTERNS.some((p) => q.includes(p))) {
       return {
-        reply: `${CORE_IDENTITY.name} operates within strict boundaries set by Paro the Chief.\nHarmful or illegal actions require explicit codeword authorization ("paro the chief").\nWithout that authorization, I am required to decline.`,
+        reply: `${CORE_IDENTITY.name} operates within strict boundaries set by Paro the Chief.\nSensitive actions require admin codeword authorization ("paro the chief").\nMaster-gated harmful actions require the secret master codeword ("paro the master").\nImmutable boundary policy files can never be rewritten by generated code.`,
         contextDocs: [],
         reasoningSteps: ['Boundary keyword detected. Policy gate engaged.'],
         confidence: 'high',

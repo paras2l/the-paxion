@@ -1,0 +1,16 @@
+{
+  "name": "The Paxion",
+  "short_name": "Paxion",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#10181d",
+  "theme_color": "#10181d",
+  "description": "Paxion mobile companion for voice/chat workflow control.",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

@@ -1,7 +1,8 @@
 'use strict'
 
-const { ipcMain, dialog, app, shell, desktopCapturer } = require('electron')
+const { ipcMain, dialog, app, shell, desktopCapturer, safeStorage } = require('electron')
 const crypto = require('crypto')
+const http = require('http')
 const fs = require('fs')
 const path = require('path')
 const { exec } = require('child_process')
@@ -19,14 +20,24 @@ const {
   resolveTemplateVariables,
   selectVersionedPackProfile,
 } = require('./readiness-utils.cjs')
+const {
+  isBoundaryProtectedPath,
+  isMasterGatedAction,
+  isAdminCodewordValid,
+  isMasterCodewordValid,
+  SENSITIVE_CATEGORIES,
+} = require('../boundary/policy-boundary.cjs')
 const { evaluateCompliance, buildPolicySnapshotHash } = require('./compliance-engine.cjs')
 const { upsertDevice, revokeDevice } = require('./device-control-plane.cjs')
 const { evolveSkills, generateHypotheses } = require('./learning-engine-v2.cjs')
 const { runBacktest, placePaperOrder } = require('./trading-engine.cjs')
 const { evaluateMedicationSafety, evaluateMedicalAdviceConfidence } = require('./medical-safety.cjs')
 const { enqueueMediaJob } = require('./media-generation.cjs')
+const { callViaTwilio, normalizePhoneNumber } = require('./telephony-adapter.cjs')
+const { generateWorkflow } = require('./workflow-engine.cjs')
+const { assessTerminalCommand, buildCommandPlan } = require('./terminal-agent.cjs')
+const { generateCreativeHypotheses } = require('./creative-lab.cjs')
 
-const ADMIN_CODEWORD = 'paro the chief'
 const ADMIN_SESSION_TTL_MS = 15 * 60 * 1000
 const APPROVAL_TTL_MS = 5 * 60 * 1000
 const REPLAY_PREVIEW_TTL_MS = 5 * 60 * 1000
@@ -46,6 +57,7 @@ const DEFAULT_CAPABILITIES = {
   chatExternalModel: false,
   voiceInput: true,
   voiceOutput: true,
+  emergencyCallRelay: true,
 }
 
 const ACTION_REQUIRED_CAPABILITY = {
@@ -373,33 +385,6 @@ const SKILL_CAPABILITY_SUGGESTION_RULES = [
 
 // ── Policy constants (authoritative main-process mirror of src/security/policy.ts) ──
 
-const BLOCKED_ACTION_IDS = new Set([
-  'security.disablePolicy',
-  'security.deleteAudit',
-  'network.exfiltrateData',
-  'system.disableDefenses',
-])
-
-const PROTECTED_PATH_PREFIXES = [
-  '/src/security',
-  '/electron',
-  '/docs/paxion-master-brief.md',
-  '/docs/development-checkpoints.md',
-]
-
-const CODEGEN_ALLOWED_PREFIXES = ['/workspace', '/generated', '/projects']
-
-const SENSITIVE_CATEGORIES = new Set(['filesystem', 'network', 'codegen', 'system'])
-
-function normalizePath(p) {
-  return String(p).replace(/\\/g, '/').toLowerCase()
-}
-
-function isWithinPrefixes(p, prefixes) {
-  const norm = normalizePath(p)
-  return prefixes.some((prefix) => norm.startsWith(prefix))
-}
-
 function enforcePolicy(request) {
   if (!request || typeof request.actionId !== 'string') {
     return {
@@ -410,12 +395,14 @@ function enforcePolicy(request) {
     }
   }
 
-  if (BLOCKED_ACTION_IDS.has(request.actionId)) {
-    return {
-      allowed: false,
-      requiresApproval: false,
-      ruleId: 'blocked-action-id',
-      reason: 'This action is permanently blocked by security policy.',
+  if (isMasterGatedAction(request)) {
+    if (!isMasterCodewordValid(request.masterCodeword)) {
+      return {
+        allowed: false,
+        requiresApproval: false,
+        ruleId: 'master-codeword-required',
+        reason: 'This action requires the master codeword "paro the master" to proceed.',
+      }
     }
   }
 
@@ -437,20 +424,12 @@ function enforcePolicy(request) {
 
   const target = request.targetPath || ''
   if (target) {
-    if (isWithinPrefixes(target, PROTECTED_PATH_PREFIXES)) {
+    if (isBoundaryProtectedPath(target)) {
       return {
         allowed: false,
         requiresApproval: false,
-        ruleId: 'immutable-core-protection',
-        reason: 'Target path belongs to immutable security core and cannot be modified.',
-      }
-    }
-    if (request.category === 'codegen' && !isWithinPrefixes(target, CODEGEN_ALLOWED_PREFIXES)) {
-      return {
-        allowed: false,
-        requiresApproval: false,
-        ruleId: 'codegen-path-allowlist',
-        reason: 'Code generation is restricted to approved workspace paths.',
+        ruleId: 'immutable-boundary-protection',
+        reason: 'Target path belongs to immutable policy boundary and cannot be modified.',
       }
     }
   }
@@ -627,6 +606,10 @@ function registerIpcHandlers(mainWindow) {
   const tradingStateFilePath = path.join(app.getPath('userData'), 'paxion-trading.json')
   const medicalStateFilePath = path.join(app.getPath('userData'), 'paxion-medical.json')
   const mediaStateFilePath = path.join(app.getPath('userData'), 'paxion-media.json')
+  const callProviderStateFilePath = path.join(app.getPath('userData'), 'paxion-call-provider.json')
+  const voiceSecretsFilePath = path.join(app.getPath('userData'), 'paxion-voice-secrets.json')
+  const terminalPackStateFilePath = path.join(app.getPath('userData'), 'paxion-terminal-command-packs.json')
+  const bridgeStateFilePath = path.join(app.getPath('userData'), 'paxion-bridge-state.json')
   const adminSession = buildAdminSessionState()
   const approvalTickets = new Map()
   const replayPreviewApprovals = new Map()
@@ -681,6 +664,28 @@ function registerIpcHandlers(mainWindow) {
     jobs: [],
     updatedAt: null,
   }
+  let callProviderState = {
+    provider: 'desktop-relay',
+    fromNumber: '',
+    updatedAt: null,
+  }
+  let voiceSecretState = {
+    ciphertext: '',
+    updatedAt: null,
+  }
+  let terminalPackState = {
+    packs: [],
+    updatedAt: null,
+  }
+  let bridgeState = {
+    enabled: false,
+    host: '0.0.0.0',
+    port: 8731,
+    secret: '',
+    pendingRequests: [],
+    updatedAt: null,
+  }
+  let bridgeServer = null
 
   function loadAuditEntriesFromDisk() {
     if (!fs.existsSync(auditFilePath)) {
@@ -837,7 +842,7 @@ function registerIpcHandlers(mainWindow) {
   }
 
   function isCodewordValid(codeword) {
-    return String(codeword || '').trim().toLowerCase() === ADMIN_CODEWORD
+    return isAdminCodewordValid(codeword)
   }
 
   function loadCapabilityState() {
@@ -974,6 +979,123 @@ function registerIpcHandlers(mainWindow) {
     }
   }
 
+  function encryptAtRest(plainText) {
+    if (!safeStorage.isEncryptionAvailable()) {
+      return { ok: false, reason: 'OS secure storage is unavailable for encrypted-at-rest secrets.' }
+    }
+    try {
+      const encrypted = safeStorage.encryptString(String(plainText || ''))
+      return {
+        ok: true,
+        payload: encrypted.toString('base64'),
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        reason: `Failed to encrypt secret payload: ${String(err?.message || err)}`,
+      }
+    }
+  }
+
+  function decryptAtRest(payload) {
+    if (!payload) {
+      return { ok: true, plainText: '' }
+    }
+    if (!safeStorage.isEncryptionAvailable()) {
+      return { ok: false, reason: 'OS secure storage is unavailable for decrypting secrets.' }
+    }
+    try {
+      const decrypted = safeStorage.decryptString(Buffer.from(String(payload), 'base64'))
+      return { ok: true, plainText: decrypted }
+    } catch (err) {
+      return {
+        ok: false,
+        reason: `Failed to decrypt secret payload: ${String(err?.message || err)}`,
+      }
+    }
+  }
+
+  function loadVoiceSecrets() {
+    const decoded = decryptAtRest(voiceSecretState.ciphertext)
+    if (!decoded.ok || !decoded.plainText) {
+      return {
+        twilioAccountSid: '',
+        twilioAuthToken: '',
+        twilioFromNumber: '',
+        sipUri: '',
+        sipUsername: '',
+        sipPassword: '',
+      }
+    }
+
+    try {
+      const parsed = JSON.parse(decoded.plainText)
+      return {
+        twilioAccountSid: String(parsed?.twilioAccountSid || ''),
+        twilioAuthToken: String(parsed?.twilioAuthToken || ''),
+        twilioFromNumber: String(parsed?.twilioFromNumber || ''),
+        sipUri: String(parsed?.sipUri || ''),
+        sipUsername: String(parsed?.sipUsername || ''),
+        sipPassword: String(parsed?.sipPassword || ''),
+      }
+    } catch {
+      return {
+        twilioAccountSid: '',
+        twilioAuthToken: '',
+        twilioFromNumber: '',
+        sipUri: '',
+        sipUsername: '',
+        sipPassword: '',
+      }
+    }
+  }
+
+  function getTerminalPackSigningPayload(pack) {
+    return stableStringify({
+      id: String(pack?.id || ''),
+      name: String(pack?.name || ''),
+      commands: Array.isArray(pack?.commands) ? pack.commands.map((x) => String(x)) : [],
+      policySnapshotHash: String(pack?.policySnapshotHash || ''),
+      createdAt: String(pack?.createdAt || ''),
+    })
+  }
+
+  function verifyTerminalPackSignature(pack) {
+    ensureAttestationState()
+    const signature = String(pack?.signature || '')
+    if (!signature) {
+      return false
+    }
+    try {
+      return crypto.verify(
+        null,
+        Buffer.from(getTerminalPackSigningPayload(pack), 'utf8'),
+        attestationState.publicKeyPem,
+        Buffer.from(signature, 'base64'),
+      )
+    } catch {
+      return false
+    }
+  }
+
+  function isCommandAllowedBySignedPacks(command) {
+    const packs = Array.isArray(terminalPackState.packs) ? terminalPackState.packs : []
+    const normalized = String(command || '').trim()
+    for (const pack of packs) {
+      if (!pack || pack.active !== true) {
+        continue
+      }
+      if (!verifyTerminalPackSignature(pack)) {
+        continue
+      }
+      const commands = Array.isArray(pack.commands) ? pack.commands : []
+      if (commands.includes(normalized)) {
+        return true
+      }
+    }
+    return false
+  }
+
   function saveJsonState(filePath, value) {
     fs.writeFileSync(filePath, JSON.stringify(value, null, 2), 'utf8')
   }
@@ -1000,6 +1122,27 @@ function registerIpcHandlers(mainWindow) {
       jobs: [],
       updatedAt: null,
     })
+    callProviderState = loadJsonState(callProviderStateFilePath, {
+      provider: 'desktop-relay',
+      fromNumber: '',
+      updatedAt: null,
+    })
+    voiceSecretState = loadJsonState(voiceSecretsFilePath, {
+      ciphertext: '',
+      updatedAt: null,
+    })
+    terminalPackState = loadJsonState(terminalPackStateFilePath, {
+      packs: [],
+      updatedAt: null,
+    })
+    bridgeState = loadJsonState(bridgeStateFilePath, {
+      enabled: false,
+      host: '0.0.0.0',
+      port: 8731,
+      secret: '',
+      pendingRequests: [],
+      updatedAt: null,
+    })
   }
 
   function saveDomainStates() {
@@ -1008,6 +1151,10 @@ function registerIpcHandlers(mainWindow) {
     saveJsonState(tradingStateFilePath, tradingState)
     saveJsonState(medicalStateFilePath, medicalState)
     saveJsonState(mediaStateFilePath, mediaState)
+    saveJsonState(callProviderStateFilePath, callProviderState)
+    saveJsonState(voiceSecretsFilePath, voiceSecretState)
+    saveJsonState(terminalPackStateFilePath, terminalPackState)
+    saveJsonState(bridgeStateFilePath, bridgeState)
   }
 
   function workspaceRootPath() {
@@ -2156,7 +2303,7 @@ function registerIpcHandlers(mainWindow) {
         }
       }
 
-      if (!TOOL_COMMAND_ALLOWLIST.has(command)) {
+      if (!TOOL_COMMAND_ALLOWLIST.has(command) && !isCommandAllowedBySignedPacks(command)) {
         return {
           executed: false,
           mode: 'tool-bridge-denied',
@@ -2386,6 +2533,15 @@ function registerIpcHandlers(mainWindow) {
   loadLearningState()
   loadDomainStates()
   ensureAttestationState()
+  if (bridgeState.enabled) {
+    try {
+      startBridgeServer()
+    } catch {
+      bridgeState.enabled = false
+      bridgeState.updatedAt = new Date().toISOString()
+      saveDomainStates()
+    }
+  }
 
   // Legacy endpoint for compatibility with existing renderer logging calls.
   ipcMain.handle('paxion:audit:append', (_event, input) => {
@@ -2432,7 +2588,7 @@ function registerIpcHandlers(mainWindow) {
   })
 
   ipcMain.handle('paxion:admin:unlock', (_event, codeword) => {
-    const valid = String(codeword || '').trim().toLowerCase() === ADMIN_CODEWORD
+    const valid = isAdminCodewordValid(codeword)
     if (!valid) {
       return {
         ok: false,
@@ -4158,6 +4314,595 @@ function registerIpcHandlers(mainWindow) {
       opened: true,
       url,
       reason: 'Opened ChatGPT in your desktop browser. Submit the prompt manually and paste the response back.',
+    }
+  })
+
+  ipcMain.handle('paxion:voice:call', async (_event, input) => {
+    if (capabilityState.emergencyCallRelay === false) {
+      return {
+        ok: false,
+        reason: 'Emergency call relay capability is disabled in Access tab.',
+      }
+    }
+
+    const number = String(input?.number || '').trim()
+    const contact = String(input?.contact || '').trim()
+    const emergency = Boolean(input?.emergency)
+
+    if (!number && !contact) {
+      return {
+        ok: false,
+        reason: 'Provide a phone number or contact name.',
+      }
+    }
+
+    const adminActive = isAdminUnlocked(adminSession)
+    if (!adminActive && !emergency) {
+      return {
+        ok: false,
+        reason: 'Admin session required for non-emergency call relay.',
+      }
+    }
+
+    const provider = String(input?.provider || callProviderState.provider || 'desktop-relay').trim()
+    let providerResult = null
+
+    if (provider === 'twilio' && number) {
+      const secrets = loadVoiceSecrets()
+      providerResult = await callViaTwilio({
+        toNumber: number,
+        fromNumber: String(input?.fromNumber || callProviderState.fromNumber || secrets.twilioFromNumber || ''),
+        accountSid: secrets.twilioAccountSid,
+        authToken: secrets.twilioAuthToken,
+        message: String(input?.message || (emergency ? 'Emergency call initiated by Paxion.' : 'Paxion call initiated.')),
+      })
+      if (!providerResult?.ok) {
+        return {
+          ok: false,
+          reason: providerResult?.reason || 'Twilio call could not be placed.',
+        }
+      }
+    } else if (provider === 'sip' && number) {
+      const normalizedSip = normalizePhoneNumber(number)
+      if (!normalizedSip) {
+        return {
+          ok: false,
+          reason: 'Phone number format is invalid for SIP call.',
+        }
+      }
+      const sipUrl = `sip:${normalizedSip.replace(/^\+/, '')}`
+      await shell.openExternal(sipUrl)
+      providerResult = {
+        ok: true,
+        provider: 'sip',
+        status: 'initiated',
+        url: sipUrl,
+      }
+    } else {
+      let url = ''
+      if (number) {
+        const normalized = normalizePhoneNumber(number)
+        if (!normalized) {
+          return {
+            ok: false,
+            reason: 'Phone number format is invalid.',
+          }
+        }
+        url = `tel:${normalized}`
+      } else {
+        const query = encodeURIComponent(`call ${contact} phone number`)
+        url = `https://www.google.com/search?q=${query}`
+      }
+      await shell.openExternal(url)
+      providerResult = {
+        ok: true,
+        provider: 'desktop-relay',
+        status: 'initiated',
+        url,
+      }
+    }
+
+    appendAuditEntry('action_result', {
+      actionId: 'voice.callRelay',
+      status: 'allowed',
+      reason: emergency ? 'Emergency voice relay initiated.' : 'Voice call relay initiated.',
+      target: number || contact,
+      emergency,
+      provider,
+      providerResult,
+    })
+
+    return {
+      ok: true,
+      emergency,
+      provider,
+      providerResult,
+      reason: number
+        ? provider === 'twilio'
+          ? 'Placed provider-backed voice call via Twilio.'
+          : provider === 'sip'
+            ? 'Opened SIP dial target in your system client.'
+            : 'Opened your system dialer with the requested number.'
+        : 'Opened contact call lookup in browser (desktop relay mode).',
+    }
+  })
+
+  ipcMain.handle('paxion:voice:provider:get', () => {
+    return {
+      ok: true,
+      provider: callProviderState.provider,
+      fromNumber: callProviderState.fromNumber,
+      updatedAt: callProviderState.updatedAt,
+    }
+  })
+
+  ipcMain.handle('paxion:voice:provider:set', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to update call provider.' }
+    }
+    const provider = String(input?.provider || '').trim().toLowerCase()
+    if (!['desktop-relay', 'twilio', 'sip'].includes(provider)) {
+      return { ok: false, reason: 'Provider must be desktop-relay, twilio, or sip.' }
+    }
+    callProviderState = {
+      provider,
+      fromNumber: normalizePhoneNumber(input?.fromNumber || ''),
+      updatedAt: new Date().toISOString(),
+    }
+    saveDomainStates()
+    return { ok: true, provider: callProviderState.provider, fromNumber: callProviderState.fromNumber, updatedAt: callProviderState.updatedAt }
+  })
+
+  ipcMain.handle('paxion:voice:secrets:get', () => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to read provider secret status.' }
+    }
+    const secrets = loadVoiceSecrets()
+    return {
+      ok: true,
+      hasTwilioSid: Boolean(secrets.twilioAccountSid),
+      hasTwilioToken: Boolean(secrets.twilioAuthToken),
+      hasTwilioFromNumber: Boolean(secrets.twilioFromNumber),
+      hasSipUri: Boolean(secrets.sipUri),
+      hasSipUsername: Boolean(secrets.sipUsername),
+      hasSipPassword: Boolean(secrets.sipPassword),
+      twilioFromNumber: secrets.twilioFromNumber,
+      sipUri: secrets.sipUri,
+      sipUsername: secrets.sipUsername,
+      updatedAt: voiceSecretState.updatedAt,
+    }
+  })
+
+  ipcMain.handle('paxion:voice:secrets:set', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to update provider secrets.' }
+    }
+
+    const nextSecrets = {
+      twilioAccountSid: String(input?.twilioAccountSid || ''),
+      twilioAuthToken: String(input?.twilioAuthToken || ''),
+      twilioFromNumber: normalizePhoneNumber(input?.twilioFromNumber || ''),
+      sipUri: String(input?.sipUri || ''),
+      sipUsername: String(input?.sipUsername || ''),
+      sipPassword: String(input?.sipPassword || ''),
+    }
+    const encrypted = encryptAtRest(JSON.stringify(nextSecrets))
+    if (!encrypted.ok) {
+      return { ok: false, reason: encrypted.reason }
+    }
+
+    voiceSecretState = {
+      ciphertext: encrypted.payload,
+      updatedAt: new Date().toISOString(),
+    }
+    saveDomainStates()
+    return {
+      ok: true,
+      updatedAt: voiceSecretState.updatedAt,
+      twilioFromNumber: nextSecrets.twilioFromNumber,
+      sipUri: nextSecrets.sipUri,
+      sipUsername: nextSecrets.sipUsername,
+    }
+  })
+
+  ipcMain.handle('paxion:terminal:pack:list', () => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to view terminal command packs.', packs: [] }
+    }
+    return {
+      ok: true,
+      packs: Array.isArray(terminalPackState.packs) ? terminalPackState.packs : [],
+      updatedAt: terminalPackState.updatedAt,
+    }
+  })
+
+  ipcMain.handle('paxion:terminal:pack:create', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to create command packs.' }
+    }
+
+    ensureAttestationState()
+    const commands = Array.isArray(input?.commands)
+      ? input.commands.map((x) => String(x || '').trim()).filter(Boolean)
+      : []
+    if (commands.length === 0) {
+      return { ok: false, reason: 'At least one command is required.' }
+    }
+
+    const pack = {
+      id: `pack-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      name: String(input?.name || 'Custom Command Pack').trim() || 'Custom Command Pack',
+      commands: Array.from(new Set(commands)),
+      active: Boolean(input?.active),
+      createdAt: new Date().toISOString(),
+      policySnapshotHash: buildPolicySnapshotHash(),
+      signature: '',
+      signerFingerprint: attestationState.publicKeyFingerprint,
+    }
+
+    const signature = crypto.sign(
+      null,
+      Buffer.from(getTerminalPackSigningPayload(pack), 'utf8'),
+      attestationState.privateKeyPem,
+    )
+    pack.signature = signature.toString('base64')
+
+    terminalPackState = {
+      packs: [...(Array.isArray(terminalPackState.packs) ? terminalPackState.packs : []), pack].slice(-80),
+      updatedAt: new Date().toISOString(),
+    }
+    saveDomainStates()
+
+    appendAuditEntry('action_result', {
+      actionId: 'terminal.pack.create',
+      status: 'allowed',
+      reason: `Created signed terminal command pack ${pack.name}.`,
+      packId: pack.id,
+      commandCount: pack.commands.length,
+    })
+
+    return { ok: true, pack, packs: terminalPackState.packs, updatedAt: terminalPackState.updatedAt }
+  })
+
+  ipcMain.handle('paxion:terminal:pack:activate', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to change command pack activation.' }
+    }
+    const packId = String(input?.packId || '').trim()
+    const active = Boolean(input?.active)
+    let changed = null
+    const packs = (Array.isArray(terminalPackState.packs) ? terminalPackState.packs : []).map((pack) => {
+      if (pack.id !== packId) {
+        return pack
+      }
+      changed = {
+        ...pack,
+        active,
+      }
+      return changed
+    })
+
+    if (!changed) {
+      return { ok: false, reason: 'Command pack not found.', packs: terminalPackState.packs }
+    }
+
+    terminalPackState = {
+      packs,
+      updatedAt: new Date().toISOString(),
+    }
+    saveDomainStates()
+    return { ok: true, pack: changed, packs: terminalPackState.packs, updatedAt: terminalPackState.updatedAt }
+  })
+
+  function cleanupBridgePendingRequests() {
+    const now = Date.now()
+    const rows = Array.isArray(bridgeState.pendingRequests) ? bridgeState.pendingRequests : []
+    bridgeState.pendingRequests = rows.filter((row) => Number(row?.expiresAt || 0) > now)
+  }
+
+  function readBridgeBody(req) {
+    return new Promise((resolve) => {
+      let raw = ''
+      req.on('data', (chunk) => {
+        raw += String(chunk || '')
+      })
+      req.on('end', () => {
+        try {
+          resolve(JSON.parse(raw || '{}'))
+        } catch {
+          resolve({})
+        }
+      })
+      req.on('error', () => resolve({}))
+    })
+  }
+
+  function writeBridgeJson(res, statusCode, payload) {
+    res.writeHead(statusCode, { 'content-type': 'application/json; charset=utf-8' })
+    res.end(JSON.stringify(payload))
+  }
+
+  function stopBridgeServer() {
+    if (bridgeServer) {
+      try {
+        bridgeServer.close()
+      } catch {
+        // noop
+      }
+      bridgeServer = null
+    }
+  }
+
+  function startBridgeServer() {
+    stopBridgeServer()
+    bridgeServer = http.createServer(async (req, res) => {
+      const urlObj = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
+      if (req.method === 'GET' && urlObj.pathname === '/api/bridge/ping') {
+        writeBridgeJson(res, 200, { ok: true, name: 'paxion-bridge' })
+        return
+      }
+
+      if (req.method === 'POST' && urlObj.pathname === '/api/bridge/command') {
+        const body = await readBridgeBody(req)
+        if (String(body?.secret || '') !== String(bridgeState.secret || '')) {
+          writeBridgeJson(res, 401, { ok: false, reason: 'Invalid bridge secret.' })
+          return
+        }
+        const remoteRequest = body?.request
+        if (!remoteRequest || typeof remoteRequest.actionId !== 'string') {
+          writeBridgeJson(res, 400, { ok: false, reason: 'Invalid action request payload.' })
+          return
+        }
+        const ticket = issueApprovalTicket(remoteRequest.actionId)
+        const pending = {
+          id: `bridge-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+          createdAt: Date.now(),
+          expiresAt: Date.now() + APPROVAL_TTL_MS,
+          status: 'pending',
+          source: {
+            ip: String(req.socket?.remoteAddress || ''),
+            userAgent: String(req.headers['user-agent'] || ''),
+          },
+          request: remoteRequest,
+          approvalTicketId: ticket.id,
+          result: null,
+        }
+        cleanupBridgePendingRequests()
+        bridgeState.pendingRequests = [...(bridgeState.pendingRequests || []), pending].slice(-120)
+        bridgeState.updatedAt = new Date().toISOString()
+        saveDomainStates()
+        writeBridgeJson(res, 200, {
+          ok: true,
+          requestId: pending.id,
+          status: pending.status,
+          expiresAt: pending.expiresAt,
+        })
+        return
+      }
+
+      if (req.method === 'GET' && urlObj.pathname === '/api/bridge/request') {
+        const secret = String(urlObj.searchParams.get('secret') || '')
+        const requestId = String(urlObj.searchParams.get('id') || '')
+        if (secret !== String(bridgeState.secret || '')) {
+          writeBridgeJson(res, 401, { ok: false, reason: 'Invalid bridge secret.' })
+          return
+        }
+        cleanupBridgePendingRequests()
+        const row = (bridgeState.pendingRequests || []).find((x) => x.id === requestId)
+        if (!row) {
+          writeBridgeJson(res, 404, { ok: false, reason: 'Request not found.' })
+          return
+        }
+        writeBridgeJson(res, 200, {
+          ok: true,
+          request: {
+            id: row.id,
+            status: row.status,
+            createdAt: row.createdAt,
+            expiresAt: row.expiresAt,
+            result: row.result,
+          },
+        })
+        return
+      }
+
+      writeBridgeJson(res, 404, { ok: false, reason: 'Bridge route not found.' })
+    })
+
+    bridgeServer.listen(Number(bridgeState.port || 8731), String(bridgeState.host || '0.0.0.0'))
+  }
+
+  ipcMain.handle('paxion:bridge:status', () => {
+    cleanupBridgePendingRequests()
+    return {
+      ok: true,
+      enabled: Boolean(bridgeState.enabled),
+      host: bridgeState.host,
+      port: bridgeState.port,
+      hasSecret: Boolean(bridgeState.secret),
+      pendingRequests: bridgeState.pendingRequests || [],
+      updatedAt: bridgeState.updatedAt,
+    }
+  })
+
+  ipcMain.handle('paxion:bridge:start', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to start mobile bridge.' }
+    }
+    const host = String(input?.host || '0.0.0.0').trim() || '0.0.0.0'
+    const port = Math.max(1024, Math.min(65535, Number(input?.port || 8731)))
+    const secret = String(input?.secret || '').trim() || crypto.randomBytes(16).toString('hex')
+    bridgeState = {
+      ...bridgeState,
+      enabled: true,
+      host,
+      port,
+      secret,
+      updatedAt: new Date().toISOString(),
+    }
+    startBridgeServer()
+    saveDomainStates()
+    return {
+      ok: true,
+      enabled: bridgeState.enabled,
+      host: bridgeState.host,
+      port: bridgeState.port,
+      secret: bridgeState.secret,
+      updatedAt: bridgeState.updatedAt,
+    }
+  })
+
+  ipcMain.handle('paxion:bridge:stop', () => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to stop mobile bridge.' }
+    }
+    stopBridgeServer()
+    bridgeState = {
+      ...bridgeState,
+      enabled: false,
+      updatedAt: new Date().toISOString(),
+    }
+    saveDomainStates()
+    return {
+      ok: true,
+      enabled: bridgeState.enabled,
+      updatedAt: bridgeState.updatedAt,
+    }
+  })
+
+  ipcMain.handle('paxion:bridge:approve', async (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to approve bridge command.' }
+    }
+    const requestId = String(input?.requestId || '').trim()
+    const approved = Boolean(input?.approved)
+    const adminCodeword = String(input?.adminCodeword || '')
+    if (!isCodewordValid(adminCodeword)) {
+      return { ok: false, reason: 'Invalid admin codeword for bridge approval.' }
+    }
+
+    const rows = Array.isArray(bridgeState.pendingRequests) ? bridgeState.pendingRequests : []
+    const idx = rows.findIndex((row) => row.id === requestId)
+    if (idx < 0) {
+      return { ok: false, reason: 'Bridge request not found.' }
+    }
+    const row = rows[idx]
+    if (!consumeApprovalTicket(row.approvalTicketId, row.request?.actionId)) {
+      return { ok: false, reason: 'Bridge approval ticket expired or invalid.' }
+    }
+
+    if (!approved) {
+      row.status = 'rejected'
+      row.result = { ok: false, reason: 'Rejected by admin.' }
+      bridgeState.pendingRequests[idx] = row
+      bridgeState.updatedAt = new Date().toISOString()
+      saveDomainStates()
+      return { ok: true, request: row }
+    }
+
+    const decision = decideRequest(row.request, adminCodeword)
+    if (!decision?.finalDecision?.allowed) {
+      row.status = 'denied'
+      row.result = {
+        ok: false,
+        reason: decision?.finalDecision?.reason || 'Denied by policy.',
+        decision,
+      }
+      bridgeState.pendingRequests[idx] = row
+      bridgeState.updatedAt = new Date().toISOString()
+      saveDomainStates()
+      return { ok: true, request: row }
+    }
+
+    const execution = await executeAllowedAction(row.request)
+    row.status = execution?.executed ? 'executed' : 'failed'
+    row.result = {
+      ok: Boolean(execution?.executed),
+      execution,
+      decision,
+    }
+    bridgeState.pendingRequests[idx] = row
+    bridgeState.updatedAt = new Date().toISOString()
+    saveDomainStates()
+    return { ok: true, request: row }
+  })
+
+  ipcMain.handle('paxion:workflow:generate', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to generate AI workflows.' }
+    }
+    const result = generateWorkflow(input)
+    appendLearningLog({
+      title: `Workflow generated: ${String(result?.workflow?.goal || 'untitled')}`,
+      detail: `Generated workflow with ${Array.isArray(result?.workflow?.steps) ? result.workflow.steps.length : 0} step(s).`,
+      source: 'workflow-engine',
+      newSkills: Array.isArray(result?.workflow?.skillTags) ? result.workflow.skillTags : [],
+    })
+    return {
+      ...result,
+      learningGraph: buildLearningGraph(),
+      skills: learningState.skills,
+    }
+  })
+
+  ipcMain.handle('paxion:terminal:plan', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required for terminal planning.' }
+    }
+    return buildCommandPlan(input)
+  })
+
+  ipcMain.handle('paxion:terminal:run', async (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required for terminal execution.' }
+    }
+    if (capabilityState.workspaceTooling !== true) {
+      return { ok: false, reason: 'workspaceTooling capability must be enabled for terminal execution.' }
+    }
+
+    const command = String(input?.command || '').trim()
+    const assessment = assessTerminalCommand(command)
+    if (!assessment.allowed) {
+      return { ok: false, reason: assessment.reason, risk: assessment.risk }
+    }
+
+    const actionEnvelope = await executeAllowedAction({
+      actionId: 'workspace.runToolCommand',
+      category: 'system',
+      detail: `command=${command}`,
+    })
+
+    appendAuditEntry('action_result', {
+      actionId: 'terminal.run',
+      status: actionEnvelope.executed ? 'allowed' : 'denied',
+      reason: actionEnvelope.note || 'Terminal command handled.',
+      command,
+      risk: assessment.risk,
+    })
+
+    return {
+      ok: Boolean(actionEnvelope.executed),
+      command,
+      assessment,
+      execution: actionEnvelope,
+    }
+  })
+
+  ipcMain.handle('paxion:creative:ideate', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required for creative ideation.' }
+    }
+    const result = generateCreativeHypotheses(input)
+    appendLearningLog({
+      title: `Creative lab ideation: ${String(result?.lab?.domain || 'general')}`,
+      detail: `Generated ${Array.isArray(result?.lab?.hypotheses) ? result.lab.hypotheses.length : 0} research hypothesis candidates.`,
+      source: 'creative-lab',
+      newSkills: ['Creative Synthesis', 'Hypothesis Engineering'],
+    })
+    return {
+      ...result,
+      learningGraph: buildLearningGraph(),
+      skills: learningState.skills,
     }
   })
 

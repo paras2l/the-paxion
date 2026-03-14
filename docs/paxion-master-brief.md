@@ -34,11 +34,14 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Keep local control as default and never allow silent self-escalation.
 
 ## Security enforcement baseline
-- Immutable core: security policy, approval logic, and audit controls cannot be changed by generated code.
-- Controlled self-coding: AI can create new code only inside approved workspace paths.
+- Two-codeword model: standard sensitive operations use admin codeword "paro the chief"; master-gated operations (previously permanently blocked) now require the secret master codeword "paro the master" to proceed.
+- Master-gated actions include: security policy disable, audit delete, data exfiltration paths, defense disable, and any request matching harmful-operation keyword patterns.
+- Without the master codeword, master-gated actions are blocked with a clear rejection message.
+- Controlled self-coding upgrade: with admin verification ("paro the chief") and approval flow, the app can rewrite or implant new features across app code (for example voice generation) to expand capability.
+- Immutable policy boundary is now separated into a dedicated boundary folder; boundary rules and codeword relay logic inside it cannot be rewritten by generated code under any codeword, including master codeword.
 - Sensitive operations require admin verification and explicit approval ticketing.
 - Audit is append-only and hash-chained to make tampering visible.
-- Blocked operations remain blocked regardless of prompt context.
+- Jurisdiction-aware compliance checks still apply for regional legal rules and review categories.
 
 ## Execution integrity baseline
 - Main-process authority: sensitive action finalization is enforced in Electron main process.
@@ -57,6 +60,32 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Policy decisions can be blocked by disabled capabilities (admin-managed).
 - Chat includes local voice input/output controls (no external API dependency).
 - Voice features respect Access capability toggles.
+- New assistant runtime controls now include Chat Mode <-> Voice Mode switching.
+- Voice mode now supports continuous wake-driven command flow with configurable wake phrase (default: "paxion wakeup").
+- Close-to-tray runtime keeps Paxion alive in background so wake phrase listening continues when window is closed.
+- Emergency call relay capability is now available for voice commands (desktop dialer relay first; provider-backed telephony can be added later).
+- Voice command execution still passes through admin/policy gates for sensitive actions.
+
+## Mobile companion baseline
+- Paxion can now run as a browser-based companion on mobile devices (responsive web runtime).
+- Mobile companion supports voice/chat interactions where browser speech APIs are available.
+- Desktop-only capabilities (tray runtime, native automation, system dialer relay) stay in Electron runtime for safety and OS integration.
+- Mobile installability baseline is now enabled through a web manifest + service worker companion profile.
+
+## Pro orchestration baseline
+- Voice call system now supports provider routing modes: desktop relay, SIP client handoff, and Twilio direct API call mode.
+- Call provider state is persisted and admin-configurable; emergency voice call relay remains capability-gated and auditable.
+- Twilio/SIP provider credentials now have encrypted-at-rest storage using OS secure storage primitives.
+- Workflow engine now generates AI workflow plans directly from owner-provided knowledge and goal statements.
+- Terminal orchestration now includes command planning + guarded execution through safe allowlists and policy-signed custom command packs.
+- Creative lab now generates cross-domain research hypotheses and next-step experiment loops from supplied knowledge corpora.
+- All new orchestration paths are still policy-bound, audit-anchored, and designed for iterative knowledge growth over time.
+
+## Secure mobile bridge baseline
+- Mobile-to-desktop command bridge is now available as an admin-controlled local server endpoint.
+- Remote commands from phone enter a pending queue and require approval-ticket confirmation before execution.
+- Bridge requests include lifecycle status (pending/approved/rejected/executed) and remain auditable.
+- Bridge runtime has start/stop/status controls with shared secret protection and persisted configuration.
 
 ## Knowledge growth baseline
 - Library ingestion is now persisted locally so learned documents survive restarts.

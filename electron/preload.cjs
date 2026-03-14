@@ -90,6 +90,37 @@ contextBridge.exposeInMainWorld('paxion', {
   media: {
     generate: (input) => ipcRenderer.invoke('paxion:media:generate', input),
   },
+  assistant: {
+    getRuntime: () => ipcRenderer.invoke('paxion:assistant:getRuntime'),
+    setRuntime: (input) => ipcRenderer.invoke('paxion:assistant:setRuntime', input),
+    showWindow: () => ipcRenderer.invoke('paxion:assistant:showWindow'),
+  },
+  voice: {
+    call: (input) => ipcRenderer.invoke('paxion:voice:call', input),
+    getProvider: () => ipcRenderer.invoke('paxion:voice:provider:get'),
+    setProvider: (input) => ipcRenderer.invoke('paxion:voice:provider:set', input),
+    getSecrets: () => ipcRenderer.invoke('paxion:voice:secrets:get'),
+    setSecrets: (input) => ipcRenderer.invoke('paxion:voice:secrets:set', input),
+  },
+  workflow: {
+    generate: (input) => ipcRenderer.invoke('paxion:workflow:generate', input),
+  },
+  terminal: {
+    plan: (input) => ipcRenderer.invoke('paxion:terminal:plan', input),
+    run: (input) => ipcRenderer.invoke('paxion:terminal:run', input),
+    listPacks: () => ipcRenderer.invoke('paxion:terminal:pack:list'),
+    createPack: (input) => ipcRenderer.invoke('paxion:terminal:pack:create', input),
+    activatePack: (input) => ipcRenderer.invoke('paxion:terminal:pack:activate', input),
+  },
+  creative: {
+    ideate: (input) => ipcRenderer.invoke('paxion:creative:ideate', input),
+  },
+  bridge: {
+    status: () => ipcRenderer.invoke('paxion:bridge:status'),
+    start: (input) => ipcRenderer.invoke('paxion:bridge:start', input),
+    stop: () => ipcRenderer.invoke('paxion:bridge:stop'),
+    approve: (input) => ipcRenderer.invoke('paxion:bridge:approve', input),
+  },
   workspace: {
     load: () => ipcRenderer.invoke('paxion:workspace:load'),
     save: (input) => ipcRenderer.invoke('paxion:workspace:save', input),

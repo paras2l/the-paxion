@@ -6,6 +6,7 @@ export type ActionRequest = {
   targetPath?: string
   detail?: string
   jurisdiction?: string
+  masterCodeword?: string
 }
 
 export type PolicyDecision = {

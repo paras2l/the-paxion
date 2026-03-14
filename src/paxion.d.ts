@@ -97,6 +97,78 @@ type PaxionCapabilityState = {
   chatExternalModel: boolean
   voiceInput: boolean
   voiceOutput: boolean
+  emergencyCallRelay: boolean
+}
+
+interface PaxionAssistantRuntimeResult {
+  ok?: boolean
+  closeToTrayEnabled: boolean
+}
+
+interface PaxionVoiceCallResult {
+  ok: boolean
+  reason?: string
+  emergency?: boolean
+  url?: string
+  provider?: string
+  providerResult?: Record<string, unknown>
+}
+
+interface PaxionVoiceProviderResult {
+  ok: boolean
+  reason?: string
+  provider?: string
+  fromNumber?: string
+  updatedAt?: string | null
+}
+
+interface PaxionVoiceSecretStatusResult {
+  ok: boolean
+  reason?: string
+  hasTwilioSid?: boolean
+  hasTwilioToken?: boolean
+  hasTwilioFromNumber?: boolean
+  hasSipUri?: boolean
+  hasSipUsername?: boolean
+  hasSipPassword?: boolean
+  twilioFromNumber?: string
+  sipUri?: string
+  sipUsername?: string
+  updatedAt?: string | null
+}
+
+interface PaxionTerminalPackResult {
+  ok: boolean
+  reason?: string
+  pack?: Record<string, unknown>
+  packs?: Array<Record<string, unknown>>
+  updatedAt?: string | null
+}
+
+interface PaxionBridgeStatusResult {
+  ok: boolean
+  reason?: string
+  enabled?: boolean
+  host?: string
+  port?: number
+  hasSecret?: boolean
+  secret?: string
+  pendingRequests?: Array<Record<string, unknown>>
+  updatedAt?: string | null
+}
+
+interface PaxionTerminalPlanResult {
+  ok: boolean
+  reason?: string
+  plan?: Record<string, unknown>
+}
+
+interface PaxionTerminalRunResult {
+  ok: boolean
+  reason?: string
+  command?: string
+  assessment?: Record<string, unknown>
+  execution?: Record<string, unknown>
 }
 
 interface PaxionAccessResult {
@@ -909,6 +981,80 @@ declare global {
           prompt: string
           artifactPath?: string
         }): Promise<{ ok: boolean; reason?: string; job?: Record<string, unknown>; mediaState?: Record<string, unknown> }>
+      }
+      assistant: {
+        getRuntime(): Promise<PaxionAssistantRuntimeResult>
+        setRuntime(input: { closeToTrayEnabled: boolean }): Promise<PaxionAssistantRuntimeResult>
+        showWindow(): Promise<{ ok: boolean }>
+      }
+      voice: {
+        call(input: {
+          number?: string
+          contact?: string
+          emergency?: boolean
+          provider?: 'desktop-relay' | 'twilio' | 'sip'
+          fromNumber?: string
+          message?: string
+        }): Promise<PaxionVoiceCallResult>
+        getProvider(): Promise<PaxionVoiceProviderResult>
+        setProvider(input: {
+          provider: 'desktop-relay' | 'twilio' | 'sip'
+          fromNumber?: string
+        }): Promise<PaxionVoiceProviderResult>
+        getSecrets(): Promise<PaxionVoiceSecretStatusResult>
+        setSecrets(input: {
+          twilioAccountSid?: string
+          twilioAuthToken?: string
+          twilioFromNumber?: string
+          sipUri?: string
+          sipUsername?: string
+          sipPassword?: string
+        }): Promise<PaxionVoiceSecretStatusResult>
+      }
+      workflow: {
+        generate(input: {
+          goal: string
+          knowledgeText?: string
+        }): Promise<{ ok: boolean; reason?: string; workflow?: Record<string, unknown>; learningGraph?: Record<string, unknown>; skills?: string[] }>
+      }
+      terminal: {
+        plan(input: {
+          command: string
+        }): Promise<PaxionTerminalPlanResult>
+        run(input: {
+          command: string
+        }): Promise<PaxionTerminalRunResult>
+        listPacks(): Promise<PaxionTerminalPackResult>
+        createPack(input: {
+          name: string
+          commands: string[]
+          active?: boolean
+        }): Promise<PaxionTerminalPackResult>
+        activatePack(input: {
+          packId: string
+          active: boolean
+        }): Promise<PaxionTerminalPackResult>
+      }
+      creative: {
+        ideate(input: {
+          domain: string
+          objective: string
+          knowledgeText?: string
+        }): Promise<{ ok: boolean; reason?: string; lab?: Record<string, unknown>; learningGraph?: Record<string, unknown>; skills?: string[] }>
+      }
+      bridge: {
+        status(): Promise<PaxionBridgeStatusResult>
+        start(input: {
+          host?: string
+          port?: number
+          secret?: string
+        }): Promise<PaxionBridgeStatusResult>
+        stop(): Promise<PaxionBridgeStatusResult>
+        approve(input: {
+          requestId: string
+          approved: boolean
+          adminCodeword: string
+        }): Promise<{ ok: boolean; reason?: string; request?: Record<string, unknown> }>
       }
       workspace: {
         load(): Promise<PaxionWorkspaceLoadResult>

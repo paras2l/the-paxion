@@ -90,6 +90,7 @@ type CapabilityState = {
   chatExternalModel: boolean
   voiceInput: boolean
   voiceOutput: boolean
+  emergencyCallRelay: boolean
 }
 
 type CapabilityKey = keyof CapabilityState
@@ -116,6 +117,7 @@ type SpeechRecognitionLike = {
 type SpeechRecognitionCtorLike = new () => SpeechRecognitionLike
 
 type ChatMode = 'local' | 'desktop-relay'
+type AssistantMode = 'chat' | 'voice'
 
 type IntegrationStatus = {
   desktopRelay: boolean
@@ -457,6 +459,7 @@ const defaultCapabilityState: CapabilityState = {
   chatExternalModel: false,
   voiceInput: true,
   voiceOutput: true,
+  emergencyCallRelay: true,
 }
 
 const defaultIntegrationStatus: IntegrationStatus = {
@@ -667,10 +670,34 @@ function App() {
   const [relayCaptureText, setRelayCaptureText] = useState('')
   const [chatVoiceListening, setChatVoiceListening] = useState(false)
   const [chatVoiceEnabled, setChatVoiceEnabled] = useState(true)
+  const [assistantMode, setAssistantMode] = useState<AssistantMode>('chat')
+  const [wakePhrase, setWakePhrase] = useState('paxion wakeup')
+  const [closeToTrayEnabled, setCloseToTrayEnabled] = useState(true)
+  const [voiceLoopEnabled, setVoiceLoopEnabled] = useState(false)
+  const [callProvider, setCallProvider] = useState<'desktop-relay' | 'twilio' | 'sip'>('desktop-relay')
+  const [callFromNumber, setCallFromNumber] = useState('')
+  const [twilioAccountSid, setTwilioAccountSid] = useState('')
+  const [twilioAuthToken, setTwilioAuthToken] = useState('')
+  const [twilioSecretStatus, setTwilioSecretStatus] = useState('Not loaded')
+  const [sipUri, setSipUri] = useState('')
+  const [sipUsername, setSipUsername] = useState('')
+  const [sipPassword, setSipPassword] = useState('')
+  const [terminalPacks, setTerminalPacks] = useState<Array<Record<string, unknown>>>([])
+  const [terminalPackName, setTerminalPackName] = useState('')
+  const [terminalPackCommands, setTerminalPackCommands] = useState('')
+  const [bridgeEnabled, setBridgeEnabled] = useState(false)
+  const [bridgeHost, setBridgeHost] = useState('0.0.0.0')
+  const [bridgePort, setBridgePort] = useState('8731')
+  const [bridgeSecret, setBridgeSecret] = useState('')
+  const [bridgePendingRequests, setBridgePendingRequests] = useState<Array<Record<string, unknown>>>([])
+  const [bridgeMessage, setBridgeMessage] = useState('')
   const [showThought, setShowThought] = useState<string | null>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const lastSpokenMessageIdRef = useRef<string | null>(null)
+  const voiceLoopEnabledRef = useRef(false)
+  const wakeArmedRef = useRef(true)
+  const voiceCommandInFlightRef = useRef(false)
 
   // Workspace mission executor state
   const [workspaceGoal, setWorkspaceGoal] = useState('')
@@ -688,6 +715,9 @@ function App() {
     () => tabs.find((tab) => tab.id === activeTab) ?? tabs[0],
     [activeTab],
   )
+  const isWebRuntime = typeof window !== 'undefined' && !window.paxion
+  const isMobileDevice =
+    typeof navigator !== 'undefined' && /android|iphone|ipad|mobile/i.test(navigator.userAgent)
 
   const approvalStore = useMemo(() => new ApprovalStore(), [])
   const auditLedger = useMemo(() => new AuditLedger(), [])
@@ -1046,6 +1076,9 @@ function App() {
       loadLearningState()
       loadAutomationState()
       loadReadinessState()
+      void loadVoiceSecretStatus()
+      void loadTerminalPacks()
+      void loadBridgeStatus()
     })
   }, [adminUnlocked, loadAutomationState, loadLearningState, loadReadinessState])
 
@@ -1055,6 +1088,263 @@ function App() {
       loadWorkspaceState()
     })
   }, [loadWorkspaceState])
+
+  useEffect(() => {
+    const storedMode = localStorage.getItem('paxion-assistant-mode')
+    if (storedMode === 'voice' || storedMode === 'chat') {
+      setAssistantMode(storedMode)
+    }
+    const storedWake = localStorage.getItem('paxion-wake-phrase')
+    if (storedWake && storedWake.trim()) {
+      setWakePhrase(storedWake.trim().toLowerCase())
+    }
+
+    if (window.paxion?.assistant) {
+      void window.paxion.assistant.getRuntime().then((runtime) => {
+        if (typeof runtime?.closeToTrayEnabled === 'boolean') {
+          setCloseToTrayEnabled(runtime.closeToTrayEnabled)
+        }
+      }).catch(() => undefined)
+    }
+
+    if (window.paxion?.voice?.getProvider) {
+      void window.paxion.voice.getProvider().then((providerState) => {
+        const provider = providerState?.provider
+        if (provider === 'desktop-relay' || provider === 'twilio' || provider === 'sip') {
+          setCallProvider(provider)
+        }
+        if (typeof providerState?.fromNumber === 'string') {
+          setCallFromNumber(providerState.fromNumber)
+        }
+      }).catch(() => undefined)
+    }
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem('paxion-assistant-mode', assistantMode)
+  }, [assistantMode])
+
+  useEffect(() => {
+    localStorage.setItem('paxion-wake-phrase', wakePhrase)
+  }, [wakePhrase])
+
+  useEffect(() => {
+    if (!capabilities.voiceInput) {
+      voiceLoopEnabledRef.current = false
+      setVoiceLoopEnabled(false)
+      if (chatVoiceListening) {
+        stopVoiceInput()
+      }
+      return
+    }
+
+    if (assistantMode === 'voice') {
+      wakeArmedRef.current = true
+      voiceLoopEnabledRef.current = true
+      setVoiceLoopEnabled(true)
+      startVoiceInput(true)
+      return
+    }
+
+    if (closeToTrayEnabled) {
+      wakeArmedRef.current = true
+      voiceLoopEnabledRef.current = true
+      setVoiceLoopEnabled(true)
+      startVoiceInput(true)
+      setChatNotice('Background wake listener armed. Say wake phrase to activate voice mode.')
+      return
+    }
+
+    voiceLoopEnabledRef.current = false
+    setVoiceLoopEnabled(false)
+    if (chatVoiceListening) {
+      stopVoiceInput()
+    }
+  }, [assistantMode, closeToTrayEnabled, capabilities.voiceInput])
+
+  async function setCloseToTrayMode(enabled: boolean) {
+    setCloseToTrayEnabled(enabled)
+    if (!window.paxion?.assistant) {
+      return
+    }
+    const result = await window.paxion.assistant
+      .setRuntime({ closeToTrayEnabled: enabled })
+      .catch(() => null)
+    if (!result) {
+      setChatNotice('Failed to update close-to-tray runtime setting.')
+      return
+    }
+    setCloseToTrayEnabled(Boolean(result.closeToTrayEnabled))
+  }
+
+  async function loadVoiceSecretStatus() {
+    if (!window.paxion?.voice?.getSecrets) {
+      return
+    }
+    const result = await window.paxion.voice.getSecrets().catch(() => null)
+    if (!result?.ok) {
+      setTwilioSecretStatus(result?.reason || 'Failed to load voice secret status.')
+      return
+    }
+    setCallFromNumber(String(result.twilioFromNumber || ''))
+    setSipUri(String(result.sipUri || ''))
+    setSipUsername(String(result.sipUsername || ''))
+    setTwilioSecretStatus(
+      `Twilio SID: ${result.hasTwilioSid ? 'set' : 'missing'} | Token: ${result.hasTwilioToken ? 'set' : 'missing'} | SIP: ${result.hasSipUri ? 'set' : 'missing'}`,
+    )
+  }
+
+  async function saveVoiceSecrets() {
+    if (!window.paxion?.voice?.setSecrets) {
+      setTwilioSecretStatus('Voice secret API unavailable in this runtime.')
+      return
+    }
+    const result = await window.paxion.voice
+      .setSecrets({
+        twilioAccountSid,
+        twilioAuthToken,
+        twilioFromNumber: callFromNumber,
+        sipUri,
+        sipUsername,
+        sipPassword,
+      })
+      .catch(() => null)
+    if (!result?.ok) {
+      setTwilioSecretStatus(result?.reason || 'Failed to save encrypted voice credentials.')
+      return
+    }
+    setTwilioAccountSid('')
+    setTwilioAuthToken('')
+    setSipPassword('')
+    setTwilioSecretStatus('Encrypted credentials saved at rest.')
+    await loadVoiceSecretStatus()
+  }
+
+  async function loadTerminalPacks() {
+    if (!window.paxion?.terminal?.listPacks) {
+      return
+    }
+    const result = await window.paxion.terminal.listPacks().catch(() => null)
+    if (!result?.ok) {
+      setAccessMessage(result?.reason || 'Failed to load terminal command packs.')
+      return
+    }
+    setTerminalPacks(Array.isArray(result.packs) ? result.packs : [])
+  }
+
+  async function createTerminalPack() {
+    if (!window.paxion?.terminal?.createPack) {
+      return
+    }
+    const commands = terminalPackCommands
+      .split(/\r?\n/)
+      .map((x) => x.trim())
+      .filter(Boolean)
+    if (commands.length === 0) {
+      setAccessMessage('Provide at least one command for signed pack creation.')
+      return
+    }
+    const result = await window.paxion.terminal
+      .createPack({
+        name: terminalPackName || 'Custom signed pack',
+        commands,
+        active: true,
+      })
+      .catch(() => null)
+    if (!result?.ok) {
+      setAccessMessage(result?.reason || 'Failed to create signed terminal pack.')
+      return
+    }
+    setTerminalPackName('')
+    setTerminalPackCommands('')
+    setAccessMessage('Signed command pack created and activated.')
+    await loadTerminalPacks()
+  }
+
+  async function setTerminalPackActivation(packId: string, active: boolean) {
+    if (!window.paxion?.terminal?.activatePack) {
+      return
+    }
+    const result = await window.paxion.terminal.activatePack({ packId, active }).catch(() => null)
+    if (!result?.ok) {
+      setAccessMessage(result?.reason || 'Failed to update pack activation.')
+      return
+    }
+    await loadTerminalPacks()
+  }
+
+  async function loadBridgeStatus() {
+    if (!window.paxion?.bridge?.status) {
+      return
+    }
+    const result = await window.paxion.bridge.status().catch(() => null)
+    if (!result?.ok) {
+      setBridgeMessage(result?.reason || 'Failed to load bridge status.')
+      return
+    }
+    setBridgeEnabled(Boolean(result.enabled))
+    setBridgeHost(String(result.host || '0.0.0.0'))
+    setBridgePort(String(result.port || 8731))
+    setBridgePendingRequests(Array.isArray(result.pendingRequests) ? result.pendingRequests : [])
+    if (result.hasSecret && !bridgeSecret) {
+      setBridgeSecret('********')
+    }
+  }
+
+  async function startMobileBridge() {
+    if (!window.paxion?.bridge?.start) {
+      setBridgeMessage('Bridge API unavailable in this runtime.')
+      return
+    }
+    const result = await window.paxion.bridge
+      .start({
+        host: bridgeHost,
+        port: Number(bridgePort || 8731),
+        secret: bridgeSecret === '********' ? '' : bridgeSecret,
+      })
+      .catch(() => null)
+    if (!result?.ok) {
+      setBridgeMessage(result?.reason || 'Failed to start mobile bridge.')
+      return
+    }
+    setBridgeEnabled(Boolean(result.enabled))
+    setBridgeSecret(String(result.secret || bridgeSecret || ''))
+    setBridgeMessage(`Bridge started on ${result.host}:${result.port}.`)
+    await loadBridgeStatus()
+  }
+
+  async function stopMobileBridge() {
+    if (!window.paxion?.bridge?.stop) {
+      return
+    }
+    const result = await window.paxion.bridge.stop().catch(() => null)
+    if (!result?.ok) {
+      setBridgeMessage(result?.reason || 'Failed to stop mobile bridge.')
+      return
+    }
+    setBridgeEnabled(false)
+    setBridgeMessage('Bridge stopped.')
+    await loadBridgeStatus()
+  }
+
+  async function decideBridgeRequest(requestId: string, approved: boolean) {
+    if (!window.paxion?.bridge?.approve) {
+      return
+    }
+    const result = await window.paxion.bridge
+      .approve({
+        requestId,
+        approved,
+        adminCodeword,
+      })
+      .catch(() => null)
+    if (!result?.ok) {
+      setBridgeMessage(result?.reason || 'Failed to process bridge request.')
+      return
+    }
+    setBridgeMessage(`Bridge request ${requestId} ${approved ? 'approved' : 'rejected'}.`)
+    await loadBridgeStatus()
+  }
 
   // Restore library knowledge index from persistence.
   useEffect(() => {
@@ -1124,7 +1414,250 @@ function App() {
     }
   }
 
-  function startVoiceInput() {
+  async function relayVoiceCall(commandText: string) {
+    if (!window.paxion?.voice) {
+      setChatNotice('Voice call relay is only available in Electron runtime.')
+      return
+    }
+
+    if (!capabilities.emergencyCallRelay) {
+      setChatNotice('Emergency call relay is disabled in Access tab.')
+      return
+    }
+
+    const emergency = /\bemergency\b|\bhelp\b|\bsos\b/i.test(commandText)
+    const match = commandText.match(/\bcall\s+(.+)$/i)
+    const targetRaw = String(match?.[1] || '').trim()
+    const phoneLike = targetRaw.replace(/[^0-9+]/g, '')
+    const payload = phoneLike
+      ? { number: phoneLike, emergency }
+      : { contact: targetRaw, emergency }
+
+    const result = await window.paxion.voice.call({
+      ...payload,
+      provider: callProvider,
+      fromNumber: callFromNumber,
+      message: emergency ? 'Emergency call initiated by Paxion voice runtime.' : 'Paxion initiated a voice command call.',
+    }).catch(() => null)
+    if (!result?.ok) {
+      setChatNotice(result?.reason ?? 'Voice call relay failed.')
+      return
+    }
+
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `msg-${Date.now()}-a-call`,
+        role: 'assistant',
+        content: result.reason || 'Call relay opened.',
+        timestamp: new Date().toISOString(),
+        contextDocs: [],
+        reasoningSteps: ['Voice call command routed to desktop call relay adapter.'],
+        confidence: 'high',
+      },
+    ])
+  }
+
+  function compactKnowledgeForPrompt(maxChars = 3600): string {
+    const merged = libDocs
+      .slice(0, 8)
+      .map((doc) => `${doc.name}: ${doc.content.slice(0, 420)}`)
+      .join('\n')
+    return merged.slice(0, maxChars)
+  }
+
+  async function runAdvancedVoiceCommand(commandText: string): Promise<boolean> {
+    const text = String(commandText || '').trim()
+    if (!text || !window.paxion) {
+      return false
+    }
+
+    if (/\bcheck\s+nmap\b|\bnmap\s+version\b/i.test(text) && window.paxion.terminal?.run) {
+      const runResult = await window.paxion.terminal.run({ command: 'nmap --version' }).catch(() => null)
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `msg-${Date.now()}-a-nmap`,
+          role: 'assistant',
+          content: runResult?.ok
+            ? 'Nmap check completed via terminal execution.'
+            : `Nmap check blocked: ${runResult?.reason || 'unknown reason'}`,
+          timestamp: new Date().toISOString(),
+          contextDocs: [],
+          reasoningSteps: ['Mapped natural nmap check command to guarded terminal execution path.'],
+          confidence: runResult?.ok ? 'high' : 'medium',
+        },
+      ])
+      return true
+    }
+
+    const terminalMatch = text.match(/^(run\s+terminal|terminal\s+run|terminal)\s+(.+)$/i)
+    if (terminalMatch?.[2] && window.paxion.terminal?.run) {
+      const command = terminalMatch[2].trim()
+      const runResult = await window.paxion.terminal.run({ command }).catch(() => null)
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `msg-${Date.now()}-a-terminal`,
+          role: 'assistant',
+          content: runResult?.ok
+            ? `Terminal command executed: ${command}`
+            : `Terminal command blocked: ${runResult?.reason || 'unknown reason'}`,
+          timestamp: new Date().toISOString(),
+          contextDocs: [],
+          reasoningSteps: ['Voice command mapped to terminal execution engine with policy gate.'],
+          confidence: runResult?.ok ? 'high' : 'medium',
+        },
+      ])
+      return true
+    }
+
+    const workflowMatch = text.match(/^(make|create|generate)\s+(ai\s+)?workflow\s*(for)?\s*(.+)?$/i)
+    if (workflowMatch && window.paxion.workflow?.generate) {
+      const goal = String(workflowMatch[4] || text).trim() || text
+      const result = await window.paxion.workflow
+        .generate({
+          goal,
+          knowledgeText: compactKnowledgeForPrompt(),
+        })
+        .catch(() => null)
+
+      const stepsCount = Array.isArray(result?.workflow?.steps) ? result.workflow.steps.length : 0
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `msg-${Date.now()}-a-workflow`,
+          role: 'assistant',
+          content: result?.ok
+            ? `AI workflow generated for: ${goal}. Planned ${stepsCount} step(s).`
+            : `Workflow generation failed: ${result?.reason || 'unknown reason'}`,
+          timestamp: new Date().toISOString(),
+          contextDocs: [],
+          reasoningSteps: ['Voice command mapped to workflow synthesis engine.'],
+          confidence: result?.ok ? 'high' : 'medium',
+        },
+      ])
+      return true
+    }
+
+    const creativeMatch = text.match(/^(creative|ideate|brainstorm|research\s+idea)\s*(for)?\s*(.+)?$/i)
+    if (creativeMatch && window.paxion.creative?.ideate) {
+      const objective = String(creativeMatch[3] || text).trim() || text
+      const result = await window.paxion.creative
+        .ideate({
+          domain: 'general',
+          objective,
+          knowledgeText: compactKnowledgeForPrompt(),
+        })
+        .catch(() => null)
+
+      const ideasCount = Array.isArray(result?.lab?.hypotheses) ? result.lab.hypotheses.length : 0
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `msg-${Date.now()}-a-creative`,
+          role: 'assistant',
+          content: result?.ok
+            ? `Creative lab generated ${ideasCount} hypothesis candidate(s) for: ${objective}.`
+            : `Creative ideation failed: ${result?.reason || 'unknown reason'}`,
+          timestamp: new Date().toISOString(),
+          contextDocs: [],
+          reasoningSteps: ['Voice command mapped to creative research ideation engine.'],
+          confidence: result?.ok ? 'high' : 'medium',
+        },
+      ])
+      return true
+    }
+
+    return false
+  }
+
+  async function handleVoiceTranscript(transcriptInput: string) {
+    const transcript = String(transcriptInput || '').trim()
+    if (!transcript) {
+      return
+    }
+
+    const wake = wakePhrase.trim().toLowerCase()
+    const lower = transcript.toLowerCase()
+    const hasWake = wake && lower.includes(wake)
+
+    if (assistantMode === 'voice') {
+      if (wakeArmedRef.current && !hasWake) {
+        return
+      }
+
+      if (hasWake) {
+        wakeArmedRef.current = false
+        setChatNotice('Wake phrase accepted. Listening for your command...')
+      }
+
+      const commandText = hasWake ? transcript.slice(lower.indexOf(wake) + wake.length).trim() : transcript
+      if (!commandText) {
+        return
+      }
+
+      if (voiceCommandInFlightRef.current || chatLoading) {
+        setChatNotice('Voice command queued. Waiting for current task...')
+        return
+      }
+
+      voiceCommandInFlightRef.current = true
+      try {
+        if (/\b(stop listening|sleep mode|go to chat mode|disable voice mode)\b/i.test(commandText)) {
+          setAssistantMode('chat')
+          voiceLoopEnabledRef.current = false
+          setVoiceLoopEnabled(false)
+          stopVoiceInput()
+          setChatNotice('Voice mode disabled. Back to chat mode.')
+          return
+        }
+
+        if (/\bcall\b/i.test(commandText)) {
+          await relayVoiceCall(commandText)
+        } else {
+          const handled = await runAdvancedVoiceCommand(commandText)
+          if (!handled) {
+            await sendChatMessage(commandText)
+          }
+        }
+      } finally {
+        voiceCommandInFlightRef.current = false
+        wakeArmedRef.current = true
+      }
+      return
+    }
+
+    if (hasWake) {
+      setAssistantMode('voice')
+      const commandText = transcript.slice(lower.indexOf(wake) + wake.length).trim()
+      setChatNotice('Wake phrase accepted. Voice mode activated.')
+      if (commandText) {
+        if (voiceCommandInFlightRef.current || chatLoading) {
+          return
+        }
+        voiceCommandInFlightRef.current = true
+        try {
+          if (/\bcall\b/i.test(commandText)) {
+            await relayVoiceCall(commandText)
+          } else {
+            const handled = await runAdvancedVoiceCommand(commandText)
+            if (!handled) {
+              await sendChatMessage(commandText)
+            }
+          }
+        } finally {
+          voiceCommandInFlightRef.current = false
+        }
+      }
+      return
+    }
+
+    setChatInput((prev) => (prev ? `${prev} ${transcript}` : transcript))
+    setChatNotice('Voice captured.')
+  }
+
+  function startVoiceInput(commandLoop = false) {
     if (!capabilities.voiceInput) {
       setChatNotice('Voice input is disabled in Access tab.')
       return
@@ -1145,31 +1678,49 @@ function App() {
     if (!speechRecognitionRef.current) {
       const recognition = new SpeechRecognitionCtor()
       recognition.lang = 'en-US'
-      recognition.continuous = false
+      recognition.continuous = commandLoop
       recognition.interimResults = false
 
       recognition.onresult = (event: SpeechRecognitionEventLike) => {
-        const transcript = String(event?.results?.[0]?.[0]?.transcript || '').trim()
-        if (transcript) {
-          setChatInput((prev) => (prev ? `${prev} ${transcript}` : transcript))
-          setChatNotice('Voice captured.')
-        }
+        const results = Array.isArray(event?.results) ? event.results : []
+        const lastResult = results.length > 0 ? results[results.length - 1] : null
+        const transcript = String((lastResult as unknown as Array<{ transcript?: string }>)?.[0]?.transcript || '').trim()
+        void handleVoiceTranscript(transcript)
       }
 
       recognition.onend = () => {
         setChatVoiceListening(false)
+        if (voiceLoopEnabledRef.current) {
+          window.setTimeout(() => {
+            if (voiceLoopEnabledRef.current) {
+              startVoiceInput(true)
+            }
+          }, 180)
+        }
       }
 
       recognition.onerror = () => {
         setChatVoiceListening(false)
+        if (voiceLoopEnabledRef.current) {
+          window.setTimeout(() => {
+            if (voiceLoopEnabledRef.current) {
+              startVoiceInput(true)
+            }
+          }, 450)
+        }
       }
 
       speechRecognitionRef.current = recognition
     }
 
-    speechRecognitionRef.current.start()
-    setChatVoiceListening(true)
-    setChatNotice('Listening...')
+    speechRecognitionRef.current.continuous = commandLoop
+    try {
+      speechRecognitionRef.current.start()
+      setChatVoiceListening(true)
+      setChatNotice(commandLoop ? 'Voice mode active. Say wake phrase and command.' : 'Listening...')
+    } catch {
+      // Ignore duplicate start attempts from rapid onend/onerror restarts.
+    }
   }
 
   function stopVoiceInput() {
@@ -2472,8 +3023,8 @@ function App() {
     return true
   }
 
-  async function sendChatMessage() {
-    const text = chatInput.trim()
+  async function sendChatMessage(overrideText?: string) {
+    const text = typeof overrideText === 'string' ? overrideText.trim() : chatInput.trim()
     if (!text || chatLoading) return
 
     const userMsg: ChatMessage = {
@@ -2485,7 +3036,9 @@ function App() {
     }
 
     setChatMessages((prev) => [...prev, userMsg])
-    setChatInput('')
+    if (typeof overrideText !== 'string') {
+      setChatInput('')
+    }
     setChatLoading(true)
 
     const localResponse = brain.think(text, libDocs)
@@ -2592,11 +3145,25 @@ function App() {
               <option value="local">Local Brain</option>
               <option value="desktop-relay">Desktop ChatGPT Relay (No API)</option>
             </select>
+            <button
+              className="run-button"
+              onClick={() => setAssistantMode((prev) => (prev === 'chat' ? 'voice' : 'chat'))}
+            >
+              Assistant Mode: {assistantMode === 'voice' ? 'Voice' : 'Chat'}
+            </button>
             <button className="run-button" onClick={toggleChatVoiceOutput}>
               Voice Output: {chatVoiceEnabled && capabilities.voiceOutput ? 'ON' : 'OFF'}
             </button>
+            <button
+              className="run-button"
+              onClick={() => {
+                void setCloseToTrayMode(!closeToTrayEnabled)
+              }}
+            >
+              Close To Tray: {closeToTrayEnabled ? 'ON' : 'OFF'}
+            </button>
             {!chatVoiceListening ? (
-              <button className="run-button" onClick={startVoiceInput}>
+              <button className="run-button" onClick={() => startVoiceInput(assistantMode === 'voice')}>
                 Start Voice Input
               </button>
             ) : (
@@ -2605,7 +3172,80 @@ function App() {
               </button>
             )}
           </div>
+          <div className="chat-voice-row">
+            <input
+              className="input"
+              value={wakePhrase}
+              onChange={(event) => setWakePhrase(event.target.value.toLowerCase())}
+              placeholder="Wake phrase (example: paxion wakeup)"
+            />
+            <select
+              className="chat-mode-select"
+              value={callProvider}
+              onChange={(event) => {
+                const provider = event.target.value as 'desktop-relay' | 'twilio' | 'sip'
+                setCallProvider(provider)
+                if (window.paxion?.voice?.setProvider) {
+                  void window.paxion.voice.setProvider({
+                    provider,
+                    fromNumber: callFromNumber,
+                  })
+                }
+              }}
+            >
+              <option value="desktop-relay">Call Provider: Desktop Relay</option>
+              <option value="twilio">Call Provider: Twilio</option>
+              <option value="sip">Call Provider: SIP</option>
+            </select>
+            <input
+              className="input"
+              value={callFromNumber}
+              onChange={(event) => setCallFromNumber(event.target.value)}
+              placeholder="Provider from number (for Twilio)"
+            />
+            <button
+              className="run-button"
+              onClick={() => {
+                const phrase = wakePhrase.trim().toLowerCase()
+                if (!phrase) {
+                  setWakePhrase('paxion wakeup')
+                }
+                if (window.paxion?.voice?.setProvider) {
+                  void window.paxion.voice.setProvider({
+                    provider: callProvider,
+                    fromNumber: callFromNumber,
+                  })
+                }
+                setChatNotice(`Wake phrase set to "${(phrase || 'paxion wakeup')}".`)
+              }}
+            >
+              Save Wake Phrase
+            </button>
+            <button
+              className="run-button"
+              onClick={() => {
+                if (window.paxion?.assistant) {
+                  void window.paxion.assistant.showWindow()
+                }
+                setActiveTab('chat')
+                setAssistantMode('voice')
+                setChatNotice('Voice assistant ready. Say wake phrase then command.')
+              }}
+            >
+              Arm Wake Runtime
+            </button>
+          </div>
+          <p className="muted">
+            Voice loop: {voiceLoopEnabled ? 'Active' : 'Idle'} | Say "{wakePhrase || 'paxion wakeup'}" then your command.
+            Example: "{wakePhrase || 'paxion wakeup'} call emergency".
+          </p>
           {chatNotice && <p className="muted">{chatNotice}</p>}
+          {isWebRuntime && isMobileDevice && (
+            <p className="muted">
+              Mobile companion mode active. Voice chat works in browser-supported engines; desktop-only actions
+              (tray runtime, native automation, direct dialer relay) require the Electron app.
+            </p>
+          )}
 
           {/* Messages */}
           <div className="chat-messages" ref={chatScrollRef}>
@@ -2915,6 +3555,185 @@ function App() {
               No API keys. Paxion opens your desktop browser for ChatGPT and Google only after
               your permission through Access capabilities and active admin session.
             </p>
+          </div>
+
+          <div className="decision-card">
+            <strong>Telephony Credentials (Encrypted At Rest)</strong>
+            <p className="muted">Store Twilio/SIP credentials encrypted with OS secure storage.</p>
+            <div className="control-group">
+              <label>Twilio Account SID</label>
+              <input
+                type="password"
+                value={twilioAccountSid}
+                onChange={(event) => setTwilioAccountSid(event.target.value)}
+                placeholder="ACxxxxxxxx"
+              />
+            </div>
+            <div className="control-group">
+              <label>Twilio Auth Token</label>
+              <input
+                type="password"
+                value={twilioAuthToken}
+                onChange={(event) => setTwilioAuthToken(event.target.value)}
+                placeholder="Twilio auth token"
+              />
+            </div>
+            <div className="control-group">
+              <label>Twilio From Number</label>
+              <input
+                value={callFromNumber}
+                onChange={(event) => setCallFromNumber(event.target.value)}
+                placeholder="+1234567890"
+              />
+            </div>
+            <div className="control-group">
+              <label>SIP URI</label>
+              <input
+                value={sipUri}
+                onChange={(event) => setSipUri(event.target.value)}
+                placeholder="sip:provider.example"
+              />
+            </div>
+            <div className="control-group">
+              <label>SIP Username</label>
+              <input
+                value={sipUsername}
+                onChange={(event) => setSipUsername(event.target.value)}
+                placeholder="sip user"
+              />
+            </div>
+            <div className="control-group">
+              <label>SIP Password</label>
+              <input
+                type="password"
+                value={sipPassword}
+                onChange={(event) => setSipPassword(event.target.value)}
+                placeholder="sip password"
+              />
+            </div>
+            <div className="workspace-actions">
+              <button className="run-button" onClick={() => void loadVoiceSecretStatus()}>
+                Refresh Secret Status
+              </button>
+              <button className="run-button" onClick={() => void saveVoiceSecrets()}>
+                Save Encrypted Credentials
+              </button>
+            </div>
+            <p className="muted">{twilioSecretStatus}</p>
+          </div>
+
+          <div className="decision-card">
+            <strong>Policy-Signed Terminal Command Packs</strong>
+            <p className="muted">Expand terminal capability with signed command allowlists.</p>
+            <div className="control-group">
+              <label>Pack Name</label>
+              <input
+                value={terminalPackName}
+                onChange={(event) => setTerminalPackName(event.target.value)}
+                placeholder="Example: Network Diagnostics Pack"
+              />
+            </div>
+            <div className="control-group">
+              <label>Commands (one per line)</label>
+              <textarea
+                value={terminalPackCommands}
+                onChange={(event) => setTerminalPackCommands(event.target.value)}
+                rows={4}
+                placeholder={"nmap --help\nnmap --version"}
+              />
+            </div>
+            <div className="workspace-actions">
+              <button className="run-button" onClick={() => void loadTerminalPacks()}>
+                Refresh Packs
+              </button>
+              <button className="run-button" onClick={() => void createTerminalPack()}>
+                Create Signed Pack
+              </button>
+            </div>
+            <div className="capability-list">
+              {terminalPacks.length === 0 ? (
+                <p className="muted">No signed packs yet.</p>
+              ) : (
+                terminalPacks.map((pack) => {
+                  const id = String(pack.id || '')
+                  const active = Boolean(pack.active)
+                  const commandCount = Array.isArray(pack.commands) ? pack.commands.length : 0
+                  return (
+                    <div className="capability-item" key={id || Math.random().toString(36)}>
+                      <span>{String(pack.name || 'Unnamed pack')} ({commandCount} commands)</span>
+                      <button
+                        className="run-button"
+                        onClick={() => {
+                          void setTerminalPackActivation(id, !active)
+                        }}
+                      >
+                        {active ? 'Deactivate' : 'Activate'}
+                      </button>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+
+          <div className="decision-card">
+            <strong>Mobile-to-Desktop Secure Bridge</strong>
+            <p className="muted">Phone commands enter pending queue and require admin approval ticket.</p>
+            <div className="control-group">
+              <label>Bridge Host</label>
+              <input value={bridgeHost} onChange={(event) => setBridgeHost(event.target.value)} />
+            </div>
+            <div className="control-group">
+              <label>Bridge Port</label>
+              <input value={bridgePort} onChange={(event) => setBridgePort(event.target.value)} />
+            </div>
+            <div className="control-group">
+              <label>Bridge Secret</label>
+              <input
+                type="password"
+                value={bridgeSecret}
+                onChange={(event) => setBridgeSecret(event.target.value)}
+                placeholder="set shared secret (or leave empty for auto)"
+              />
+            </div>
+            <div className="workspace-actions">
+              <button className="run-button" onClick={() => void loadBridgeStatus()}>
+                Refresh Bridge
+              </button>
+              {!bridgeEnabled ? (
+                <button className="run-button" onClick={() => void startMobileBridge()}>
+                  Start Bridge
+                </button>
+              ) : (
+                <button className="run-button" onClick={() => void stopMobileBridge()}>
+                  Stop Bridge
+                </button>
+              )}
+            </div>
+            {bridgeMessage && <p className="muted">{bridgeMessage}</p>}
+            <p className="muted">Pending remote requests: {bridgePendingRequests.length}</p>
+            <div className="capability-list">
+              {bridgePendingRequests.map((row) => {
+                const id = String(row.id || '')
+                const status = String(row.status || 'pending')
+                const actionId = String((row.request as Record<string, unknown> | undefined)?.actionId || 'unknown')
+                return (
+                  <div className="capability-item" key={id || Math.random().toString(36)}>
+                    <span>{actionId} [{status}]</span>
+                    {status === 'pending' ? (
+                      <div className="workspace-actions">
+                        <button className="run-button" onClick={() => void decideBridgeRequest(id, true)}>
+                          Approve
+                        </button>
+                        <button className="run-button" onClick={() => void decideBridgeRequest(id, false)}>
+                          Reject
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
           </div>
 
           <div className="control-group">
