@@ -43,6 +43,7 @@ const { buildClinicalEvidence, validateExternalEvidence } = require('./clinical-
 const { buildTheoremPlan, buildSimulationPlan, synthesizeResearchProgram } = require('./science-toolchain.cjs')
 const { updateVoiceQuality, evaluateDuplexSession } = require('./voice-quality-stack.cjs')
 const { buildRelayEnvelope, issueOneTimeToken, consumeOneTimeToken } = require('./secure-relay-service.cjs')
+const { submitRelayRequest, listPendingRelayRequests, completeRelayRequest } = require('./relay-client.cjs')
 const { configureWakewordAdapter, getNativeWakewordStatus } = require('./wakeword-native.cjs')
 const { createLongHorizonPlan, advanceValidationLoop } = require('./planner-executor.cjs')
 const { registerEcosystemAdapter, planDeviceAction } = require('./device-ecosystem.cjs')
@@ -620,6 +621,7 @@ function registerIpcHandlers(mainWindow) {
   const mediaStateFilePath = path.join(app.getPath('userData'), 'paxion-media.json')
   const callProviderStateFilePath = path.join(app.getPath('userData'), 'paxion-call-provider.json')
   const voiceSecretsFilePath = path.join(app.getPath('userData'), 'paxion-voice-secrets.json')
+  const relaySecretsFilePath = path.join(app.getPath('userData'), 'paxion-relay-secrets.json')
   const terminalPackStateFilePath = path.join(app.getPath('userData'), 'paxion-terminal-command-packs.json')
   const bridgeStateFilePath = path.join(app.getPath('userData'), 'paxion-bridge-state.json')
   const advancedStateFilePath = path.join(app.getPath('userData'), 'paxion-advanced-domains.json')
@@ -686,6 +688,10 @@ function registerIpcHandlers(mainWindow) {
     ciphertext: '',
     updatedAt: null,
   }
+  let relaySecretState = {
+    ciphertext: '',
+    updatedAt: null,
+  }
   let terminalPackState = {
     packs: [],
     updatedAt: null,
@@ -705,7 +711,14 @@ function registerIpcHandlers(mainWindow) {
     clinical: { evidence: [], validations: [], updatedAt: null },
     science: { theoremPlans: [], simulationPlans: [], programs: [], updatedAt: null },
     voiceQuality: { profile: null, sessions: [], updatedAt: null },
-    relay: { config: { mode: 'disabled', endpoint: '' }, oneTimeTokens: [], envelopes: [], updatedAt: null },
+    relay: {
+      config: { mode: 'disabled', endpoint: '', deviceId: 'paxion-primary', pollingEnabled: false },
+      oneTimeTokens: [],
+      envelopes: [],
+      requests: [],
+      updatedAt: null,
+      lastCloudSyncAt: null,
+    },
     wakeword: { adapter: null, updatedAt: null },
     planner: { plans: [], cycles: [], updatedAt: null },
     deviceEcosystem: { adapters: [], actions: [], updatedAt: null },
@@ -1077,6 +1090,26 @@ function registerIpcHandlers(mainWindow) {
     }
   }
 
+  function loadRelaySecrets() {
+    const decoded = decryptAtRest(relaySecretState.ciphertext)
+    if (!decoded.ok || !decoded.plainText) {
+      return {
+        cloudToken: '',
+      }
+    }
+
+    try {
+      const parsed = JSON.parse(decoded.plainText)
+      return {
+        cloudToken: String(parsed?.cloudToken || ''),
+      }
+    } catch {
+      return {
+        cloudToken: '',
+      }
+    }
+  }
+
   function getTerminalPackSigningPayload(pack) {
     return stableStringify({
       id: String(pack?.id || ''),
@@ -1158,6 +1191,10 @@ function registerIpcHandlers(mainWindow) {
       ciphertext: '',
       updatedAt: null,
     })
+    relaySecretState = loadJsonState(relaySecretsFilePath, {
+      ciphertext: '',
+      updatedAt: null,
+    })
     terminalPackState = loadJsonState(terminalPackStateFilePath, {
       packs: [],
       updatedAt: null,
@@ -1171,6 +1208,22 @@ function registerIpcHandlers(mainWindow) {
       updatedAt: null,
     })
     advancedState = loadJsonState(advancedStateFilePath, advancedState)
+    advancedState = {
+      ...advancedState,
+      relay: {
+        config: {
+          mode: String(advancedState?.relay?.config?.mode || 'disabled'),
+          endpoint: String(advancedState?.relay?.config?.endpoint || ''),
+          deviceId: String(advancedState?.relay?.config?.deviceId || 'paxion-primary'),
+          pollingEnabled: Boolean(advancedState?.relay?.config?.pollingEnabled),
+        },
+        oneTimeTokens: Array.isArray(advancedState?.relay?.oneTimeTokens) ? advancedState.relay.oneTimeTokens : [],
+        envelopes: Array.isArray(advancedState?.relay?.envelopes) ? advancedState.relay.envelopes : [],
+        requests: Array.isArray(advancedState?.relay?.requests) ? advancedState.relay.requests : [],
+        updatedAt: advancedState?.relay?.updatedAt || null,
+        lastCloudSyncAt: advancedState?.relay?.lastCloudSyncAt || null,
+      },
+    }
   }
 
   function saveDomainStates() {
@@ -1181,6 +1234,7 @@ function registerIpcHandlers(mainWindow) {
     saveJsonState(mediaStateFilePath, mediaState)
     saveJsonState(callProviderStateFilePath, callProviderState)
     saveJsonState(voiceSecretsFilePath, voiceSecretState)
+    saveJsonState(relaySecretsFilePath, relaySecretState)
     saveJsonState(terminalPackStateFilePath, terminalPackState)
     saveJsonState(bridgeStateFilePath, bridgeState)
     saveJsonState(advancedStateFilePath, advancedState)
@@ -5112,23 +5166,155 @@ function registerIpcHandlers(mainWindow) {
   })
 
   ipcMain.handle('paxion:relay:status', () => {
-    return { ok: true, relay: advancedState.relay }
+    const relaySecrets = loadRelaySecrets()
+    return {
+      ok: true,
+      relay: {
+        ...(advancedState.relay || {}),
+        config: {
+          ...(advancedState.relay?.config || {}),
+          tokenConfigured: Boolean(relaySecrets.cloudToken),
+        },
+      },
+    }
   })
 
   ipcMain.handle('paxion:relay:configure', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to configure secure relay.' }
     }
+    if (Object.prototype.hasOwnProperty.call(input || {}, 'token') || input?.clearToken) {
+      const encrypted = encryptAtRest(
+        JSON.stringify({
+          cloudToken: input?.clearToken ? '' : String(input?.token || ''),
+        }),
+      )
+      if (!encrypted.ok) {
+        return { ok: false, reason: encrypted.reason }
+      }
+      relaySecretState = {
+        ciphertext: encrypted.payload,
+        updatedAt: new Date().toISOString(),
+      }
+    }
     advancedState.relay = {
       ...(advancedState.relay || {}),
       config: {
         mode: String(input?.mode || 'disabled').trim() || 'disabled',
         endpoint: String(input?.endpoint || '').trim(),
+        deviceId: String(input?.deviceId || advancedState?.relay?.config?.deviceId || 'paxion-primary').trim() || 'paxion-primary',
+        pollingEnabled: Boolean(input?.pollingEnabled),
       },
       updatedAt: new Date().toISOString(),
     }
     saveDomainStates()
+    return {
+      ok: true,
+      relay: {
+        ...advancedState.relay,
+        config: {
+          ...advancedState.relay.config,
+          tokenConfigured: Boolean(loadRelaySecrets().cloudToken),
+        },
+      },
+    }
+  })
+
+  ipcMain.handle('paxion:relay:submit', async (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to submit cloud relay request.' }
+    }
+    const relayConfig = advancedState?.relay?.config || {}
+    const relaySecrets = loadRelaySecrets()
+    if (String(relayConfig.mode || 'disabled') !== 'cloud') {
+      return { ok: false, reason: 'Cloud relay mode is not enabled.' }
+    }
+    const result = await submitRelayRequest({
+      endpoint: relayConfig.endpoint,
+      token: relaySecrets.cloudToken,
+      deviceId: relayConfig.deviceId,
+      request: input?.request || null,
+    }).catch((err) => ({ ok: false, reason: String(err?.message || err) }))
+    if (!result?.ok) {
+      return result
+    }
+    const requestRow = {
+      id: String(result.requestId || ''),
+      state: String(result.state || 'queued'),
+      request: input?.request || null,
+      createdAt: new Date().toISOString(),
+      source: 'desktop-submit',
+    }
+    advancedState.relay = {
+      ...(advancedState.relay || {}),
+      requests: [...(advancedState.relay?.requests || []), requestRow].slice(-120),
+      lastCloudSyncAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    saveDomainStates()
+    return { ok: true, relay: advancedState.relay, request: requestRow }
+  })
+
+  ipcMain.handle('paxion:relay:sync', async () => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to sync cloud relay queue.' }
+    }
+    const relayConfig = advancedState?.relay?.config || {}
+    const relaySecrets = loadRelaySecrets()
+    if (String(relayConfig.mode || 'disabled') !== 'cloud') {
+      return { ok: false, reason: 'Cloud relay mode is not enabled.' }
+    }
+    const result = await listPendingRelayRequests({
+      endpoint: relayConfig.endpoint,
+      token: relaySecrets.cloudToken,
+      deviceId: relayConfig.deviceId,
+    }).catch((err) => ({ ok: false, reason: String(err?.message || err) }))
+    if (!result?.ok) {
+      return result
+    }
+    advancedState.relay = {
+      ...(advancedState.relay || {}),
+      requests: Array.isArray(result.requests) ? result.requests.slice(-120) : [],
+      lastCloudSyncAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    saveDomainStates()
     return { ok: true, relay: advancedState.relay }
+  })
+
+  ipcMain.handle('paxion:relay:complete', async (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to resolve cloud relay request.' }
+    }
+    const relayConfig = advancedState?.relay?.config || {}
+    const relaySecrets = loadRelaySecrets()
+    if (String(relayConfig.mode || 'disabled') !== 'cloud') {
+      return { ok: false, reason: 'Cloud relay mode is not enabled.' }
+    }
+    const result = await completeRelayRequest({
+      endpoint: relayConfig.endpoint,
+      token: relaySecrets.cloudToken,
+      requestId: input?.requestId,
+      state: input?.state,
+      result: input?.result,
+    }).catch((err) => ({ ok: false, reason: String(err?.message || err) }))
+    if (!result?.ok) {
+      return result
+    }
+    const completedRequest = result.request || null
+    const existingRows = Array.isArray(advancedState?.relay?.requests) ? advancedState.relay.requests : []
+    const nextRows = existingRows
+      .filter((row) => String(row?.id || '') !== String(input?.requestId || ''))
+      .concat(completedRequest ? [completedRequest] : [])
+      .slice(-120)
+    advancedState.relay = {
+      ...(advancedState.relay || {}),
+      requests: nextRows,
+      lastCloudSyncAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    saveDomainStates()
+    return { ok: true, relay: advancedState.relay, request: completedRequest }
   })
 
   ipcMain.handle('paxion:relay:envelope', (_event, input) => {

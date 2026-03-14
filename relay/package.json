@@ -1,0 +1,10 @@
+{
+  "name": "paxion-cloud-relay",
+  "private": true,
+  "version": "0.1.0",
+  "type": "commonjs",
+  "main": "server.cjs",
+  "scripts": {
+    "start": "node server.cjs"
+  }
+}

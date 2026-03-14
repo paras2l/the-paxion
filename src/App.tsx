@@ -126,6 +126,29 @@ type IntegrationStatus = {
   requiresAdminApproval: boolean
 }
 
+type VoiceRuntimeProfile = {
+  duplexEnabled: boolean
+  interruptionHandling: string
+  personaMemory: string
+  prosody: string
+}
+
+type WakewordRuntimeStatus = {
+  provider: string
+  executablePath: string
+  executablePresent: boolean
+  modelPath: string
+  modelPresent: boolean
+  accessKeyConfigured: boolean
+  alwaysOn: boolean
+  sensitivity: number
+  detectionMode: string
+  keyword: string
+  status: string
+  estimatedLatencyMs: number
+  updatedAt: string | null
+}
+
 type LearningLogEntry = {
   id: string
   timestamp: string
@@ -694,13 +717,56 @@ function App() {
   const [bridgeMessage, setBridgeMessage] = useState('')
   const [bridgeOneTimeToken, setBridgeOneTimeToken] = useState('')
   const [threatDashboard, setThreatDashboard] = useState<Record<string, unknown> | null>(null)
+  const [voiceProfile, setVoiceProfile] = useState<VoiceRuntimeProfile>({
+    duplexEnabled: true,
+    interruptionHandling: 'barge-in',
+    personaMemory: 'friendly-technical',
+    prosody: 'balanced',
+  })
+  const [wakewordStatus, setWakewordStatus] = useState<WakewordRuntimeStatus>({
+    provider: 'browser-fallback',
+    executablePath: '',
+    executablePresent: false,
+    modelPath: '',
+    modelPresent: false,
+    accessKeyConfigured: false,
+    alwaysOn: false,
+    sensitivity: 0.55,
+    detectionMode: 'keyword-spotting',
+    keyword: 'paxion wakeup',
+    status: 'not-configured',
+    estimatedLatencyMs: 450,
+    updatedAt: null,
+  })
+  const [wakewordAccessKey, setWakewordAccessKey] = useState('')
+  const [voiceRuntimeMessage, setVoiceRuntimeMessage] = useState('')
+  const [relayMode, setRelayMode] = useState('disabled')
+  const [cloudRelayEndpoint, setCloudRelayEndpoint] = useState('')
+  const [cloudRelayToken, setCloudRelayToken] = useState('')
+  const [cloudRelayDeviceId, setCloudRelayDeviceId] = useState('paxion-primary')
+  const [cloudRelayPollingEnabled, setCloudRelayPollingEnabled] = useState(false)
+  const [cloudRelayTokenConfigured, setCloudRelayTokenConfigured] = useState(false)
+  const [cloudRelayRequests, setCloudRelayRequests] = useState<Array<Record<string, unknown>>>([])
+  const [cloudRelayMessage, setCloudRelayMessage] = useState('')
+  const [cloudRelayLastSyncAt, setCloudRelayLastSyncAt] = useState<string | null>(null)
+  const [perceptionEnabled, setPerceptionEnabled] = useState(false)
+  const [perceptionLabelHints, setPerceptionLabelHints] = useState('person, screen')
+  const [perceptionFrames, setPerceptionFrames] = useState<Array<Record<string, unknown>>>([])
+  const [perceptionSummary, setPerceptionSummary] = useState('')
+  const [perceptionSceneGraph, setPerceptionSceneGraph] = useState<Record<string, unknown> | null>(null)
+  const [perceptionMessage, setPerceptionMessage] = useState('')
   const [showThought, setShowThought] = useState<string | null>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null)
+  const perceptionVideoRef = useRef<HTMLVideoElement | null>(null)
+  const perceptionStreamRef = useRef<MediaStream | null>(null)
+  const perceptionIntervalRef = useRef<number | null>(null)
   const lastSpokenMessageIdRef = useRef<string | null>(null)
   const voiceLoopEnabledRef = useRef(false)
   const wakeArmedRef = useRef(true)
   const voiceCommandInFlightRef = useRef(false)
+  const voiceCommandStartedAtRef = useRef<number | null>(null)
+  const voiceInterruptionsRef = useRef(0)
 
   // Workspace mission executor state
   const [workspaceGoal, setWorkspaceGoal] = useState('')
@@ -1080,8 +1146,10 @@ function App() {
       loadAutomationState()
       loadReadinessState()
       void loadVoiceSecretStatus()
+      void loadVoiceRuntimeState()
       void loadTerminalPacks()
       void loadBridgeStatus()
+      void loadRelayStatus()
       void loadThreatDashboard()
     })
   }, [adminUnlocked, loadAutomationState, loadLearningState, loadReadinessState])
@@ -1122,6 +1190,9 @@ function App() {
         }
       }).catch(() => undefined)
     }
+
+    void loadVoiceRuntimeState()
+    void loadRelayStatus()
   }, [])
 
   useEffect(() => {
@@ -1165,6 +1236,24 @@ function App() {
       stopVoiceInput()
     }
   }, [assistantMode, closeToTrayEnabled, capabilities.voiceInput])
+
+  useEffect(() => {
+    if (!adminUnlocked || relayMode !== 'cloud' || !cloudRelayPollingEnabled || !window.paxion?.relay?.sync) {
+      return
+    }
+    const poller = window.setInterval(() => {
+      void syncCloudRelayQueue()
+    }, 12000)
+    return () => {
+      window.clearInterval(poller)
+    }
+  }, [adminUnlocked, relayMode, cloudRelayPollingEnabled])
+
+  useEffect(() => {
+    return () => {
+      stopPerceptionRuntime()
+    }
+  }, [])
 
   async function setCloseToTrayMode(enabled: boolean) {
     setCloseToTrayEnabled(enabled)
@@ -1304,6 +1393,293 @@ function App() {
       return
     }
     setThreatDashboard(result.dashboard || null)
+  }
+
+  async function loadVoiceRuntimeState() {
+    if (window.paxion?.voiceQuality?.status) {
+      const result = await window.paxion.voiceQuality.status().catch(() => null)
+      const profile = result?.state?.profile as Partial<VoiceRuntimeProfile> | undefined
+      setVoiceProfile({
+        duplexEnabled: Boolean(profile?.duplexEnabled ?? true),
+        interruptionHandling: String(profile?.interruptionHandling || 'barge-in'),
+        personaMemory: String(profile?.personaMemory || 'friendly-technical'),
+        prosody: String(profile?.prosody || 'balanced'),
+      })
+    }
+
+    if (window.paxion?.wakeword?.status) {
+      const result = await window.paxion.wakeword.status().catch(() => null)
+      const status = (result?.status || {}) as Partial<WakewordRuntimeStatus>
+      setWakewordStatus({
+        provider: String(status.provider || 'browser-fallback'),
+        executablePath: String(status.executablePath || ''),
+        executablePresent: Boolean(status.executablePresent),
+        modelPath: String(status.modelPath || ''),
+        modelPresent: Boolean(status.modelPresent),
+        accessKeyConfigured: Boolean(status.accessKeyConfigured),
+        alwaysOn: Boolean(status.alwaysOn),
+        sensitivity: Number(status.sensitivity || 0.55),
+        detectionMode: String(status.detectionMode || 'keyword-spotting'),
+        keyword: String(status.keyword || 'paxion wakeup'),
+        status: String(status.status || 'not-configured'),
+        estimatedLatencyMs: Number(status.estimatedLatencyMs || 450),
+        updatedAt: typeof status.updatedAt === 'string' ? status.updatedAt : null,
+      })
+    }
+  }
+
+  async function saveVoiceRuntimeProfile() {
+    if (!window.paxion?.voiceQuality?.update) {
+      setVoiceRuntimeMessage('Voice quality API unavailable in this runtime.')
+      return
+    }
+    const result = await window.paxion.voiceQuality
+      .update({
+        duplexEnabled: voiceProfile.duplexEnabled,
+        interruptionHandling: voiceProfile.interruptionHandling,
+        personaMemory: voiceProfile.personaMemory,
+        prosody: voiceProfile.prosody,
+      })
+      .catch(() => null)
+    if (!result?.ok) {
+      setVoiceRuntimeMessage(result?.reason || 'Failed to save voice quality profile.')
+      return
+    }
+    setVoiceRuntimeMessage('Voice quality profile saved.')
+    await loadVoiceRuntimeState()
+  }
+
+  async function saveWakewordRuntime() {
+    if (!window.paxion?.wakeword?.configure) {
+      setVoiceRuntimeMessage('Wake-word API unavailable in this runtime.')
+      return
+    }
+    const result = await window.paxion.wakeword
+      .configure({
+        provider: wakewordStatus.provider,
+        keyword: wakePhrase,
+        executablePath: wakewordStatus.executablePath,
+        modelPath: wakewordStatus.modelPath,
+        accessKey: wakewordAccessKey,
+        sensitivity: wakewordStatus.sensitivity,
+        alwaysOn: closeToTrayEnabled || assistantMode === 'voice',
+        detectionMode: wakewordStatus.detectionMode,
+      })
+      .catch(() => null)
+    if (!result?.ok) {
+      setVoiceRuntimeMessage(result?.reason || 'Failed to save wake-word runtime.')
+      return
+    }
+    setWakewordAccessKey('')
+    setVoiceRuntimeMessage('Wake-word runtime updated.')
+    await loadVoiceRuntimeState()
+  }
+
+  async function loadRelayStatus() {
+    if (!window.paxion?.relay?.status) {
+      return
+    }
+    const result = await window.paxion.relay.status().catch(() => null)
+    if (!result?.ok) {
+      setCloudRelayMessage(result?.reason || 'Failed to load cloud relay state.')
+      return
+    }
+    const relay = (result.relay || {}) as Record<string, unknown>
+    const config = (relay.config || {}) as Record<string, unknown>
+    setRelayMode(String(config.mode || 'disabled'))
+    setCloudRelayEndpoint(String(config.endpoint || ''))
+    setCloudRelayDeviceId(String(config.deviceId || 'paxion-primary'))
+    setCloudRelayPollingEnabled(Boolean(config.pollingEnabled))
+    setCloudRelayTokenConfigured(Boolean(config.tokenConfigured))
+    setCloudRelayRequests(Array.isArray(relay.requests) ? (relay.requests as Array<Record<string, unknown>>) : [])
+    setCloudRelayLastSyncAt(typeof relay.lastCloudSyncAt === 'string' ? relay.lastCloudSyncAt : null)
+  }
+
+  async function saveCloudRelayConfig() {
+    if (!window.paxion?.relay?.configure) {
+      setCloudRelayMessage('Cloud relay API unavailable in this runtime.')
+      return
+    }
+    const result = await window.paxion.relay
+      .configure({
+        mode: relayMode,
+        endpoint: cloudRelayEndpoint,
+        deviceId: cloudRelayDeviceId,
+        pollingEnabled: cloudRelayPollingEnabled,
+        token: cloudRelayToken,
+      })
+      .catch(() => null)
+    if (!result?.ok) {
+      setCloudRelayMessage(result?.reason || 'Failed to save cloud relay configuration.')
+      return
+    }
+    setCloudRelayToken('')
+    setCloudRelayMessage('Cloud relay configuration saved.')
+    await loadRelayStatus()
+  }
+
+  async function syncCloudRelayQueue() {
+    if (!window.paxion?.relay?.sync) {
+      setCloudRelayMessage('Cloud relay sync is unavailable in this runtime.')
+      return
+    }
+    const result = await window.paxion.relay.sync().catch(() => null)
+    if (!result?.ok) {
+      setCloudRelayMessage(result?.reason || 'Failed to sync cloud relay queue.')
+      return
+    }
+    setCloudRelayMessage('Cloud relay queue synced.')
+    await loadRelayStatus()
+  }
+
+  async function submitCloudRelayPing() {
+    if (!window.paxion?.relay?.submit) {
+      setCloudRelayMessage('Cloud relay submit is unavailable in this runtime.')
+      return
+    }
+    const result = await window.paxion.relay
+      .submit({
+        request: {
+          actionId: 'assistant.remoteHeartbeat',
+          detail: 'Connectivity probe from Paxion desktop runtime.',
+          deviceId: cloudRelayDeviceId,
+          requestedAt: new Date().toISOString(),
+        },
+      })
+      .catch(() => null)
+    if (!result?.ok) {
+      setCloudRelayMessage(result?.reason || 'Failed to submit cloud relay request.')
+      return
+    }
+    setCloudRelayMessage('Cloud relay heartbeat request submitted.')
+    await loadRelayStatus()
+  }
+
+  async function completeCloudRelayRequest(requestId: string) {
+    if (!window.paxion?.relay?.complete) {
+      return
+    }
+    const result = await window.paxion.relay
+      .complete({
+        requestId,
+        state: 'completed',
+        result: {
+          completedAt: new Date().toISOString(),
+          deviceId: cloudRelayDeviceId,
+          runtime: 'desktop',
+        },
+      })
+      .catch(() => null)
+    if (!result?.ok) {
+      setCloudRelayMessage(result?.reason || 'Failed to complete cloud relay request.')
+      return
+    }
+    setCloudRelayMessage(`Cloud relay request ${requestId} completed.`)
+    await loadRelayStatus()
+  }
+
+  function parsePerceptionLabels() {
+    return perceptionLabelHints
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+  }
+
+  async function capturePerceptionFrame(realtime = false) {
+    if (!window.paxion?.perception?.groundFrame) {
+      setPerceptionMessage('Perception runtime is only available in Electron.')
+      return
+    }
+    const video = perceptionVideoRef.current
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setPerceptionMessage('Camera stream is not ready yet.')
+      return
+    }
+    const labels = parsePerceptionLabels()
+    const summary = `Live frame ${new Date().toLocaleTimeString()} at ${video.videoWidth}x${video.videoHeight}${labels.length ? ` with focus on ${labels.join(', ')}` : ''}.`
+    const frameResult = await window.paxion.perception
+      .groundFrame({
+        frameId: `frame-${Date.now().toString(36)}`,
+        summary,
+        confidence: realtime ? 0.72 : 0.8,
+        realtime,
+        labels,
+        width: video.videoWidth,
+        height: video.videoHeight,
+        source: 'browser-camera',
+      })
+      .catch(() => null)
+    if (!frameResult?.ok) {
+      setPerceptionMessage(frameResult?.reason || 'Failed to ground perception frame.')
+      return
+    }
+    const frame = (frameResult.frame || {}) as Record<string, unknown>
+    setPerceptionFrames((prev) => [frame, ...prev].slice(0, 6))
+    setPerceptionSummary(String(frame.summary || summary))
+
+    if (window.paxion?.perception?.sceneGraph && labels.length > 0) {
+      const relations = labels.length > 1 ? labels.slice(1).map((label) => `${labels[0]}-near-${label}`) : [`${labels[0]}-visible`]
+      const sceneResult = await window.paxion.perception
+        .sceneGraph({
+          objects: labels,
+          relations,
+          grounding: 'browser-camera-runtime',
+        })
+        .catch(() => null)
+      if (sceneResult?.ok) {
+        setPerceptionSceneGraph((sceneResult.sceneGraph || null) as Record<string, unknown> | null)
+      }
+    }
+
+    setPerceptionMessage(realtime ? 'Realtime perception frame updated.' : 'Perception snapshot captured.')
+  }
+
+  async function startPerceptionRuntime() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setPerceptionMessage('Camera access is not available in this runtime.')
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+        audio: false,
+      })
+      perceptionStreamRef.current = stream
+      const video = perceptionVideoRef.current
+      if (video) {
+        video.srcObject = stream
+        await video.play().catch(() => undefined)
+      }
+      if (perceptionIntervalRef.current) {
+        window.clearInterval(perceptionIntervalRef.current)
+      }
+      perceptionIntervalRef.current = window.setInterval(() => {
+        void capturePerceptionFrame(true)
+      }, 2500)
+      setPerceptionEnabled(true)
+      setPerceptionMessage('Realtime perception runtime started.')
+      void capturePerceptionFrame(true)
+    } catch {
+      setPerceptionMessage('Failed to start realtime perception runtime.')
+    }
+  }
+
+  function stopPerceptionRuntime() {
+    if (perceptionIntervalRef.current) {
+      window.clearInterval(perceptionIntervalRef.current)
+      perceptionIntervalRef.current = null
+    }
+    const stream = perceptionStreamRef.current
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop())
+      perceptionStreamRef.current = null
+    }
+    const video = perceptionVideoRef.current
+    if (video) {
+      video.srcObject = null
+    }
+    setPerceptionEnabled(false)
+    setPerceptionMessage('Realtime perception runtime stopped.')
   }
 
   async function simulateTerminalPack() {
@@ -1457,9 +1833,27 @@ function App() {
     }
 
     const utterance = new SpeechSynthesisUtterance(latestAssistantMessage.content.slice(0, 600))
-    utterance.rate = 1
-    utterance.pitch = 1
+    const speakRate = 1.0  // default; voice quality profile uses voiceProfile.prosody for pitch
+    utterance.rate = speakRate
+    utterance.pitch =
+      voiceProfile.prosody === 'calm' ? 0.85
+      : voiceProfile.prosody === 'energetic' ? 1.15
+      : voiceProfile.prosody === 'emphatic' ? 1.05
+      : 1.0
     utterance.lang = 'en-US'
+    // Persona-based voice selection (best-effort browser API)
+    const availableVoices = window.speechSynthesis.getVoices()
+    if (availableVoices.length > 0) {
+      const personaKeyword =
+        voiceProfile.personaMemory === 'formal' ? 'david'
+        : voiceProfile.personaMemory === 'casual' ? 'zira'
+        : voiceProfile.personaMemory === 'warm' ? 'hazel'
+        : 'google'
+      const matched = availableVoices.find((v) =>
+        v.lang.startsWith('en') && v.name.toLowerCase().includes(personaKeyword)
+      )
+      if (matched) utterance.voice = matched
+    }
     window.speechSynthesis.cancel()
     window.speechSynthesis.speak(utterance)
     lastSpokenMessageIdRef.current = latestAssistantMessage.id
@@ -3835,6 +4229,306 @@ function App() {
                 )
               })}
             </div>
+          </div>
+
+          {/* ── Voice Quality Profile ─────────────────────────────────── */}
+          <div className="decision-card">
+            <strong>Voice Quality Profile</strong>
+            <p className="muted">Tune persona, prosody, speed, and interruption handling for spoken output.</p>
+            <div className="control-group">
+              <label>Persona</label>
+              <select
+                value={voiceProfile.personaMemory}
+                onChange={(e) =>
+                  setVoiceProfile((prev) => ({ ...prev, personaMemory: e.target.value }))
+                }
+              >
+                <option value="friendly-technical">Friendly-Technical</option>
+                <option value="formal">Formal</option>
+                <option value="casual">Casual</option>
+                <option value="warm">Warm</option>
+              </select>
+            </div>
+            <div className="control-group">
+              <label>Prosody</label>
+              <select
+                value={voiceProfile.prosody}
+                onChange={(e) =>
+                  setVoiceProfile((prev) => ({ ...prev, prosody: e.target.value }))
+                }
+              >
+                <option value="balanced">Balanced</option>
+                <option value="calm">Calm</option>
+                <option value="energetic">Energetic</option>
+                <option value="emphatic">Emphatic</option>
+              </select>
+            </div>
+            <div className="capability-item">
+              <span>Full-duplex voice mode</span>
+              <input
+                type="checkbox"
+                checked={voiceProfile.duplexEnabled}
+                onChange={(e) =>
+                  setVoiceProfile((prev) => ({ ...prev, duplexEnabled: e.target.checked }))
+                }
+              />
+            </div>
+            <div className="control-group">
+              <label>Interruption handling</label>
+              <select
+                value={voiceProfile.interruptionHandling}
+                onChange={(e) =>
+                  setVoiceProfile((prev) => ({ ...prev, interruptionHandling: e.target.value }))
+                }
+              >
+                <option value="polite">Polite (finish sentence)</option>
+                <option value="barge-in">Barge-in (cancel immediately)</option>
+                <option value="queue">Queue following utterance</option>
+              </select>
+            </div>
+            <div className="workspace-actions">
+              <button className="run-button" onClick={() => void saveVoiceRuntimeProfile()}>
+                Save Voice Quality Profile
+              </button>
+            </div>
+            {voiceRuntimeMessage && <p className="muted">{voiceRuntimeMessage}</p>}
+          </div>
+
+          {/* ── Wake-word Provider ───────────────────────────────────────── */}
+          <div className="decision-card">
+            <strong>Wake-word Provider</strong>
+            <p className="muted">Configure the always-on hotword engine. Native engines require provider binaries on disk.</p>
+            <div className="control-group">
+              <label>Provider</label>
+              <select
+                value={wakewordStatus.provider}
+                onChange={(e) =>
+                  setWakewordStatus((prev) => ({ ...prev, provider: e.target.value }))
+                }
+              >
+                <option value="browser-fallback">Browser fallback (SpeechRecognition)</option>
+                <option value="picovoice-porcupine">Picovoice Porcupine</option>
+                <option value="openWakeWord">openWakeWord</option>
+                <option value="whisper-streaming">Whisper streaming</option>
+              </select>
+            </div>
+            <div className="control-group">
+              <label>Model path</label>
+              <input
+                value={wakewordStatus.modelPath}
+                onChange={(e) =>
+                  setWakewordStatus((prev) => ({ ...prev, modelPath: e.target.value }))
+                }
+                placeholder="/path/to/model.ppn"
+              />
+            </div>
+            <div className="control-group">
+              <label>Access key (Picovoice)</label>
+              <input
+                type="password"
+                value={wakewordAccessKey}
+                onChange={(e) => setWakewordAccessKey(e.target.value)}
+                placeholder="Picovoice access key"
+              />
+            </div>
+            <div className="capability-item">
+              <span>Always-on detection</span>
+              <input
+                type="checkbox"
+                checked={wakewordStatus.alwaysOn}
+                onChange={(e) =>
+                  setWakewordStatus((prev) => ({ ...prev, alwaysOn: e.target.checked }))
+                }
+              />
+            </div>
+            <div className="control-group">
+              <label>Sensitivity — {wakewordStatus.sensitivity.toFixed(2)}</label>
+              <input
+                type="range"
+                min={0.1}
+                max={0.99}
+                step={0.01}
+                value={wakewordStatus.sensitivity}
+                onChange={(e) =>
+                  setWakewordStatus((prev) => ({ ...prev, sensitivity: parseFloat(e.target.value) }))
+                }
+              />
+            </div>
+            <div className="workspace-actions">
+              <button className="run-button" onClick={() => void saveWakewordRuntime()}>
+                Apply Wake-word Config
+              </button>
+            </div>
+            <div className="capability-list">
+              <div className="capability-item">
+                <span>Status</span>
+                <strong>{wakewordStatus.status}</strong>
+              </div>
+              <div className="capability-item">
+                <span>Provider</span>
+                <strong>{wakewordStatus.provider}</strong>
+              </div>
+              <div className="capability-item">
+                <span>Executable present</span>
+                <strong>{wakewordStatus.executablePresent ? 'Yes' : 'No'}</strong>
+              </div>
+              <div className="capability-item">
+                <span>Model present</span>
+                <strong>{wakewordStatus.modelPresent ? 'Yes' : 'No'}</strong>
+              </div>
+              <div className="capability-item">
+                <span>Est. latency</span>
+                <strong>{wakewordStatus.estimatedLatencyMs} ms</strong>
+              </div>
+            </div>
+            {voiceRuntimeMessage && <p className="muted">{voiceRuntimeMessage}</p>}
+          </div>
+
+          {/* ── Cloud Relay (internet remote access) ─────────────────────── */}
+          <div className="decision-card">
+            <strong>Cloud Relay — Internet Remote Access</strong>
+            <p className="muted">
+              Deploy <code>relay/server.cjs</code> to any public host, then connect here.
+              Once configured, you can send commands from mobile or any browser.
+            </p>
+            <div className="control-group">
+              <label>Relay endpoint</label>
+              <input
+                value={cloudRelayEndpoint}
+                onChange={(e) => setCloudRelayEndpoint(e.target.value)}
+                placeholder="https://your-relay.example.com"
+              />
+            </div>
+            <div className="control-group">
+              <label>Relay token (encrypted at rest)</label>
+              <input
+                type="password"
+                value={cloudRelayToken}
+                onChange={(e) => setCloudRelayToken(e.target.value)}
+                placeholder="shared secret token"
+              />
+            </div>
+            <div className="control-group">
+              <label>Device ID</label>
+              <input
+                value={cloudRelayDeviceId}
+                onChange={(e) => setCloudRelayDeviceId(e.target.value)}
+                placeholder="paxion-desktop-1"
+              />
+            </div>
+            <div className="control-group">
+              <label>Mode</label>
+              <select
+                value={relayMode}
+                onChange={(e) => setRelayMode(e.target.value)}
+              >
+                <option value="disabled">Disabled</option>
+                <option value="cloud">Cloud relay</option>
+                <option value="local-only">Local-only bridge</option>
+              </select>
+            </div>
+            <div className="capability-item">
+              <span>Auto-poll queue (every 12 s)</span>
+              <input
+                type="checkbox"
+                checked={cloudRelayPollingEnabled}
+                onChange={(e) => setCloudRelayPollingEnabled(e.target.checked)}
+              />
+            </div>
+            <div className="capability-item">
+              <span>Token configured</span>
+              <strong>{cloudRelayTokenConfigured ? 'Yes' : 'No'}</strong>
+            </div>
+            <div className="workspace-actions">
+              <button className="run-button" onClick={() => void saveCloudRelayConfig()}>
+                Save Cloud Relay Config
+              </button>
+              <button className="run-button" onClick={() => void syncCloudRelayQueue()}>
+                Sync Queue Now
+              </button>
+              <button className="run-button" onClick={() => void submitCloudRelayPing()}>
+                Send Heartbeat
+              </button>
+            </div>
+            {cloudRelayMessage && <p className="muted">{cloudRelayMessage}</p>}
+            {cloudRelayLastSyncAt && (
+              <p className="muted">Last sync: {cloudRelayLastSyncAt}</p>
+            )}
+            <p className="muted">
+              Pending cloud requests: {cloudRelayRequests.length}
+            </p>
+            <div className="capability-list">
+              {cloudRelayRequests.map((row) => {
+                const id = String(row.id ?? Math.random())
+                const status = String(row.status ?? 'pending')
+                const actionId = String(
+                  (row.request as Record<string, unknown> | undefined)?.actionId ?? 'unknown'
+                )
+                return (
+                  <div className="capability-item" key={id}>
+                    <span>{actionId} [{status}]</span>
+                    {status === 'pending' && (
+                      <button
+                        className="run-button"
+                        onClick={() => void completeCloudRelayRequest(id)}
+                      >
+                        Complete
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* ── Realtime Multimodal Perception ───────────────────────────── */}
+          <div className="decision-card">
+            <strong>Realtime Multimodal Perception</strong>
+            <p className="muted">
+              Capture webcam frames and ground them into the scene graph every 2.5 seconds.
+              Requires camera permission. Works best in Electron (full desktop).
+            </p>
+            <div className="control-group">
+              <label>Label hints (comma-separated)</label>
+              <input
+                value={perceptionLabelHints}
+                onChange={(e) => setPerceptionLabelHints(e.target.value)}
+                placeholder="person, screen, desk"
+              />
+            </div>
+            <div className="workspace-actions">
+              {!perceptionEnabled ? (
+                <button className="run-button" onClick={() => void startPerceptionRuntime()}>
+                  Start Perception
+                </button>
+              ) : (
+                <button className="run-button" onClick={() => stopPerceptionRuntime()}>
+                  Stop Perception
+                </button>
+              )}
+              <button className="run-button" onClick={() => void capturePerceptionFrame(false)}>
+                Capture Snapshot
+              </button>
+            </div>
+            <div className="capability-list">
+              <div className="capability-item">
+                <span>Status</span>
+                <strong>{perceptionEnabled ? 'Active' : 'Idle'}</strong>
+              </div>
+              <div className="capability-item">
+                <span>Frames grounded</span>
+                <strong>{perceptionFrames.length}</strong>
+              </div>
+              {perceptionSummary && (
+                <div className="capability-item">
+                  <span>Latest frame</span>
+                  <strong style={{ fontSize: '0.8em' }}>{perceptionSummary.slice(0, 80)}</strong>
+                </div>
+              )}
+            </div>
+            {perceptionMessage && <p className="muted">{perceptionMessage}</p>}
+            {/* Hidden elements used by perception capture loop */}
+            <video ref={perceptionVideoRef} style={{ display: 'none' }} autoPlay muted playsInline />
           </div>
 
           <div className="control-group">

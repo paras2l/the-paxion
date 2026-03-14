@@ -154,6 +154,9 @@ contextBridge.exposeInMainWorld('paxion', {
   relay: {
     status: () => ipcRenderer.invoke('paxion:relay:status'),
     configure: (input) => ipcRenderer.invoke('paxion:relay:configure', input),
+    submit: (input) => ipcRenderer.invoke('paxion:relay:submit', input),
+    sync: () => ipcRenderer.invoke('paxion:relay:sync'),
+    complete: (input) => ipcRenderer.invoke('paxion:relay:complete', input),
     envelope: (input) => ipcRenderer.invoke('paxion:relay:envelope', input),
   },
   wakeword: {

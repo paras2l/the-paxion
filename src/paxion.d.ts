@@ -163,6 +163,13 @@ interface PaxionThreatDashboardResult {
   dashboard?: Record<string, unknown>
 }
 
+interface PaxionRelayResult {
+  ok: boolean
+  reason?: string
+  relay?: Record<string, unknown>
+  request?: Record<string, unknown>
+}
+
 interface PaxionTerminalPlanResult {
   ok: boolean
   reason?: string
@@ -1074,6 +1081,73 @@ declare global {
         threatDashboard(input?: {
           request?: ActionRequest
         }): Promise<PaxionThreatDashboardResult>
+      }
+      voiceQuality: {
+        status(): Promise<{ ok: boolean; state?: Record<string, unknown> }>
+        update(input: {
+          duplexEnabled?: boolean
+          interruptionHandling?: string
+          personaMemory?: string
+          prosody?: string
+        }): Promise<{ ok: boolean; reason?: string; profile?: Record<string, unknown>; state?: Record<string, unknown> }>
+        evaluate(input: {
+          interruptions?: number
+          latencyMs?: number
+        }): Promise<{ ok: boolean; session?: Record<string, unknown> }>
+      }
+      relay: {
+        status(): Promise<PaxionRelayResult>
+        configure(input: {
+          mode?: string
+          endpoint?: string
+          deviceId?: string
+          pollingEnabled?: boolean
+          token?: string
+          clearToken?: boolean
+        }): Promise<PaxionRelayResult>
+        submit(input: {
+          request?: Record<string, unknown>
+        }): Promise<PaxionRelayResult>
+        sync(): Promise<PaxionRelayResult>
+        complete(input: {
+          requestId: string
+          state?: string
+          result?: Record<string, unknown>
+        }): Promise<PaxionRelayResult>
+        envelope(input: {
+          requestId?: string
+          actionId?: string
+        }): Promise<{ ok: boolean; reason?: string; envelope?: Record<string, unknown> }>
+      }
+      wakeword: {
+        status(): Promise<{ ok: boolean; status?: Record<string, unknown> }>
+        configure(input: {
+          provider?: string
+          keyword?: string
+          executablePath?: string
+          modelPath?: string
+          accessKey?: string
+          sensitivity?: number
+          alwaysOn?: boolean
+          detectionMode?: string
+        }): Promise<{ ok: boolean; reason?: string; status?: Record<string, unknown>; adapter?: Record<string, unknown>; state?: Record<string, unknown> }>
+      }
+      perception: {
+        sceneGraph(input: {
+          objects?: string[]
+          relations?: string[]
+          grounding?: string
+        }): Promise<{ ok: boolean; reason?: string; sceneGraph?: Record<string, unknown> }>
+        groundFrame(input: {
+          frameId?: string
+          summary?: string
+          confidence?: number
+          realtime?: boolean
+          labels?: string[]
+          width?: number
+          height?: number
+          source?: string
+        }): Promise<{ ok: boolean; reason?: string; frame?: Record<string, unknown> }>
       }
       workspace: {
         load(): Promise<PaxionWorkspaceLoadResult>
