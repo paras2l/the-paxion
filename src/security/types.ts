@@ -5,6 +5,7 @@ export type ActionRequest = {
   category: ActionCategory
   targetPath?: string
   detail?: string
+  jurisdiction?: string
 }
 
 export type PolicyDecision = {

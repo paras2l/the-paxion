@@ -69,6 +69,27 @@ contextBridge.exposeInMainWorld('paxion', {
     runOcr: (input) => ipcRenderer.invoke('paxion:readiness:runOcr', input),
     createEvidenceArtifact: (input) => ipcRenderer.invoke('paxion:readiness:createEvidenceArtifact', input),
   },
+  program: {
+    status: () => ipcRenderer.invoke('paxion:program:status'),
+  },
+  devices: {
+    list: () => ipcRenderer.invoke('paxion:devices:list'),
+    register: (input) => ipcRenderer.invoke('paxion:devices:register', input),
+    revoke: (input) => ipcRenderer.invoke('paxion:devices:revoke', input),
+  },
+  learningV2: {
+    update: (input) => ipcRenderer.invoke('paxion:learning:v2:update', input),
+  },
+  trading: {
+    backtest: (input) => ipcRenderer.invoke('paxion:trading:backtest', input),
+    paperOrder: (input) => ipcRenderer.invoke('paxion:trading:paperOrder', input),
+  },
+  medical: {
+    review: (input) => ipcRenderer.invoke('paxion:medical:review', input),
+  },
+  media: {
+    generate: (input) => ipcRenderer.invoke('paxion:media:generate', input),
+  },
   workspace: {
     load: () => ipcRenderer.invoke('paxion:workspace:load'),
     save: (input) => ipcRenderer.invoke('paxion:workspace:save', input),

@@ -852,6 +852,64 @@ declare global {
           | { ok: false; reason: string }
         >
       }
+      program: {
+        status(): Promise<
+          | {
+              ok: true
+              policySnapshotHash: string
+              complianceMode: string
+              domains: Record<string, boolean>
+              updatedAt: string
+            }
+          | { ok: false; reason: string }
+        >
+      }
+      devices: {
+        list(): Promise<{ ok: boolean; reason?: string; devices: Array<Record<string, unknown>> }>
+        register(input: {
+          id: string
+          name: string
+          platform: string
+          publicKeyFingerprint: string
+        }): Promise<{ ok: boolean; reason?: string; device?: Record<string, unknown>; devices: Array<Record<string, unknown>> }>
+        revoke(input: { deviceId: string }): Promise<{ ok: boolean; reason?: string; device?: Record<string, unknown>; devices: Array<Record<string, unknown>> }>
+      }
+      learningV2: {
+        update(input: {
+          newSkills?: string[]
+          successful?: boolean
+          goal?: string
+        }): Promise<{ ok: boolean; reason?: string; learningV2?: Record<string, unknown> }>
+      }
+      trading: {
+        backtest(input: { prices: number[] }): Promise<{ ok: boolean; reason?: string; backtest?: Record<string, unknown>; tradingState?: Record<string, unknown> }>
+        paperOrder(input: {
+          symbol: string
+          side: 'buy' | 'sell'
+          quantity: number
+          price: number
+        }): Promise<{ ok: boolean; reason?: string; order?: Record<string, unknown>; tradingState?: Record<string, unknown> }>
+      }
+      medical: {
+        review(input: {
+          medications: string[]
+          confidence?: number
+          threshold?: number
+        }): Promise<{
+          ok: boolean
+          reason?: string
+          safety?: Record<string, unknown>
+          confidence?: Record<string, unknown>
+          medicalState?: Record<string, unknown>
+        }>
+      }
+      media: {
+        generate(input: {
+          type: 'image' | 'video' | 'voice'
+          prompt: string
+          artifactPath?: string
+        }): Promise<{ ok: boolean; reason?: string; job?: Record<string, unknown>; mediaState?: Record<string, unknown> }>
+      }
       workspace: {
         load(): Promise<PaxionWorkspaceLoadResult>
         save(input: { goal: string; plan: Array<Record<string, unknown>> }): Promise<PaxionWorkspaceSaveResult>

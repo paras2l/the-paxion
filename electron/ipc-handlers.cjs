@@ -19,6 +19,12 @@ const {
   resolveTemplateVariables,
   selectVersionedPackProfile,
 } = require('./readiness-utils.cjs')
+const { evaluateCompliance, buildPolicySnapshotHash } = require('./compliance-engine.cjs')
+const { upsertDevice, revokeDevice } = require('./device-control-plane.cjs')
+const { evolveSkills, generateHypotheses } = require('./learning-engine-v2.cjs')
+const { runBacktest, placePaperOrder } = require('./trading-engine.cjs')
+const { evaluateMedicationSafety, evaluateMedicalAdviceConfidence } = require('./medical-safety.cjs')
+const { enqueueMediaJob } = require('./media-generation.cjs')
 
 const ADMIN_CODEWORD = 'paro the chief'
 const ADMIN_SESSION_TTL_MS = 15 * 60 * 1000
@@ -413,6 +419,22 @@ function enforcePolicy(request) {
     }
   }
 
+  const complianceDecision = evaluateCompliance({
+    actionId: request.actionId,
+    category: request.category,
+    detail: request.detail,
+    jurisdiction: request.jurisdiction,
+  })
+  if (!complianceDecision.allowed) {
+    return {
+      allowed: false,
+      requiresApproval: false,
+      ruleId: complianceDecision.ruleId,
+      reason: complianceDecision.reason,
+      compliance: complianceDecision,
+    }
+  }
+
   const target = request.targetPath || ''
   if (target) {
     if (isWithinPrefixes(target, PROTECTED_PATH_PREFIXES)) {
@@ -437,8 +459,11 @@ function enforcePolicy(request) {
     return {
       allowed: true,
       requiresApproval: true,
-      ruleId: 'sensitive-action-gate',
-      reason: 'Sensitive action requires explicit admin verification and approval.',
+      ruleId: complianceDecision.requiresReview ? 'jurisdiction-sensitive-action-gate' : 'sensitive-action-gate',
+      reason: complianceDecision.requiresReview
+        ? complianceDecision.reason
+        : 'Sensitive action requires explicit admin verification and approval.',
+      compliance: complianceDecision,
     }
   }
 
@@ -447,6 +472,7 @@ function enforcePolicy(request) {
     requiresApproval: false,
     ruleId: 'standard-allow',
     reason: 'Action is allowed under current baseline policy.',
+    compliance: complianceDecision,
   }
 }
 
@@ -596,6 +622,11 @@ function registerIpcHandlers(mainWindow) {
   const learningStateFilePath = path.join(app.getPath('userData'), 'paxion-learning-state.json')
   const attestationStateFilePath = path.join(app.getPath('userData'), 'paxion-attestation-state.json')
   const attestationChainFilePath = path.join(app.getPath('userData'), 'paxion-attestation-chain.jsonl')
+  const deviceStateFilePath = path.join(app.getPath('userData'), 'paxion-devices.json')
+  const learningV2StateFilePath = path.join(app.getPath('userData'), 'paxion-learning-v2.json')
+  const tradingStateFilePath = path.join(app.getPath('userData'), 'paxion-trading.json')
+  const medicalStateFilePath = path.join(app.getPath('userData'), 'paxion-medical.json')
+  const mediaStateFilePath = path.join(app.getPath('userData'), 'paxion-media.json')
   const adminSession = buildAdminSessionState()
   const approvalTickets = new Map()
   const replayPreviewApprovals = new Map()
@@ -625,6 +656,30 @@ function registerIpcHandlers(mainWindow) {
     publicKeyFingerprint: '',
     lastEntryHash: 'GENESIS',
     loaded: false,
+  }
+  let deviceState = {
+    devices: [],
+    updatedAt: null,
+  }
+  let learningV2State = {
+    skills: [],
+    confidence: {},
+    hypotheses: [],
+    updatedAt: null,
+  }
+  let tradingState = {
+    backtests: [],
+    paperOrders: [],
+    updatedAt: null,
+  }
+  let medicalState = {
+    safetyReviews: [],
+    confidenceReviews: [],
+    updatedAt: null,
+  }
+  let mediaState = {
+    jobs: [],
+    updatedAt: null,
   }
 
   function loadAuditEntriesFromDisk() {
@@ -902,6 +957,57 @@ function registerIpcHandlers(mainWindow) {
         updatedAt: null,
       }
     }
+  }
+
+  function loadJsonState(filePath, fallback) {
+    if (!fs.existsSync(filePath)) {
+      return { ...fallback }
+    }
+    try {
+      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+      return {
+        ...fallback,
+        ...(parsed && typeof parsed === 'object' ? parsed : {}),
+      }
+    } catch {
+      return { ...fallback }
+    }
+  }
+
+  function saveJsonState(filePath, value) {
+    fs.writeFileSync(filePath, JSON.stringify(value, null, 2), 'utf8')
+  }
+
+  function loadDomainStates() {
+    deviceState = loadJsonState(deviceStateFilePath, { devices: [], updatedAt: null })
+    learningV2State = loadJsonState(learningV2StateFilePath, {
+      skills: [],
+      confidence: {},
+      hypotheses: [],
+      updatedAt: null,
+    })
+    tradingState = loadJsonState(tradingStateFilePath, {
+      backtests: [],
+      paperOrders: [],
+      updatedAt: null,
+    })
+    medicalState = loadJsonState(medicalStateFilePath, {
+      safetyReviews: [],
+      confidenceReviews: [],
+      updatedAt: null,
+    })
+    mediaState = loadJsonState(mediaStateFilePath, {
+      jobs: [],
+      updatedAt: null,
+    })
+  }
+
+  function saveDomainStates() {
+    saveJsonState(deviceStateFilePath, deviceState)
+    saveJsonState(learningV2StateFilePath, learningV2State)
+    saveJsonState(tradingStateFilePath, tradingState)
+    saveJsonState(medicalStateFilePath, medicalState)
+    saveJsonState(mediaStateFilePath, mediaState)
   }
 
   function workspaceRootPath() {
@@ -2278,6 +2384,7 @@ function registerIpcHandlers(mainWindow) {
   initializeAuditState()
   loadCapabilityState()
   loadLearningState()
+  loadDomainStates()
   ensureAttestationState()
 
   // Legacy endpoint for compatibility with existing renderer logging calls.
@@ -4252,6 +4359,198 @@ function registerIpcHandlers(mainWindow) {
         reason: `Failed to clear library state: ${err.message}`,
       }
     }
+  })
+
+  ipcMain.handle('paxion:program:status', () => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to inspect program status.' }
+    }
+
+    return {
+      ok: true,
+      policySnapshotHash: buildPolicySnapshotHash(),
+      complianceMode: 'strict-safe',
+      domains: {
+        compliance: true,
+        devices: true,
+        learningV2: true,
+        trading: true,
+        medical: true,
+        media: true,
+      },
+      updatedAt: new Date().toISOString(),
+    }
+  })
+
+  ipcMain.handle('paxion:devices:list', () => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to list devices.', devices: [] }
+    }
+    return { ok: true, devices: Array.isArray(deviceState.devices) ? deviceState.devices : [] }
+  })
+
+  ipcMain.handle('paxion:devices:register', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to register device.' }
+    }
+    const result = upsertDevice(deviceState.devices, input)
+    if (!result.ok) {
+      return result
+    }
+    deviceState = {
+      devices: result.devices,
+      updatedAt: new Date().toISOString(),
+    }
+    saveDomainStates()
+    appendAuditEntry('action_result', {
+      actionId: 'devices.register',
+      status: 'allowed',
+      deviceId: result.device.id,
+      platform: result.device.platform,
+    })
+    return { ok: true, device: result.device, devices: deviceState.devices }
+  })
+
+  ipcMain.handle('paxion:devices:revoke', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to revoke device.' }
+    }
+    const result = revokeDevice(deviceState.devices, input?.deviceId)
+    if (!result.ok) {
+      return result
+    }
+    deviceState = {
+      devices: result.devices,
+      updatedAt: new Date().toISOString(),
+    }
+    saveDomainStates()
+    appendAuditEntry('action_result', {
+      actionId: 'devices.revoke',
+      status: 'allowed',
+      deviceId: result.device.id,
+    })
+    return { ok: true, device: result.device, devices: deviceState.devices }
+  })
+
+  ipcMain.handle('paxion:learning:v2:update', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to update learning v2.' }
+    }
+
+    const evolved = evolveSkills(learningV2State, {
+      newSkills: input?.newSkills,
+      successful: Boolean(input?.successful),
+    })
+    const hypotheses = generateHypotheses(evolved, { goal: input?.goal })
+    learningV2State = {
+      ...evolved,
+      hypotheses,
+    }
+    saveDomainStates()
+
+    return {
+      ok: true,
+      learningV2: learningV2State,
+    }
+  })
+
+  ipcMain.handle('paxion:trading:backtest', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to run trading backtest.' }
+    }
+
+    const backtest = runBacktest({ prices: input?.prices })
+    tradingState = {
+      ...tradingState,
+      backtests: [...(Array.isArray(tradingState.backtests) ? tradingState.backtests : []), { ...backtest, createdAt: new Date().toISOString() }].slice(-120),
+      updatedAt: new Date().toISOString(),
+    }
+    saveDomainStates()
+    appendAuditEntry('action_result', {
+      actionId: 'trading.backtest',
+      status: 'allowed',
+      totalReturn: backtest.totalReturn,
+    })
+
+    return { ok: true, backtest, tradingState }
+  })
+
+  ipcMain.handle('paxion:trading:paperOrder', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to place paper order.' }
+    }
+
+    const order = placePaperOrder(input)
+    tradingState = {
+      ...tradingState,
+      paperOrders: [...(Array.isArray(tradingState.paperOrders) ? tradingState.paperOrders : []), order].slice(-240),
+      updatedAt: new Date().toISOString(),
+    }
+    saveDomainStates()
+    appendAuditEntry('action_result', {
+      actionId: 'trading.paperOrder',
+      status: 'allowed',
+      symbol: order.symbol,
+      side: order.side,
+      notional: order.notional,
+    })
+
+    return { ok: true, order, tradingState }
+  })
+
+  ipcMain.handle('paxion:medical:review', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to run medical review.' }
+    }
+
+    const safety = evaluateMedicationSafety({ medications: input?.medications })
+    const confidence = evaluateMedicalAdviceConfidence({
+      confidence: input?.confidence,
+      threshold: input?.threshold,
+    })
+
+    medicalState = {
+      ...medicalState,
+      safetyReviews: [...(Array.isArray(medicalState.safetyReviews) ? medicalState.safetyReviews : []), safety].slice(-240),
+      confidenceReviews: [...(Array.isArray(medicalState.confidenceReviews) ? medicalState.confidenceReviews : []), confidence].slice(-240),
+      updatedAt: new Date().toISOString(),
+    }
+    saveDomainStates()
+
+    appendAuditEntry('action_result', {
+      actionId: 'medical.review',
+      status: 'allowed',
+      safe: safety.safe,
+      confidenceAllowed: confidence.allowed,
+    })
+
+    return { ok: true, safety, confidence, medicalState }
+  })
+
+  ipcMain.handle('paxion:media:generate', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to generate media.' }
+    }
+
+    if (capabilityState.mediaGeneration === false) {
+      return { ok: false, reason: 'mediaGeneration capability is disabled in Access tab.' }
+    }
+
+    const result = enqueueMediaJob(mediaState, input)
+    mediaState = {
+      ...result.queue,
+      updatedAt: new Date().toISOString(),
+    }
+    saveDomainStates()
+
+    appendAuditEntry('action_result', {
+      actionId: 'media.generate',
+      status: 'allowed',
+      jobId: result.job.id,
+      type: result.job.type,
+    })
+
+    return { ok: true, job: result.job, mediaState }
   })
 
   ipcMain.handle('paxion:workspace:load', () => {

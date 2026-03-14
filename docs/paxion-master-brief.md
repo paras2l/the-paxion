@@ -131,6 +131,16 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Self-evolution promotion now enforces stronger gates (test thresholds, lint/build checks, and governance policy signatures) before deploy-stage advancement.
 - Workspace operators now have direct controls for native action execution, rollback execution, graph query pagination, governance signing, and attestation operations in one panel for long sessions.
 
+## Safe full-scope expansion bootstrap
+- Policy evaluation now includes jurisdiction-aware compliance checks and signed policy snapshot hash linkage.
+- Harmful or illegal cyber operation patterns remain blocked by immutable policy regardless of request.
+- Device control-plane bootstrap is now available with trusted device register/list/revoke APIs for secure multi-device groundwork.
+- Autonomous learning v2 bootstrap APIs now support skill-confidence evolution and supervised hypothesis generation.
+- Trading bootstrap APIs now support deterministic backtesting and paper-order simulation under admin gate.
+- Medical bootstrap APIs now support contraindication and confidence-threshold safety review workflows.
+- Media bootstrap APIs now support auditable generation-job queueing with provenance watermark metadata.
+- These additions are foundational program steps toward phase-by-phase completion and remain admin-gated, auditable, and policy-bound.
+
 ## Out of scope for v1
 - Unrestricted autonomous operations.
 - Unrestricted web crawling.

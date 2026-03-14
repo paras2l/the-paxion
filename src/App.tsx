@@ -4499,7 +4499,7 @@ function App() {
       <footer className="footer">
         <span>Profile: Paro the Chief</span>
         <span>Mode: Policy-Enforced Build</span>
-        <span>Version: v0.18.0-readiness-closure</span>
+        <span>Version: v0.19.0-safe-domain-expansion-bootstrap</span>
       </footer>
     </div>
   )
