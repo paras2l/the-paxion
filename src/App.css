@@ -681,3 +681,74 @@
 .chat-toggle-thought:hover {
   color: var(--accent-cyan);
 }
+
+/* Workspace tab */
+.workspace-actions {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.workspace-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.workspace-step-card {
+  border: 1px solid var(--edge-soft);
+  border-radius: 0.55rem;
+  background: rgba(0, 212, 255, 0.03);
+  padding: 0.55rem 0.65rem;
+}
+
+.workspace-step-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+}
+
+.workspace-step-head strong {
+  color: var(--ink-light);
+  font-size: 0.86rem;
+}
+
+.workspace-status {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border: 1px solid var(--edge);
+  border-radius: 0.3rem;
+  padding: 0.1rem 0.32rem;
+}
+
+.status-pending {
+  color: var(--ink-muted);
+}
+
+.status-dry-run-pass,
+.status-executed {
+  color: var(--accent-green);
+  border-color: rgba(0, 232, 122, 0.35);
+  background: rgba(0, 232, 122, 0.08);
+}
+
+.status-dry-run-deny,
+.status-failed {
+  color: var(--accent-danger);
+  border-color: rgba(255, 68, 68, 0.35);
+  background: rgba(255, 68, 68, 0.08);
+}
+
+.workspace-step-result {
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--ink-main);
+}
+
+.workspace-step-actions {
+  margin-top: 0.4rem;
+  display: flex;
+  gap: 0.4rem;
+}

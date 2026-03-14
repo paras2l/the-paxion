@@ -57,6 +57,22 @@ type ActionPreset = {
   detail: string
 }
 
+type WorkspaceStepStatus =
+  | 'pending'
+  | 'dry-run-pass'
+  | 'dry-run-deny'
+  | 'executed'
+  | 'failed'
+
+type WorkspaceStep = {
+  id: string
+  title: string
+  request: ActionRequest
+  status: WorkspaceStepStatus
+  result: string
+  executionMode?: string
+}
+
 const actionPresets: ActionPreset[] = [
   {
     id: 'library.ingestDocument',
@@ -90,6 +106,55 @@ const actionPresets: ActionPreset[] = [
 
 const immutableSummary = getImmutablePolicySummary()
 
+function buildWorkspacePlan(goal: string): WorkspaceStep[] {
+  const normalizedGoal = goal.toLowerCase()
+  const steps: Array<Omit<WorkspaceStep, 'id' | 'status' | 'result'>> = []
+
+  if (
+    normalizedGoal.includes('research') ||
+    normalizedGoal.includes('learn') ||
+    normalizedGoal.includes('library')
+  ) {
+    steps.push({
+      title: 'Prepare knowledge intake context',
+      request: {
+        actionId: 'library.ingestDocument',
+        category: 'knowledge',
+        targetPath: '/library/incoming/mission-context.txt',
+        detail: `Prepare knowledge context for mission: ${goal}`,
+      },
+    })
+  }
+
+  steps.push({
+    title: 'Generate mission component',
+    request: {
+      actionId: 'workspace.generateComponent',
+      category: 'codegen',
+      targetPath: '/workspace/missions/mission-component.tsx',
+      detail: `Generate primary implementation for mission: ${goal}`,
+    },
+  })
+
+  steps.push({
+    title: 'Generate mission scaffold notes',
+    request: {
+      actionId: 'workspace.generateComponent',
+      category: 'codegen',
+      targetPath: '/workspace/missions/mission-notes.tsx',
+      detail: `Generate supporting scaffold for mission: ${goal}`,
+    },
+  })
+
+  return steps.map((step, idx) => ({
+    id: `ws-step-${idx + 1}`,
+    title: step.title,
+    request: step.request,
+    status: 'pending',
+    result: 'Not run yet.',
+  }))
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState<TabId>('chat')
   const [selectedActionId, setSelectedActionId] = useState(actionPresets[0].id)
@@ -117,6 +182,12 @@ function App() {
   const [chatLoading, setChatLoading] = useState(false)
   const [showThought, setShowThought] = useState<string | null>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
+
+  // Workspace mission executor state
+  const [workspaceGoal, setWorkspaceGoal] = useState('')
+  const [workspacePlan, setWorkspacePlan] = useState<WorkspaceStep[]>([])
+  const [workspaceRunning, setWorkspaceRunning] = useState(false)
+  const [workspaceMessage, setWorkspaceMessage] = useState('')
 
   const activeTabMeta = useMemo(
     () => tabs.find((tab) => tab.id === activeTab) ?? tabs[0],
@@ -324,6 +395,110 @@ function App() {
     libraryStore.remove(id)
     if (libSelectedId === id) setLibSelectedId(null)
     setLibDocs(libraryStore.getAll())
+  }
+
+  // ── Workspace tab handlers ──
+
+  function createWorkspacePlan() {
+    if (!workspaceGoal.trim()) {
+      setWorkspaceMessage('Enter a mission goal first.')
+      return
+    }
+
+    const nextPlan = buildWorkspacePlan(workspaceGoal.trim())
+    setWorkspacePlan(nextPlan)
+    setWorkspaceMessage(`Plan generated with ${nextPlan.length} steps.`)
+  }
+
+  async function runWorkspaceDryRun() {
+    if (workspacePlan.length === 0) {
+      setWorkspaceMessage('No mission plan available. Generate plan first.')
+      return
+    }
+
+    setWorkspaceRunning(true)
+    setWorkspaceMessage('Running dry-run policy checks...')
+
+    for (const step of workspacePlan) {
+      const baseDecision = window.paxion
+        ? await window.paxion.policy.evaluate(step.request)
+        : evaluateActionPolicy(step.request)
+
+      setWorkspacePlan((prev) =>
+        prev.map((item) => {
+          if (item.id !== step.id) return item
+
+          if (!baseDecision.allowed) {
+            return {
+              ...item,
+              status: 'dry-run-deny',
+              result: `Dry run denied: ${baseDecision.reason}`,
+            }
+          }
+
+          if (baseDecision.requiresApproval) {
+            return {
+              ...item,
+              status: 'dry-run-pass',
+              result: 'Dry run pass: execution allowed with admin session + codeword.',
+            }
+          }
+
+          return {
+            ...item,
+            status: 'dry-run-pass',
+            result: 'Dry run pass: policy allows execution.',
+          }
+        }),
+      )
+    }
+
+    setWorkspaceRunning(false)
+    setWorkspaceMessage('Dry run complete.')
+  }
+
+  async function executeWorkspaceStep(stepId: string) {
+    const step = workspacePlan.find((item) => item.id === stepId)
+    if (!step || !window.paxion) return
+
+    setWorkspaceRunning(true)
+    const result = await window.paxion.action.execute({
+      request: step.request,
+      adminCodeword,
+    })
+
+    setWorkspacePlan((prev) =>
+      prev.map((item) => {
+        if (item.id !== stepId) return item
+        return {
+          ...item,
+          status: result.finalDecision.allowed ? 'executed' : 'failed',
+          result: result.finalDecision.allowed
+            ? `Executed: ${result.execution.mode}`
+            : `Denied: ${result.finalDecision.reason}`,
+          executionMode: result.execution.mode,
+        }
+      }),
+    )
+
+    if (adminUnlocked) {
+      await loadAuditIfAllowed()
+    }
+
+    setWorkspaceRunning(false)
+  }
+
+  async function executeWorkspaceQueue() {
+    if (workspacePlan.length === 0) {
+      setWorkspaceMessage('No mission plan available. Generate plan first.')
+      return
+    }
+
+    for (const step of workspacePlan) {
+      await executeWorkspaceStep(step.id)
+    }
+
+    setWorkspaceMessage('Mission execution queue finished.')
   }
 
   // ── Chat tab handlers ──
@@ -725,6 +900,70 @@ function App() {
       )
     }
 
+    if (activeTab === 'workspace') {
+      return (
+        <div className="tab-content-stack">
+          <div className="control-group">
+            <label htmlFor="workspace-goal">Mission goal</label>
+            <input
+              id="workspace-goal"
+              value={workspaceGoal}
+              onChange={(event) => setWorkspaceGoal(event.target.value)}
+              placeholder="Example: Build landing page hero and scaffold mission files"
+            />
+          </div>
+
+          <div className="workspace-actions">
+            <button className="run-button" onClick={createWorkspacePlan} disabled={workspaceRunning}>
+              Generate Plan
+            </button>
+            <button
+              className="run-button"
+              onClick={runWorkspaceDryRun}
+              disabled={workspaceRunning || workspacePlan.length === 0}
+            >
+              Dry Run
+            </button>
+            <button
+              className="run-button"
+              onClick={executeWorkspaceQueue}
+              disabled={workspaceRunning || workspacePlan.length === 0}
+            >
+              Execute Queue
+            </button>
+          </div>
+
+          {workspaceMessage && <p className="muted">{workspaceMessage}</p>}
+
+          <div className="workspace-step-list">
+            {workspacePlan.length === 0 ? (
+              <p className="muted">No mission plan yet. Enter a goal and generate one.</p>
+            ) : (
+              workspacePlan.map((step) => (
+                <article className="workspace-step-card" key={step.id}>
+                  <div className="workspace-step-head">
+                    <strong>{step.title}</strong>
+                    <span className={`workspace-status status-${step.status}`}>{step.status}</span>
+                  </div>
+                  <p className="muted">{step.request.detail}</p>
+                  <p className="workspace-step-result">{step.result}</p>
+                  <div className="workspace-step-actions">
+                    <button
+                      className="run-button"
+                      onClick={() => executeWorkspaceStep(step.id)}
+                      disabled={workspaceRunning}
+                    >
+                      Execute Step
+                    </button>
+                  </div>
+                </article>
+              ))
+            )}
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="placeholder">
         <p>
@@ -802,7 +1041,7 @@ function App() {
       <footer className="footer">
         <span>Profile: Paro the Chief</span>
         <span>Mode: Policy-Enforced Build</span>
-        <span>Version: v0.5.0-paxion-brain</span>
+        <span>Version: v0.6.0-workspace-mvp</span>
       </footer>
     </div>
   )

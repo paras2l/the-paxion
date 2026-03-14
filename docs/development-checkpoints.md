@@ -30,3 +30,7 @@ Use this file to protect continuity and prevent missing work.
 ## Current milestone log
 - v0.1.0-foundation: React + TypeScript + Electron base, five-tab shell, policy framing docs.
 - v0.2.0-security-core: immutable policy guardrails, approval ticketing, and hash-chained audit logs wired into Access and Logs tabs.
+- v0.3.0-library: persistent audit via IPC + Library document ingestion UI.
+- v0.4.0-chat: local-first chat tab with Library retrieval context.
+- v0.5.0-paxion-brain: no external API model path; local PaxionBrain and dark mission UI.
+- v0.6.0-workspace-mvp: admin session hardening, atomic main-process decision+execution+audit flow, persisted approvals, and workspace mission executor queue.

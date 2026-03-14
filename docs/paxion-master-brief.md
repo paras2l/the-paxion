@@ -40,6 +40,18 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Audit is append-only and hash-chained to make tampering visible.
 - Blocked operations remain blocked regardless of prompt context.
 
+## Execution integrity baseline
+- Main-process authority: sensitive action finalization is enforced in Electron main process.
+- Admin session gate: sensitive operations require active admin session plus codeword verification.
+- Atomic trusted flow: policy decision, execution, and audit write happen in one main-process action path.
+- Approval tickets are persisted with expiry cleanup on restart.
+
+## Workspace mission baseline
+- Workspace includes mission planning with generated execution steps.
+- Supports dry-run policy preview before execution.
+- Supports per-step execution and queue execution through guarded main-process action endpoint.
+- Step timeline shows status and execution outcomes for each mission step.
+
 ## Out of scope for v1
 - Unrestricted autonomous operations.
 - Unrestricted web crawling.
