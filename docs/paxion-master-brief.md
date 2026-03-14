@@ -112,6 +112,13 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Pure readiness helper logic is covered by executable node:test coverage for suggestion ranking, replay preview grouping, mission planning, and graph linking.
 - These systems remain permission-gated, admin-gated, and local-first rather than silent autonomous execution.
 
+## OCR and evidence pipeline
+- Local OCR execution is now integrated through an Electron-side OCR runner (no remote OCR API dependency).
+- Vision jobs can be processed into extracted text with confidence capture and skill inference.
+- Execution sessions can produce hashed evidence artifacts (`evidence.json` + `evidence.md`) with integrity hash, optional screenshot hash, and session linkage.
+- Evidence artifact generation appends audit entries and learning logs to preserve traceability.
+- OCR and evidence flows remain admin-gated and capability-gated.
+
 ## Out of scope for v1
 - Unrestricted autonomous operations.
 - Unrestricted web crawling.

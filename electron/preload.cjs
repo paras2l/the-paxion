@@ -59,6 +59,8 @@ contextBridge.exposeInMainWorld('paxion', {
     advanceEvolutionPipeline: (input) => ipcRenderer.invoke('paxion:readiness:advanceEvolutionPipeline', input),
     createVisionJob: (input) => ipcRenderer.invoke('paxion:readiness:createVisionJob', input),
     reviewVisionJob: (input) => ipcRenderer.invoke('paxion:readiness:reviewVisionJob', input),
+    runOcr: (input) => ipcRenderer.invoke('paxion:readiness:runOcr', input),
+    createEvidenceArtifact: (input) => ipcRenderer.invoke('paxion:readiness:createEvidenceArtifact', input),
   },
   workspace: {
     load: () => ipcRenderer.invoke('paxion:workspace:load'),

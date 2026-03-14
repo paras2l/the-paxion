@@ -370,6 +370,14 @@ interface PaxionVisionJob {
   inferredSkills: string[]
 }
 
+interface PaxionEvidenceArtifact {
+  sessionId: string
+  payloadHash: string
+  jsonPath: string
+  markdownPath: string
+  screenshotHash: string | null
+}
+
 interface PaxionReadinessLoadResult {
   ok: boolean
   reason?: string
@@ -647,6 +655,43 @@ declare global {
               ok: true
               job: PaxionVisionJob
               visionJobs: PaxionVisionJob[]
+              learningGraph: PaxionLearningGraphSnapshot
+            }
+          | { ok: false; reason: string }
+        >
+        runOcr(input: {
+          jobId?: string
+          imagePath?: string
+          language?: string
+          objective?: string
+          notes?: string
+        }): Promise<
+          | {
+              ok: true
+              job: PaxionVisionJob | null
+              extractedText: string
+              confidence: number
+              language: string
+              visionJobs: PaxionVisionJob[]
+              learningGraph: PaxionLearningGraphSnapshot
+              skills: string[]
+            }
+          | { ok: false; reason: string }
+        >
+        createEvidenceArtifact(input: {
+          sessionId: string
+          summary: string
+          notes: string
+          evidence: string[]
+          domSnapshot?: string
+          commandOutput?: string
+          screenshotPath?: string
+        }): Promise<
+          | {
+              ok: true
+              artifact: PaxionEvidenceArtifact
+              session: PaxionExecutionSession | null
+              executionSessions: PaxionExecutionSession[]
               learningGraph: PaxionLearningGraphSnapshot
             }
           | { ok: false; reason: string }

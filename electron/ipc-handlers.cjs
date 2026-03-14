@@ -6,6 +6,7 @@ const fs = require('fs')
 const path = require('path')
 const { exec } = require('child_process')
 const pdfParse = require('pdf-parse')
+const Tesseract = require('tesseract.js')
 const {
   buildCrossAppMission,
   buildLearningGraphSnapshot,
@@ -77,6 +78,8 @@ const AUTOMATION_STEP_TYPE_ALLOWLIST = new Set([
   'wait',
   'extractText',
 ])
+
+const OCR_LANGUAGE_ALLOWLIST = new Set(['eng'])
 
 const OBSERVE_LEARN_TEMPLATE_DEFS = [
   {
@@ -485,6 +488,11 @@ function stableStringify(value) {
 
 function sha256Hex(text) {
   return crypto.createHash('sha256').update(text).digest('hex')
+}
+
+function sha256File(filePath) {
+  const buffer = fs.readFileSync(filePath)
+  return crypto.createHash('sha256').update(buffer).digest('hex')
 }
 
 function execCommand(command, options = {}) {
@@ -1388,6 +1396,11 @@ function registerIpcHandlers(mainWindow) {
     ]
 
     return Array.from(new Set(rules.filter((entry) => entry.pattern.test(content)).map((entry) => entry.skill)))
+  }
+
+  function normalizeOcrLanguage(input) {
+    const lang = String(input || 'eng').trim().toLowerCase()
+    return OCR_LANGUAGE_ALLOWLIST.has(lang) ? lang : 'eng'
   }
 
   function normalizeYoutubeUrl(inputUrl) {
@@ -2738,6 +2751,198 @@ function registerIpcHandlers(mainWindow) {
     }
 
     return { ok: true, job, visionJobs: learningState.visionJobs || [], learningGraph: buildLearningGraph() }
+  })
+
+  ipcMain.handle('paxion:readiness:runOcr', async (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to run OCR.' }
+    }
+
+    if (capabilityState.desktopAppAutomation === false) {
+      return { ok: false, reason: 'desktopAppAutomation capability is required for OCR runs.' }
+    }
+
+    const requestedJobId = String(input?.jobId || '').trim()
+    const jobs = Array.isArray(learningState.visionJobs) ? learningState.visionJobs : []
+    const existingJob = requestedJobId ? jobs.find((entry) => entry.id === requestedJobId) : null
+    const imagePath = String(input?.imagePath || existingJob?.screenshotPath || '').trim()
+    if (!imagePath) {
+      return { ok: false, reason: 'Image path is required for OCR.' }
+    }
+
+    if (!fs.existsSync(imagePath)) {
+      return { ok: false, reason: 'Image path does not exist.' }
+    }
+
+    const language = normalizeOcrLanguage(input?.language)
+    const ocrResult = await Tesseract.recognize(imagePath, language).catch((err) => {
+      return {
+        error: err,
+      }
+    })
+
+    if (!ocrResult || ocrResult.error) {
+      return {
+        ok: false,
+        reason: `OCR failed: ${String(ocrResult?.error?.message || 'unknown error')}`,
+      }
+    }
+
+    const extractedText = String(ocrResult?.data?.text || '').trim()
+    const confidence = Number(ocrResult?.data?.confidence || 0)
+    const inferredSkills = inferSkills(extractedText)
+    const notes = String(input?.notes || '').trim()
+
+    let job = null
+    if (existingJob) {
+      job = updateVisionJob(existingJob.id, (current) => ({
+        status: 'processed',
+        extractedText,
+        notes: notes || current.notes || '',
+        inferredSkills: Array.from(new Set([...(current.inferredSkills || []), ...inferredSkills])),
+      }))
+    } else {
+      job = appendVisionJob({
+        objective: String(input?.objective || 'OCR extraction'),
+        screenshotPath: imagePath,
+        extractedText,
+        notes,
+        status: 'processed',
+        inferredSkills,
+      })
+    }
+
+    appendLearningLog({
+      title: `OCR processed: ${job?.objective || 'Vision job'}`,
+      detail: extractedText
+        ? `OCR extracted ${extractedText.split(/\s+/).filter(Boolean).length} words with confidence ${confidence.toFixed(1)}.`
+        : 'OCR completed with no readable text output.',
+      source: 'ocr',
+      newSkills: inferredSkills,
+    })
+
+    return {
+      ok: true,
+      job,
+      extractedText,
+      confidence,
+      language,
+      visionJobs: learningState.visionJobs || [],
+      learningGraph: buildLearningGraph(),
+      skills: learningState.skills,
+    }
+  })
+
+  ipcMain.handle('paxion:readiness:createEvidenceArtifact', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to create evidence artifact.' }
+    }
+
+    const sessionId = String(input?.sessionId || '').trim()
+    if (!sessionId) {
+      return { ok: false, reason: 'Session ID is required.' }
+    }
+
+    const sessions = Array.isArray(learningState.executionSessions) ? learningState.executionSessions : []
+    const session = sessions.find((entry) => entry.id === sessionId)
+    if (!session) {
+      return { ok: false, reason: 'Execution session not found.' }
+    }
+
+    const summary = String(input?.summary || '').trim() || 'No summary provided.'
+    const domSnapshot = String(input?.domSnapshot || '').trim()
+    const commandOutput = String(input?.commandOutput || '').trim()
+    const notes = String(input?.notes || '').trim()
+    const screenshotPath = String(input?.screenshotPath || '').trim()
+
+    const workspaceRoot = path.join(app.getPath('userData'), 'paxion-workspace')
+    const artifactDir = path.join(workspaceRoot, 'evidence', sessionId, `${Date.now()}`)
+    fs.mkdirSync(artifactDir, { recursive: true })
+
+    const screenshotHash = screenshotPath && fs.existsSync(screenshotPath) ? sha256File(screenshotPath) : null
+    const payload = {
+      sessionId,
+      packId: session.packId,
+      packName: session.packName,
+      status: session.status,
+      targetUrl: session.targetUrl,
+      intent: session.intent,
+      summary,
+      notes,
+      verificationChecks: session.verificationChecks,
+      executionSteps: session.executionSteps,
+      rollbackSteps: session.rollbackSteps,
+      evidenceItems: Array.isArray(input?.evidence) ? input.evidence : [],
+      domSnapshot,
+      commandOutput,
+      screenshotPath,
+      screenshotHash,
+      generatedAt: new Date().toISOString(),
+    }
+    const payloadHash = sha256Hex(stableStringify(payload))
+
+    const jsonPath = path.join(artifactDir, 'evidence.json')
+    const mdPath = path.join(artifactDir, 'evidence.md')
+    fs.writeFileSync(jsonPath, JSON.stringify({ ...payload, payloadHash }, null, 2), 'utf8')
+    fs.writeFileSync(
+      mdPath,
+      [
+        '# Paxion Evidence Artifact',
+        `Session ID: ${sessionId}`,
+        `Pack: ${session.packName}`,
+        `Status: ${session.status}`,
+        `Generated: ${payload.generatedAt}`,
+        `Payload hash: ${payloadHash}`,
+        '',
+        '## Summary',
+        summary,
+        '',
+        '## Notes',
+        notes || 'None',
+        '',
+        '## Verification Checks',
+        ...(session.verificationChecks || []).map((item) => `- ${item}`),
+        '',
+        '## Rollback Steps',
+        ...(session.rollbackSteps || []).map((item) => `- ${item}`),
+      ].join('\n'),
+      'utf8',
+    )
+
+    const updatedSession = updateExecutionSession(sessionId, (current) => ({
+      status: current.status === 'prepared' ? 'evidence-captured' : current.status,
+      evidence: [...(Array.isArray(current.evidence) ? current.evidence : []), `artifact:${jsonPath}`].slice(-40),
+      verificationNotes: notes || current.verificationNotes || '',
+    }))
+
+    appendAuditEntry('action_result', {
+      actionId: 'readiness.createEvidenceArtifact',
+      status: 'allowed',
+      sessionId,
+      artifactPath: jsonPath,
+      payloadHash,
+    })
+
+    appendLearningLog({
+      title: `Evidence artifact created: ${session.packName}`,
+      detail: `Stored evidence bundle with integrity hash ${payloadHash.slice(0, 16)}...`,
+      source: 'evidence-artifact',
+      newSkills: ['Evidence Packaging'],
+    })
+
+    return {
+      ok: true,
+      artifact: {
+        sessionId,
+        payloadHash,
+        jsonPath,
+        markdownPath: mdPath,
+        screenshotHash,
+      },
+      session: updatedSession,
+      executionSessions: learningState.executionSessions || [],
+      learningGraph: buildLearningGraph(),
+    }
   })
 
   ipcMain.handle('paxion:learning:youtubePlanCreate', (_event, input) => {

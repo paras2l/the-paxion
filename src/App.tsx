@@ -563,6 +563,18 @@ function App() {
   const [visionScreenshotPath, setVisionScreenshotPath] = useState('')
   const [visionExtractedText, setVisionExtractedText] = useState('')
   const [visionNotes, setVisionNotes] = useState('')
+  const [ocrJobId, setOcrJobId] = useState('')
+  const [ocrImagePath, setOcrImagePath] = useState('')
+  const [ocrLanguage, setOcrLanguage] = useState('eng')
+  const [ocrResultText, setOcrResultText] = useState('')
+  const [evidenceSessionId, setEvidenceSessionId] = useState('')
+  const [evidenceSummary, setEvidenceSummary] = useState('')
+  const [evidenceNotes, setEvidenceNotes] = useState('')
+  const [evidenceDomSnapshot, setEvidenceDomSnapshot] = useState('')
+  const [evidenceCommandOutput, setEvidenceCommandOutput] = useState('')
+  const [evidenceScreenshotPath, setEvidenceScreenshotPath] = useState('')
+  const [evidenceArtifactHash, setEvidenceArtifactHash] = useState('')
+  const [evidenceArtifactPath, setEvidenceArtifactPath] = useState('')
   const [readinessMessage, setReadinessMessage] = useState('')
 
   // Library state
@@ -2160,6 +2172,67 @@ function App() {
     setReadinessMessage(`Vision/OCR job reviewed: ${result.job.id}`)
   }
 
+  async function runLocalOcr() {
+    if (!window.paxion) return
+    const result = await window.paxion.readiness
+      .runOcr({
+        jobId: ocrJobId.trim() || undefined,
+        imagePath: ocrImagePath.trim() || undefined,
+        language: ocrLanguage.trim() || 'eng',
+        notes: visionNotes,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setReadinessMessage(result?.reason ?? 'Failed to run local OCR.')
+      return
+    }
+
+    setVisionJobs(result.visionJobs)
+    setLearningGraph(result.learningGraph)
+    setLearnedSkills(result.skills)
+    setOcrResultText(result.extractedText)
+    setReadinessMessage(
+      `OCR completed (${result.language}) with confidence ${result.confidence.toFixed(1)}.`,
+    )
+  }
+
+  async function createEvidenceArtifact() {
+    if (!window.paxion) return
+    const sessionId = evidenceSessionId.trim()
+    if (!sessionId) {
+      setReadinessMessage('Provide an execution session ID for evidence artifact generation.')
+      return
+    }
+
+    const evidence = sessionEvidenceText
+      .split('\n')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+    const result = await window.paxion.readiness
+      .createEvidenceArtifact({
+        sessionId,
+        summary: evidenceSummary,
+        notes: evidenceNotes,
+        evidence,
+        domSnapshot: evidenceDomSnapshot,
+        commandOutput: evidenceCommandOutput,
+        screenshotPath: evidenceScreenshotPath,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setReadinessMessage(result?.reason ?? 'Failed to create evidence artifact.')
+      return
+    }
+
+    setExecutionSessions(result.executionSessions)
+    setLearningGraph(result.learningGraph)
+    setEvidenceArtifactHash(result.artifact.payloadHash)
+    setEvidenceArtifactPath(result.artifact.jsonPath)
+    setReadinessMessage(`Evidence artifact created for session ${sessionId}.`)
+  }
+
   // ── Chat tab handlers ──
 
   async function openDesktopChatRelay(query: string): Promise<boolean> {
@@ -3354,6 +3427,16 @@ function App() {
                       <div className="workspace-step-actions">
                         <button
                           className="run-button"
+                          onClick={() => {
+                            setEvidenceSessionId(session.id)
+                            setEvidenceSummary(`Evidence summary for ${session.packName}`)
+                            setEvidenceScreenshotPath(session.targetUrl)
+                          }}
+                        >
+                          Use In Evidence
+                        </button>
+                        <button
+                          className="run-button"
                           onClick={() => void verifyExecutionSessionById(session.id, 'verified')}
                         >
                           Verify Pass
@@ -3397,6 +3480,78 @@ function App() {
                 placeholder="Summary of what was verified or why rollback is needed"
               />
             </div>
+          </div>
+
+          <div className="decision-card">
+            <strong>Evidence Artifact Pipeline</strong>
+            <p>Create hashed evidence bundles from session outputs, notes, and optional OCR/DOM data.</p>
+            <div className="control-group">
+              <label htmlFor="evidence-session-id">Session ID</label>
+              <input
+                id="evidence-session-id"
+                value={evidenceSessionId}
+                onChange={(event) => setEvidenceSessionId(event.target.value)}
+                placeholder="session-..."
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="evidence-summary">Summary</label>
+              <textarea
+                id="evidence-summary"
+                className="lib-paste-area"
+                value={evidenceSummary}
+                onChange={(event) => setEvidenceSummary(event.target.value)}
+                rows={3}
+                placeholder="High-level evidence summary"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="evidence-notes">Notes</label>
+              <textarea
+                id="evidence-notes"
+                className="lib-paste-area"
+                value={evidenceNotes}
+                onChange={(event) => setEvidenceNotes(event.target.value)}
+                rows={3}
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="evidence-dom">DOM / state snapshot</label>
+              <textarea
+                id="evidence-dom"
+                className="lib-paste-area"
+                value={evidenceDomSnapshot}
+                onChange={(event) => setEvidenceDomSnapshot(event.target.value)}
+                rows={3}
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="evidence-command">Command output</label>
+              <textarea
+                id="evidence-command"
+                className="lib-paste-area"
+                value={evidenceCommandOutput}
+                onChange={(event) => setEvidenceCommandOutput(event.target.value)}
+                rows={3}
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="evidence-screenshot">Screenshot path</label>
+              <input
+                id="evidence-screenshot"
+                value={evidenceScreenshotPath}
+                onChange={(event) => setEvidenceScreenshotPath(event.target.value)}
+                placeholder="Optional local image path for screenshot hash"
+              />
+            </div>
+            <button className="run-button" onClick={() => void createEvidenceArtifact()}>
+              Create Evidence Artifact
+            </button>
+            {evidenceArtifactHash && (
+              <p className="muted">
+                Evidence hash: {evidenceArtifactHash.slice(0, 20)}... | path: {evidenceArtifactPath}
+              </p>
+            )}
           </div>
 
           <div className="decision-card">
@@ -3610,6 +3765,48 @@ function App() {
             <button className="run-button" onClick={() => void createVisionJob()}>
               Queue Vision Job
             </button>
+            <div className="control-group">
+              <label htmlFor="ocr-job-id">OCR job ID (optional)</label>
+              <input
+                id="ocr-job-id"
+                value={ocrJobId}
+                onChange={(event) => setOcrJobId(event.target.value)}
+                placeholder="vision-..."
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="ocr-image-path">OCR image path (optional if job selected)</label>
+              <input
+                id="ocr-image-path"
+                value={ocrImagePath}
+                onChange={(event) => setOcrImagePath(event.target.value)}
+                placeholder="Local screenshot path"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="ocr-language">OCR language</label>
+              <input
+                id="ocr-language"
+                value={ocrLanguage}
+                onChange={(event) => setOcrLanguage(event.target.value)}
+                placeholder="eng"
+              />
+            </div>
+            <button className="run-button" onClick={() => void runLocalOcr()}>
+              Run Local OCR
+            </button>
+            {ocrResultText && (
+              <div className="control-group">
+                <label htmlFor="ocr-result">OCR result</label>
+                <textarea
+                  id="ocr-result"
+                  className="lib-paste-area"
+                  value={ocrResultText}
+                  onChange={(event) => setOcrResultText(event.target.value)}
+                  rows={4}
+                />
+              </div>
+            )}
             {visionJobs.length > 0 && (
               <div className="learning-log-list">
                 {[...visionJobs]
@@ -3818,7 +4015,7 @@ function App() {
       <footer className="footer">
         <span>Profile: Paro the Chief</span>
         <span>Mode: Policy-Enforced Build</span>
-        <span>Version: v0.15.0-readiness-foundations</span>
+        <span>Version: v0.16.0-ocr-evidence</span>
       </footer>
     </div>
   )
