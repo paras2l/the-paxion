@@ -4,6 +4,7 @@ interface PaxionLibraryFileResult {
   name: string
   content: string
   path: string
+  pageCount?: number
 }
 
 interface PaxionLibraryFileError {

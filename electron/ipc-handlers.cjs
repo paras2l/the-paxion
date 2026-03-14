@@ -3,6 +3,7 @@
 const { ipcMain, dialog, app } = require('electron')
 const fs = require('fs')
 const path = require('path')
+const pdfParse = require('pdf-parse')
 
 // ── Policy constants (authoritative main-process mirror of src/security/policy.ts) ──
 
@@ -135,6 +136,7 @@ function registerIpcHandlers(mainWindow) {
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Add Document to Library',
       filters: [
+        { name: 'PDF Documents', extensions: ['pdf'] },
         {
           name: 'Text & Code',
           extensions: ['txt', 'md', 'ts', 'tsx', 'js', 'jsx', 'json', 'csv', 'xml', 'yaml', 'yml'],
@@ -149,9 +151,23 @@ function registerIpcHandlers(mainWindow) {
     const filePath = result.filePaths[0]
     try {
       const stat = fs.statSync(filePath)
-      if (stat.size > 512 * 1024) {
-        return { error: 'File too large. Maximum 512 KB allowed.' }
+      const MAX_BYTES = 52 * 1024 * 1024 // 52 MB — enough for large books
+      if (stat.size > MAX_BYTES) {
+        return { error: 'File too large. Maximum 52 MB allowed.' }
       }
+
+      const ext = path.extname(filePath).toLowerCase()
+      if (ext === '.pdf') {
+        const buffer = fs.readFileSync(filePath)
+        const parsed = await pdfParse(buffer)
+        return {
+          name: path.basename(filePath),
+          content: parsed.text,
+          path: filePath,
+          pageCount: parsed.numpages,
+        }
+      }
+
       const content = fs.readFileSync(filePath, 'utf8')
       return { name: path.basename(filePath), content, path: filePath }
     } catch (err) {

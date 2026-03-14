@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
+import type { ChatMessage } from './chat/types'
 import { LibraryStore } from './library/libraryStore'
 import type { LibraryDocument } from './library/types'
 import { ApprovalStore } from './security/approvals'
@@ -105,6 +106,21 @@ function App() {
   const [libPasteText, setLibPasteText] = useState('')
   const [libAddError, setLibAddError] = useState('')
 
+  // Chat state
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const [chatError, setChatError] = useState('')
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('paxion-api-key') ?? '')
+  const [apiModel, setApiModel] = useState(
+    () => localStorage.getItem('paxion-api-model') ?? 'gpt-4o-mini',
+  )
+  const [apiBaseUrl, setApiBaseUrl] = useState(
+    () => localStorage.getItem('paxion-api-base-url') ?? 'https://api.openai.com/v1',
+  )
+  const [showApiSetup, setShowApiSetup] = useState(false)
+  const chatScrollRef = useRef<HTMLDivElement>(null)
+
   const activeTabMeta = useMemo(
     () => tabs.find((tab) => tab.id === activeTab) ?? tabs[0],
     [activeTab],
@@ -131,6 +147,11 @@ function App() {
     () => actionPresets.find((preset) => preset.id === selectedActionId) ?? actionPresets[0],
     [selectedActionId],
   )
+
+  // Auto-scroll chat to bottom whenever a message is added or loading state changes.
+  useEffect(() => {
+    chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' })
+  }, [chatMessages, chatLoading])
 
   function syncAuditState() {
     setAuditEntries(auditLedger.getAll())
@@ -258,7 +279,246 @@ function App() {
     setLibDocs(libraryStore.getAll())
   }
 
+  // ── Chat tab handlers ──
+
+  function saveApiConfig() {
+    localStorage.setItem('paxion-api-key', apiKey)
+    localStorage.setItem('paxion-api-model', apiModel)
+    localStorage.setItem('paxion-api-base-url', apiBaseUrl)
+    setShowApiSetup(false)
+  }
+
+  function buildChatContext(userMessage: string): { systemPrompt: string; docNames: string[] } {
+    const hits = libraryStore.search(userMessage).slice(0, 3)
+    if (hits.length === 0) {
+      return {
+        systemPrompt:
+          "You are Paxion, Paro the Chief's personal AI assistant. Be direct, concise, and precise.",
+        docNames: [],
+      }
+    }
+    const snippets = hits
+      .map((d) => `[${d.name}]\n${d.content.slice(0, 2000)}`)
+      .join('\n\n---\n\n')
+    return {
+      systemPrompt: `You are Paxion, Paro the Chief's personal AI assistant. Use the following library knowledge when relevant.\n\n${snippets}`,
+      docNames: hits.map((d) => d.name),
+    }
+  }
+
+  async function sendChatMessage() {
+    const text = chatInput.trim()
+    if (!text || chatLoading || !apiKey.trim()) return
+
+    const userMsg: ChatMessage = {
+      id: `msg-${Date.now()}-u`,
+      role: 'user',
+      content: text,
+      timestamp: new Date().toISOString(),
+      contextDocs: [],
+    }
+
+    setChatMessages((prev) => [...prev, userMsg])
+    setChatInput('')
+    setChatLoading(true)
+    setChatError('')
+
+    const { systemPrompt, docNames } = buildChatContext(text)
+
+    const apiMessages = [
+      { role: 'system', content: systemPrompt },
+      ...chatMessages.map((m) => ({ role: m.role as string, content: m.content })),
+      { role: 'user', content: text },
+    ]
+
+    try {
+      const res = await fetch(`${apiBaseUrl.replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({ model: apiModel, messages: apiMessages, max_tokens: 1024 }),
+      })
+
+      if (!res.ok) {
+        const errData = (await res.json().catch(() => ({}))) as { error?: { message?: string } }
+        throw new Error(errData?.error?.message ?? `API error ${res.status}`)
+      }
+
+      const data = (await res.json()) as { choices: Array<{ message: { content: string } }> }
+      const reply = data.choices[0]?.message?.content ?? '(empty response)'
+
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `msg-${Date.now()}-a`,
+          role: 'assistant',
+          content: reply,
+          timestamp: new Date().toISOString(),
+          contextDocs: docNames,
+        },
+      ])
+    } catch (err) {
+      setChatError(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setChatLoading(false)
+    }
+  }
+
   function renderTabBody() {
+    if (activeTab === 'chat') {
+      const isConfigured = apiKey.trim() !== ''
+      const PRESET_MODELS = ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo']
+
+      return (
+        <div className="tab-content-stack">
+          {/* Config strip when already set up */}
+          {isConfigured && !showApiSetup && (
+            <div className="chat-config-strip">
+              <span className="muted">
+                Model: <strong>{apiModel}</strong> &middot; {libDocs.length} library doc
+                {libDocs.length !== 1 ? 's' : ''} available
+              </span>
+              <button className="chat-config-toggle" onClick={() => setShowApiSetup(true)}>
+                Configure
+              </button>
+            </div>
+          )}
+
+          {/* Setup panel */}
+          {(!isConfigured || showApiSetup) && (
+            <div className="lib-add-panel">
+              <p className="chat-setup-title">
+                {isConfigured ? 'Update API Settings' : 'Connect an AI Provider'}
+              </p>
+              <div className="control-group">
+                <label>API Key (OpenAI or compatible provider)</label>
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="sk-…"
+                />
+              </div>
+              <div className="control-group">
+                <label>Model preset</label>
+                <select
+                  value={PRESET_MODELS.includes(apiModel) ? apiModel : 'custom'}
+                  onChange={(e) => {
+                    if (e.target.value !== 'custom') setApiModel(e.target.value)
+                    else setApiModel('')
+                  }}
+                >
+                  <option value="gpt-4o-mini">GPT-4o Mini (fast, cheap)</option>
+                  <option value="gpt-4o">GPT-4o</option>
+                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                  <option value="custom">Custom…</option>
+                </select>
+              </div>
+              <div className="control-group">
+                <label>Model name (editable)</label>
+                <input
+                  value={apiModel}
+                  onChange={(e) => setApiModel(e.target.value)}
+                  placeholder="e.g. gpt-4o-mini or mistral-7b-instruct"
+                />
+              </div>
+              <div className="control-group">
+                <label>Base URL</label>
+                <input
+                  value={apiBaseUrl}
+                  onChange={(e) => setApiBaseUrl(e.target.value)}
+                  placeholder="https://api.openai.com/v1"
+                />
+              </div>
+              <div className="lib-add-actions">
+                <button className="run-button" onClick={saveApiConfig}>
+                  Save &amp; Connect
+                </button>
+                {isConfigured && (
+                  <button className="run-button" onClick={() => setShowApiSetup(false)}>
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Chat messages */}
+          {isConfigured && !showApiSetup && (
+            <>
+              <div className="chat-messages" ref={chatScrollRef}>
+                {chatMessages.length === 0 ? (
+                  <p className="muted chat-empty">
+                    Send a message. Paxion will search your Library for relevant context
+                    automatically.
+                  </p>
+                ) : (
+                  chatMessages.map((msg) => (
+                    <div key={msg.id} className={`chat-bubble chat-${msg.role}`}>
+                      <p>{msg.content}</p>
+                      {msg.contextDocs.length > 0 && (
+                        <p className="chat-citations">
+                          Context from: {msg.contextDocs.join(', ')}
+                        </p>
+                      )}
+                    </div>
+                  ))
+                )}
+                {chatLoading && (
+                  <div className="chat-bubble chat-assistant chat-loading-bubble">
+                    <span className="chat-dot" />
+                    <span className="chat-dot" />
+                    <span className="chat-dot" />
+                  </div>
+                )}
+              </div>
+
+              {chatError && <p className="lib-error">{chatError}</p>}
+
+              <div className="chat-input-row">
+                <textarea
+                  className="chat-input"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      sendChatMessage()
+                    }
+                  }}
+                  placeholder="Ask Paxion anything… (Enter to send, Shift+Enter for newline)"
+                  rows={2}
+                  disabled={chatLoading}
+                />
+                <div className="chat-input-actions">
+                  <button
+                    className="run-button"
+                    onClick={sendChatMessage}
+                    disabled={chatLoading || !chatInput.trim()}
+                  >
+                    Send
+                  </button>
+                  {chatMessages.length > 0 && (
+                    <button
+                      className="run-button"
+                      onClick={() => {
+                        setChatMessages([])
+                        setChatError('')
+                      }}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )
+    }
+
     if (activeTab === 'library') {
       const selectedDoc = libDocs.find((d) => d.id === libSelectedId) ?? null
       const displayDocs = libSearch.trim()
@@ -523,7 +783,7 @@ function App() {
       <footer className="footer">
         <span>Profile: Paro the Chief</span>
         <span>Mode: Policy-Enforced Build</span>
-        <span>Version: v0.3.0-library</span>
+        <span>Version: v0.4.0-chat</span>
       </footer>
     </div>
   )
