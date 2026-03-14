@@ -216,6 +216,212 @@ function buildLearningGraphSnapshot(input) {
   }
 }
 
+function parseVersionParts(input) {
+  const parts = String(input || '')
+    .split(/[^0-9]+/)
+    .filter(Boolean)
+    .map((entry) => Number(entry))
+  return [parts[0] || 0, parts[1] || 0, parts[2] || 0]
+}
+
+function compareVersions(left, right) {
+  const a = parseVersionParts(left)
+  const b = parseVersionParts(right)
+  for (let index = 0; index < 3; index += 1) {
+    if (a[index] > b[index]) {
+      return 1
+    }
+    if (a[index] < b[index]) {
+      return -1
+    }
+  }
+  return 0
+}
+
+function versionSatisfies(version, constraint) {
+  const target = String(version || '').trim()
+  const raw = String(constraint || '').trim()
+  if (!raw || !target) {
+    return false
+  }
+
+  let operator = '='
+  let value = raw
+  if (raw.startsWith('>=')) {
+    operator = '>='
+    value = raw.slice(2)
+  } else if (raw.startsWith('<=')) {
+    operator = '<='
+    value = raw.slice(2)
+  } else if (raw.startsWith('>')) {
+    operator = '>'
+    value = raw.slice(1)
+  } else if (raw.startsWith('<')) {
+    operator = '<'
+    value = raw.slice(1)
+  } else if (raw.startsWith('==')) {
+    operator = '='
+    value = raw.slice(2)
+  }
+
+  const compared = compareVersions(target, value)
+  if (operator === '>=') {
+    return compared >= 0
+  }
+  if (operator === '<=') {
+    return compared <= 0
+  }
+  if (operator === '>') {
+    return compared > 0
+  }
+  if (operator === '<') {
+    return compared < 0
+  }
+  return compared === 0
+}
+
+function selectVersionedPackProfile(profiles, appVersion) {
+  const rows = Array.isArray(profiles) ? profiles : []
+  const version = String(appVersion || '').trim()
+  if (!version || rows.length === 0) {
+    return null
+  }
+
+  for (const profile of rows) {
+    if (!profile || typeof profile !== 'object') {
+      continue
+    }
+    const constraints = Array.isArray(profile.constraints)
+      ? profile.constraints.filter((entry) => typeof entry === 'string' && entry.trim())
+      : []
+    if (constraints.length === 0) {
+      continue
+    }
+    const matched = constraints.every((constraint) => versionSatisfies(version, constraint))
+    if (matched) {
+      return profile
+    }
+  }
+  return null
+}
+
+function createHashChainEntry(payload, prevHash) {
+  const entrySeed = {
+    payload,
+    prevHash: String(prevHash || 'GENESIS'),
+    createdAt: new Date().toISOString(),
+  }
+  const entryHash = sha256Hex(stableStringify(entrySeed))
+  return {
+    ...entrySeed,
+    entryHash,
+  }
+}
+
+function queryLearningGraphSnapshot(snapshot, input) {
+  const nodes = Array.isArray(snapshot?.nodes) ? snapshot.nodes : []
+  const edges = Array.isArray(snapshot?.edges) ? snapshot.edges : []
+  const query = input && typeof input === 'object' ? input : {}
+  const kindSet = new Set(
+    Array.isArray(query.kinds)
+      ? query.kinds.filter((entry) => typeof entry === 'string' && entry.trim()).map((entry) => entry.trim())
+      : [],
+  )
+  const searchText = String(query.text || '').trim().toLowerCase()
+  const nodeId = String(query.nodeId || '').trim()
+  const edgeKind = String(query.edgeKind || '').trim()
+  const cursor = Math.max(0, Number(query.cursor || 0))
+  const limit = Math.max(1, Math.min(200, Number(query.limit || 40)))
+
+  const degreeByNodeId = new Map()
+  for (const edge of edges) {
+    if (typeof edge?.from === 'string') {
+      degreeByNodeId.set(edge.from, (degreeByNodeId.get(edge.from) || 0) + 1)
+    }
+    if (typeof edge?.to === 'string') {
+      degreeByNodeId.set(edge.to, (degreeByNodeId.get(edge.to) || 0) + 1)
+    }
+  }
+
+  const filteredNodes = nodes
+    .filter((node) => {
+      if (!node || typeof node !== 'object') {
+        return false
+      }
+      if (kindSet.size > 0 && !kindSet.has(String(node.kind || ''))) {
+        return false
+      }
+      if (searchText) {
+        const haystack = `${String(node.id || '')}\n${String(node.label || '')}`.toLowerCase()
+        if (!haystack.includes(searchText)) {
+          return false
+        }
+      }
+      if (nodeId && String(node.id || '') !== nodeId) {
+        return false
+      }
+      return true
+    })
+    .sort((left, right) => {
+      const degreeDiff = (degreeByNodeId.get(String(right.id || '')) || 0) - (degreeByNodeId.get(String(left.id || '')) || 0)
+      if (degreeDiff !== 0) {
+        return degreeDiff
+      }
+      return String(left.id || '').localeCompare(String(right.id || ''))
+    })
+
+  const pagedNodes = filteredNodes.slice(cursor, cursor + limit)
+  const nodeIds = new Set(pagedNodes.map((node) => String(node.id || '')))
+  const filteredEdges = edges.filter((edge) => {
+    if (!edge || typeof edge !== 'object') {
+      return false
+    }
+    if (edgeKind && String(edge.kind || '') !== edgeKind) {
+      return false
+    }
+    return nodeIds.has(String(edge.from || '')) || nodeIds.has(String(edge.to || ''))
+  })
+
+  const nextCursor = cursor + pagedNodes.length
+  return {
+    nodes: pagedNodes,
+    edges: filteredEdges,
+    page: {
+      cursor,
+      nextCursor: nextCursor >= filteredNodes.length ? null : nextCursor,
+      limit,
+      totalNodes: filteredNodes.length,
+      totalEdges: filteredEdges.length,
+    },
+    indexStats: {
+      totalSourceNodes: nodes.length,
+      totalSourceEdges: edges.length,
+      distinctKinds: Array.from(new Set(nodes.map((node) => String(node?.kind || '')))).filter(Boolean).length,
+    },
+  }
+}
+
+function sortValue(value) {
+  if (Array.isArray(value)) {
+    return value.map(sortValue)
+  }
+  if (value && typeof value === 'object') {
+    const sorted = Object.keys(value)
+      .sort()
+      .map((key) => [key, sortValue(value[key])])
+    return Object.fromEntries(sorted)
+  }
+  return value
+}
+
+function stableStringify(value) {
+  return JSON.stringify(sortValue(value))
+}
+
+function sha256Hex(text) {
+  return require('crypto').createHash('sha256').update(String(text || '')).digest('hex')
+}
+
 module.exports = {
   resolveTemplateVariables,
   getExecutionSessionId,
@@ -224,4 +430,9 @@ module.exports = {
   rankCapabilitySuggestions,
   buildCrossAppMission,
   buildLearningGraphSnapshot,
+  compareVersions,
+  versionSatisfies,
+  selectVersionedPackProfile,
+  createHashChainEntry,
+  queryLearningGraphSnapshot,
 }

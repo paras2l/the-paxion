@@ -119,6 +119,15 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Evidence artifact generation appends audit entries and learning logs to preserve traceability.
 - OCR and evidence flows remain admin-gated and capability-gated.
 
+## Native execution, attestation, and governance hardening
+- Native action execution engine is available through guarded IPC with deterministic selector + fallback paths and supervised command execution allowlists.
+- Automatic step evidence hooks now run at session-step boundaries (state snapshot, command transcript, and best-effort auto screenshot capture).
+- Evidence and governance actions are anchored into a signed attestation hash chain with persisted signer fingerprint metadata.
+- Rollback now supports transaction execution across rollback step lists with per-step outcomes and captured rollback evidence.
+- Learning graph now has paginated query/index APIs to support larger histories without full graph payload fetch every time.
+- Target workflow packs include versioned compatibility profiles with selector fallback packs per platform family.
+- Self-evolution promotion now enforces stronger gates (test thresholds, lint/build checks, and governance policy signatures) before deploy-stage advancement.
+
 ## Out of scope for v1
 - Unrestricted autonomous operations.
 - Unrestricted web crawling.

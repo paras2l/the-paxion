@@ -4015,7 +4015,7 @@ function App() {
       <footer className="footer">
         <span>Profile: Paro the Chief</span>
         <span>Mode: Policy-Enforced Build</span>
-        <span>Version: v0.16.0-ocr-evidence</span>
+        <span>Version: v0.17.0-native-evidence-governance</span>
       </footer>
     </div>
   )

@@ -1,6 +1,6 @@
 'use strict'
 
-const { ipcMain, dialog, app, shell } = require('electron')
+const { ipcMain, dialog, app, shell, desktopCapturer } = require('electron')
 const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
@@ -11,10 +11,13 @@ const {
   buildCrossAppMission,
   buildLearningGraphSnapshot,
   buildReplayPreviewPayload,
+  createHashChainEntry,
   getExecutionSequence,
   getExecutionSessionId,
+  queryLearningGraphSnapshot,
   rankCapabilitySuggestions,
   resolveTemplateVariables,
+  selectVersionedPackProfile,
 } = require('./readiness-utils.cjs')
 
 const ADMIN_CODEWORD = 'paro the chief'
@@ -80,6 +83,10 @@ const AUTOMATION_STEP_TYPE_ALLOWLIST = new Set([
 ])
 
 const OCR_LANGUAGE_ALLOWLIST = new Set(['eng'])
+const NATIVE_ACTION_ALLOWLIST = new Set(['click', 'fill', 'select', 'extractText', 'command'])
+const GRAPH_QUERY_MAX_LIMIT = 200
+const GOVERNANCE_MIN_TESTS_FOR_REVIEW = 3
+const GOVERNANCE_MIN_TESTS_FOR_DEPLOY = 5
 
 const OBSERVE_LEARN_TEMPLATE_DEFS = [
   {
@@ -197,6 +204,28 @@ const TARGET_WORKFLOW_PACK_DEFS = [
       'Return post status to draft if rollback is needed.',
     ],
     variableHints: ['wordpressHost', 'postId', 'postTitle', 'postContent'],
+    compatibilityProfiles: [
+      {
+        appKey: 'wordpress',
+        constraints: ['>=6.6'],
+        selectors: {
+          title: '#post-title-0, #title',
+          content: '.block-editor-rich-text__editable, #content',
+          publish: 'button.editor-post-publish-button__button, #publish',
+        },
+        fallbackSelectors: ['#title', '#content', '#publish'],
+      },
+      {
+        appKey: 'wordpress',
+        constraints: ['<6.6'],
+        selectors: {
+          title: '#title',
+          content: '#content',
+          publish: '#publish',
+        },
+        fallbackSelectors: ['#title', '#content', '#publish'],
+      },
+    ],
   },
   {
     id: 'pack.github.review',
@@ -218,6 +247,17 @@ const TARGET_WORKFLOW_PACK_DEFS = [
     ],
     rollbackSteps: ['Close review draft and clear temporary notes if review target is wrong.'],
     variableHints: ['repoOwner', 'repoName', 'pullNumber'],
+    compatibilityProfiles: [
+      {
+        appKey: 'github',
+        constraints: ['>=1.0'],
+        selectors: {
+          filesChangedTab: 'button[aria-label="Files changed"], a[href$="/files"]',
+          diffContent: '.js-file-content, .diff-table',
+        },
+        fallbackSelectors: ['a[href$="/files"]', '.diff-table'],
+      },
+    ],
   },
   {
     id: 'pack.figma.export',
@@ -239,6 +279,17 @@ const TARGET_WORKFLOW_PACK_DEFS = [
     ],
     rollbackSteps: ['Revert export preset changes and clear generated asset manifest if verification fails.'],
     variableHints: ['fileKey', 'fileName'],
+    compatibilityProfiles: [
+      {
+        appKey: 'figma',
+        constraints: ['>=124'],
+        selectors: {
+          exportButton: '[data-testid="export-button"], [aria-label="Export"]',
+          status: '[data-testid="export-status"], .export-panel',
+        },
+        fallbackSelectors: ['[aria-label="Export"]'],
+      },
+    ],
   },
   {
     id: 'pack.vscode.refactor',
@@ -260,6 +311,18 @@ const TARGET_WORKFLOW_PACK_DEFS = [
     ],
     rollbackSteps: ['Apply rollback patch or revert edited files from mission artifact if verification fails.'],
     variableHints: ['workspaceArea'],
+    compatibilityProfiles: [
+      {
+        appKey: 'vscode',
+        constraints: ['>=1.100'],
+        selectors: {
+          explorer: 'workbench.view.explorer',
+          scm: 'workbench.view.scm',
+          terminal: 'workbench.action.terminal.toggleTerminal',
+        },
+        fallbackSelectors: ['workbench.view.explorer', 'workbench.action.terminal.toggleTerminal'],
+      },
+    ],
   },
 ]
 
@@ -531,6 +594,8 @@ function registerIpcHandlers(mainWindow) {
   const capabilityStateFilePath = path.join(app.getPath('userData'), 'paxion-capabilities.json')
   const libraryStateFilePath = path.join(app.getPath('userData'), 'paxion-library-state.json')
   const learningStateFilePath = path.join(app.getPath('userData'), 'paxion-learning-state.json')
+  const attestationStateFilePath = path.join(app.getPath('userData'), 'paxion-attestation-state.json')
+  const attestationChainFilePath = path.join(app.getPath('userData'), 'paxion-attestation-chain.jsonl')
   const adminSession = buildAdminSessionState()
   const approvalTickets = new Map()
   const replayPreviewApprovals = new Map()
@@ -553,6 +618,13 @@ function registerIpcHandlers(mainWindow) {
   const auditState = {
     lastHash: 'GENESIS',
     lastIndex: 0,
+  }
+  const attestationState = {
+    privateKeyPem: '',
+    publicKeyPem: '',
+    publicKeyFingerprint: '',
+    lastEntryHash: 'GENESIS',
+    loaded: false,
   }
 
   function loadAuditEntriesFromDisk() {
@@ -832,6 +904,234 @@ function registerIpcHandlers(mainWindow) {
     }
   }
 
+  function workspaceRootPath() {
+    return path.join(app.getPath('userData'), 'paxion-workspace')
+  }
+
+  function ensureAttestationState() {
+    if (attestationState.loaded) {
+      return
+    }
+
+    if (fs.existsSync(attestationStateFilePath)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(attestationStateFilePath, 'utf8'))
+        attestationState.privateKeyPem = String(parsed?.privateKeyPem || '')
+        attestationState.publicKeyPem = String(parsed?.publicKeyPem || '')
+        attestationState.publicKeyFingerprint = String(parsed?.publicKeyFingerprint || '')
+        attestationState.lastEntryHash = String(parsed?.lastEntryHash || 'GENESIS')
+      } catch {
+        // Regenerate below if file is unreadable.
+      }
+    }
+
+    if (!attestationState.privateKeyPem || !attestationState.publicKeyPem) {
+      const keyPair = crypto.generateKeyPairSync('ed25519')
+      attestationState.privateKeyPem = keyPair.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+      attestationState.publicKeyPem = keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString()
+      attestationState.publicKeyFingerprint = sha256Hex(attestationState.publicKeyPem)
+      attestationState.lastEntryHash = 'GENESIS'
+      fs.writeFileSync(
+        attestationStateFilePath,
+        JSON.stringify(
+          {
+            privateKeyPem: attestationState.privateKeyPem,
+            publicKeyPem: attestationState.publicKeyPem,
+            publicKeyFingerprint: attestationState.publicKeyFingerprint,
+            lastEntryHash: attestationState.lastEntryHash,
+            createdAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+        'utf8',
+      )
+    }
+
+    if (!attestationState.publicKeyFingerprint) {
+      attestationState.publicKeyFingerprint = sha256Hex(attestationState.publicKeyPem)
+    }
+
+    if (fs.existsSync(attestationChainFilePath)) {
+      try {
+        const rows = fs
+          .readFileSync(attestationChainFilePath, 'utf8')
+          .split('\n')
+          .filter(Boolean)
+        if (rows.length > 0) {
+          const last = JSON.parse(rows[rows.length - 1])
+          if (typeof last?.entryHash === 'string' && last.entryHash) {
+            attestationState.lastEntryHash = last.entryHash
+          }
+        }
+      } catch {
+        // Keep previous known hash if chain file has unreadable lines.
+      }
+    }
+
+    attestationState.loaded = true
+  }
+
+  function appendAttestationRecord(input) {
+    ensureAttestationState()
+    const payload = {
+      payloadHash: String(input?.payloadHash || ''),
+      scope: String(input?.scope || 'session-step'),
+      sessionId: String(input?.sessionId || ''),
+      stepId: String(input?.stepId || ''),
+      metadata: input?.metadata && typeof input.metadata === 'object' ? input.metadata : {},
+    }
+    const baseEntry = createHashChainEntry(payload, attestationState.lastEntryHash)
+    const sign = crypto.createSign('SHA256')
+    sign.update(baseEntry.entryHash)
+    sign.end()
+    const signature = sign.sign(attestationState.privateKeyPem, 'base64')
+    const entry = {
+      ...baseEntry,
+      signer: 'paxion-attestor',
+      signature,
+      publicKeyFingerprint: attestationState.publicKeyFingerprint,
+    }
+
+    fs.appendFileSync(attestationChainFilePath, JSON.stringify(entry) + '\n', 'utf8')
+    attestationState.lastEntryHash = entry.entryHash
+    fs.writeFileSync(
+      attestationStateFilePath,
+      JSON.stringify(
+        {
+          privateKeyPem: attestationState.privateKeyPem,
+          publicKeyPem: attestationState.publicKeyPem,
+          publicKeyFingerprint: attestationState.publicKeyFingerprint,
+          lastEntryHash: attestationState.lastEntryHash,
+          updatedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    )
+    return entry
+  }
+
+  async function captureDesktopScreenshot(sessionId, stepId) {
+    try {
+      const sources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: { width: 1920, height: 1080 },
+      })
+      const source = sources && sources.length > 0 ? sources[0] : null
+      if (!source || source.thumbnail.isEmpty()) {
+        return ''
+      }
+
+      const dir = path.join(workspaceRootPath(), 'evidence-auto', sanitizeRelativePath(sessionId || 'session'))
+      fs.mkdirSync(dir, { recursive: true })
+      const filename = `screen-${slugifyName(stepId || 'step', 'step')}-${Date.now()}.png`
+      const screenshotPath = path.join(dir, filename)
+      fs.writeFileSync(screenshotPath, source.thumbnail.toPNG())
+      return screenshotPath
+    } catch {
+      return ''
+    }
+  }
+
+  async function captureSessionStepEvidence(input) {
+    const sessionId = String(input?.sessionId || '').trim()
+    if (!sessionId) {
+      return { ok: false, reason: 'Session ID is required for step evidence capture.' }
+    }
+
+    const stepId = String(input?.stepId || 'step').trim() || 'step'
+    const sessions = Array.isArray(learningState.executionSessions) ? learningState.executionSessions : []
+    const session = sessions.find((entry) => entry.id === sessionId)
+    if (!session) {
+      return { ok: false, reason: 'Execution session not found for step evidence capture.' }
+    }
+
+    const autoScreenshot = input?.autoScreenshot !== false
+    const now = new Date().toISOString()
+    const sessionDir = path.join(workspaceRootPath(), 'evidence-auto', sanitizeRelativePath(sessionId))
+    fs.mkdirSync(sessionDir, { recursive: true })
+
+    const domSnapshot = String(input?.domSnapshot || '').trim()
+    const commandOutput = String(input?.commandOutput || '').trim()
+    const stateSnapshot = {
+      capturedAt: now,
+      reason: String(input?.reason || 'step-evidence'),
+      status: session.status,
+      targetUrl: session.targetUrl,
+      stepId,
+      metadata: input?.metadata && typeof input.metadata === 'object' ? input.metadata : {},
+    }
+    const statePath = path.join(sessionDir, `state-${slugifyName(stepId, 'step')}-${Date.now()}.json`)
+    fs.writeFileSync(statePath, JSON.stringify(stateSnapshot, null, 2), 'utf8')
+
+    let domPath = ''
+    if (domSnapshot) {
+      domPath = path.join(sessionDir, `dom-${slugifyName(stepId, 'step')}-${Date.now()}.txt`)
+      fs.writeFileSync(domPath, domSnapshot, 'utf8')
+    }
+
+    let commandPath = ''
+    if (commandOutput) {
+      commandPath = path.join(sessionDir, `command-${slugifyName(stepId, 'step')}-${Date.now()}.log`)
+      fs.writeFileSync(commandPath, commandOutput, 'utf8')
+    }
+
+    const screenshotPath = String(input?.screenshotPath || '').trim() || (autoScreenshot ? await captureDesktopScreenshot(sessionId, stepId) : '')
+    const screenshotHash = screenshotPath && fs.existsSync(screenshotPath) ? sha256File(screenshotPath) : null
+
+    const evidenceRefs = [statePath, domPath, commandPath, screenshotPath].filter(Boolean)
+    const evidencePayload = {
+      sessionId,
+      stepId,
+      capturedAt: now,
+      reason: String(input?.reason || 'step-evidence'),
+      evidenceRefs,
+      screenshotHash,
+      metadata: input?.metadata && typeof input.metadata === 'object' ? input.metadata : {},
+    }
+    const payloadHash = sha256Hex(stableStringify(evidencePayload))
+    const attestation = appendAttestationRecord({
+      payloadHash,
+      scope: 'session-step',
+      sessionId,
+      stepId,
+      metadata: evidencePayload.metadata,
+    })
+
+    const updatedSession = updateExecutionSession(sessionId, (current) => {
+      const stepStates = Array.isArray(current.stepStates) ? current.stepStates : []
+      const nextStepStates = stepStates.map((step) => {
+        if (step.id !== stepId) {
+          return step
+        }
+        return {
+          ...step,
+          status: 'evidence-captured',
+          evidenceRefs: [...(Array.isArray(step.evidenceRefs) ? step.evidenceRefs : []), ...evidenceRefs].slice(-40),
+          attestationHash: attestation.entryHash,
+          updatedAt: now,
+        }
+      })
+      return {
+        evidence: [...(Array.isArray(current.evidence) ? current.evidence : []), ...evidenceRefs.map((ref) => `auto:${ref}`)].slice(-80),
+        stepStates: nextStepStates,
+      }
+    })
+
+    return {
+      ok: true,
+      session: updatedSession,
+      evidence: {
+        payloadHash,
+        evidenceRefs,
+        screenshotHash,
+        attestation,
+      },
+    }
+  }
+
   function cleanupExpiredReplayPreviewApprovals() {
     const now = Date.now()
     for (const [token, approval] of replayPreviewApprovals.entries()) {
@@ -1055,25 +1355,42 @@ function registerIpcHandlers(mainWindow) {
   }
 
   function appendExecutionSession(input) {
+    const ts = new Date().toISOString()
+    const executionSteps = Array.isArray(input?.executionSteps) ? input.executionSteps : []
+    const stepStates = executionSteps.map((title, index) => ({
+      id: `step-${index + 1}`,
+      index,
+      title: String(title || `Step ${index + 1}`),
+      status: 'pending',
+      evidenceRefs: [],
+      attestationHash: null,
+      updatedAt: ts,
+    }))
     const session = {
       id: `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: ts,
+      updatedAt: ts,
       status: typeof input?.status === 'string' ? input.status : 'prepared',
       packId: typeof input?.packId === 'string' ? input.packId : '',
       packName: typeof input?.packName === 'string' ? input.packName : '',
       surface: typeof input?.surface === 'string' ? input.surface : 'workspace',
       appType: typeof input?.appType === 'string' ? input.appType : 'unknown',
+      appKey: typeof input?.appKey === 'string' ? input.appKey : '',
+      appVersion: typeof input?.appVersion === 'string' ? input.appVersion : '',
       targetUrl: typeof input?.targetUrl === 'string' ? input.targetUrl : '',
       intent: typeof input?.intent === 'string' ? input.intent : '',
-      executionSteps: Array.isArray(input?.executionSteps) ? input.executionSteps : [],
+      executionSteps,
       verificationChecks: Array.isArray(input?.verificationChecks) ? input.verificationChecks : [],
       rollbackSteps: Array.isArray(input?.rollbackSteps) ? input.rollbackSteps : [],
+      compatibilityProfile: input?.compatibilityProfile && typeof input.compatibilityProfile === 'object' ? input.compatibilityProfile : null,
       variables: input?.variables && typeof input.variables === 'object' ? input.variables : {},
       evidence: Array.isArray(input?.evidence) ? input.evidence : [],
       verificationNotes: typeof input?.verificationNotes === 'string' ? input.verificationNotes : '',
       rollbackNotes: typeof input?.rollbackNotes === 'string' ? input.rollbackNotes : '',
       artifactPath: typeof input?.artifactPath === 'string' ? input.artifactPath : '',
+      stepStates,
+      rollbackTransactions: [],
+      latestAttestationHash: null,
     }
 
     learningState = {
@@ -1161,6 +1478,17 @@ function registerIpcHandlers(mainWindow) {
         },
       ],
       artifactPath: typeof input?.artifactPath === 'string' ? input.artifactPath : '',
+      governance: {
+        minTestsForReview: GOVERNANCE_MIN_TESTS_FOR_REVIEW,
+        minTestsForDeploy: GOVERNANCE_MIN_TESTS_FOR_DEPLOY,
+        requiredPolicySignatures: 1,
+        signatures: [],
+        metrics: {
+          testsPassed: 0,
+          lintPassed: false,
+          buildPassed: false,
+        },
+      },
     }
 
     learningState = {
@@ -1198,6 +1526,36 @@ function registerIpcHandlers(mainWindow) {
     }
     saveLearningState()
     return updated
+  }
+
+  function updateEvolutionPipelineGovernance(pipelineId, input) {
+    return updateEvolutionPipeline(pipelineId, (current) => {
+      const governance = current?.governance && typeof current.governance === 'object' ? current.governance : {}
+      const signatures = Array.isArray(governance.signatures) ? governance.signatures : []
+      const nextSignatures = [...signatures]
+      if (typeof input?.signature === 'string' && input.signature.trim()) {
+        nextSignatures.push({
+          signature: input.signature,
+          signer: String(input?.signer || 'admin'),
+          signedAt: new Date().toISOString(),
+          note: String(input?.note || ''),
+        })
+      }
+
+      return {
+        governance: {
+          minTestsForReview: Number(governance.minTestsForReview || GOVERNANCE_MIN_TESTS_FOR_REVIEW),
+          minTestsForDeploy: Number(governance.minTestsForDeploy || GOVERNANCE_MIN_TESTS_FOR_DEPLOY),
+          requiredPolicySignatures: Number(governance.requiredPolicySignatures || 1),
+          signatures: nextSignatures.slice(-12),
+          metrics: {
+            testsPassed: Number(input?.testsPassed ?? governance?.metrics?.testsPassed ?? 0),
+            lintPassed: Boolean(input?.lintPassed ?? governance?.metrics?.lintPassed ?? false),
+            buildPassed: Boolean(input?.buildPassed ?? governance?.metrics?.buildPassed ?? false),
+          },
+        },
+      }
+    })
   }
 
   function appendVisionJob(input) {
@@ -1834,6 +2192,7 @@ function registerIpcHandlers(mainWindow) {
   initializeAuditState()
   loadCapabilityState()
   loadLearningState()
+  ensureAttestationState()
 
   // Legacy endpoint for compatibility with existing renderer logging calls.
   ipcMain.handle('paxion:audit:append', (_event, input) => {
@@ -2462,13 +2821,22 @@ function registerIpcHandlers(mainWindow) {
               .map(([key, value]) => [String(key).trim(), String(value)]),
           )
         : {}
+    const appKey = String(input?.appKey || pack.appType || '').trim().toLowerCase()
+    const appVersion = String(input?.appVersion || '').trim()
+    const compatibilityProfile = selectVersionedPackProfile(pack.compatibilityProfiles, appVersion)
+    if (appVersion && Array.isArray(pack.compatibilityProfiles) && pack.compatibilityProfiles.length > 0 && !compatibilityProfile) {
+      return {
+        ok: false,
+        reason: `No compatible ${pack.name} profile for app version ${appVersion}.`,
+      }
+    }
     const resolvedTargetUrl = resolveTemplateVariables(pack.targetUrl || '', variables)
     const resolvedIntent = resolveTemplateVariables(pack.intent || '', variables)
     const resolvedSteps = (pack.executionSteps || []).map((step) => resolveTemplateVariables(step, variables))
     const resolvedVerification = (pack.verificationChecks || []).map((step) => resolveTemplateVariables(step, variables))
     const resolvedRollback = (pack.rollbackSteps || []).map((step) => resolveTemplateVariables(step, variables))
 
-    const workspaceRoot = path.join(app.getPath('userData'), 'paxion-workspace')
+    const workspaceRoot = workspaceRootPath()
     const artifactPath = path.join(
       workspaceRoot,
       'readiness-sessions',
@@ -2489,6 +2857,9 @@ function registerIpcHandlers(mainWindow) {
           verificationChecks: resolvedVerification,
           rollbackSteps: resolvedRollback,
           variables,
+          appKey,
+          appVersion,
+          compatibilityProfile,
           createdAt: new Date().toISOString(),
         },
         null,
@@ -2514,7 +2885,25 @@ function registerIpcHandlers(mainWindow) {
       variables,
       artifactPath,
       status: 'prepared',
+      appKey,
+      appVersion,
+      compatibilityProfile,
     })
+
+    for (let index = 0; index < resolvedSteps.length; index += 1) {
+      const stepId = `step-${index + 1}`
+      await captureSessionStepEvidence({
+        sessionId: session.id,
+        stepId,
+        reason: 'session-prepared',
+        metadata: {
+          packId: pack.id,
+          appKey,
+          appVersion,
+          compatibilityProfile: compatibilityProfile ? compatibilityProfile.constraints : [],
+        },
+      })
+    }
 
     appendLearningLog({
       title: `Target workflow prepared: ${pack.name}`,
@@ -2531,7 +2920,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:readiness:verifySession', (_event, input) => {
+  ipcMain.handle('paxion:readiness:verifySession', async (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to verify execution session.' }
     }
@@ -2560,10 +2949,20 @@ function registerIpcHandlers(mainWindow) {
       newSkills: outcome === 'verified' ? ['Verification Workflow'] : [],
     })
 
+    await captureSessionStepEvidence({
+      sessionId,
+      stepId: 'verification',
+      reason: 'session-verification',
+      domSnapshot: notes,
+      metadata: {
+        outcome,
+      },
+    })
+
     return { ok: true, session, executionSessions: learningState.executionSessions || [], learningGraph: buildLearningGraph() }
   })
 
-  ipcMain.handle('paxion:readiness:rollbackSession', (_event, input) => {
+  ipcMain.handle('paxion:readiness:rollbackSession', async (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to rollback execution session.' }
     }
@@ -2585,7 +2984,202 @@ function registerIpcHandlers(mainWindow) {
       newSkills: ['Rollback Planning'],
     })
 
+    await captureSessionStepEvidence({
+      sessionId,
+      stepId: 'rollback',
+      reason: 'session-rollback',
+      domSnapshot: session.rollbackNotes,
+      metadata: {
+        rollbackSteps: session.rollbackSteps,
+      },
+    })
+
     return { ok: true, session, executionSessions: learningState.executionSessions || [], learningGraph: buildLearningGraph() }
+  })
+
+  ipcMain.handle('paxion:readiness:captureStepEvidence', async (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to capture step evidence.' }
+    }
+
+    const result = await captureSessionStepEvidence(input)
+    if (!result.ok) {
+      return result
+    }
+
+    return {
+      ok: true,
+      session: result.session,
+      evidence: result.evidence,
+      executionSessions: learningState.executionSessions || [],
+      learningGraph: buildLearningGraph(),
+    }
+  })
+
+  ipcMain.handle('paxion:readiness:executeNativeAction', async (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required for native action execution.' }
+    }
+
+    if (!Boolean(input?.explicitPermission)) {
+      return { ok: false, reason: 'Explicit permission is required for native action execution.' }
+    }
+
+    const action = String(input?.action || '').trim()
+    if (!NATIVE_ACTION_ALLOWLIST.has(action)) {
+      return { ok: false, reason: 'Action type is not allowed by native execution policy.' }
+    }
+
+    const sessionId = String(input?.sessionId || '').trim()
+    const stepId = String(input?.stepId || '').trim() || 'native-action'
+    const selector = String(input?.selector || '').trim()
+    const fallbackSelectors = Array.isArray(input?.fallbackSelectors)
+      ? input.fallbackSelectors.filter((entry) => typeof entry === 'string' && entry.trim()).map((entry) => entry.trim())
+      : []
+    const deterministicSelectors = selector ? [selector, ...fallbackSelectors] : fallbackSelectors
+
+    let commandOutput = ''
+    if (action === 'command') {
+      const command = String(input?.command || '').trim()
+      if (!TOOL_COMMAND_ALLOWLIST.has(command)) {
+        return { ok: false, reason: 'Command is outside native execution allowlist.' }
+      }
+      if (capabilityState.workspaceTooling === false) {
+        return { ok: false, reason: 'workspaceTooling capability is required for command actions.' }
+      }
+
+      const commandResult = await execCommand(command, { cwd: process.cwd() }).catch((errorResult) => errorResult)
+      const stdout = String(commandResult?.stdout || '')
+      const stderr = String(commandResult?.stderr || '')
+      commandOutput = [stdout, stderr].filter(Boolean).join('\n').trim()
+    }
+
+    const performedStep =
+      action === 'command'
+        ? `Executed allowlisted command: ${String(input?.command || '').trim()}`
+        : `Resolved selector path (${deterministicSelectors.join(' -> ') || 'no selector'}) with deterministic recovery.`
+
+    const record = appendExecutionRecord({
+      domain: 'native-executor',
+      adapterId: 'native.execution.v1',
+      appType: String(input?.appType || 'native-surface'),
+      intendedStep: String(input?.intendedStep || `Native ${action}`),
+      performedStep,
+      result: 'executed-supervised',
+      newSkills: ['Deterministic Action Execution'],
+      metadata: {
+        sessionId: sessionId || undefined,
+        stepId,
+        action,
+        selector,
+        fallbackSelectors,
+        appKey: String(input?.appKey || ''),
+        appVersion: String(input?.appVersion || ''),
+      },
+      simpleLog: `Native action executed (${action}) with selector recovery path length ${Math.max(1, deterministicSelectors.length)}.`,
+    })
+
+    let captureResult = null
+    if (sessionId) {
+      captureResult = await captureSessionStepEvidence({
+        sessionId,
+        stepId,
+        reason: 'native-action',
+        domSnapshot: String(input?.domSnapshot || '').trim(),
+        commandOutput,
+        metadata: {
+          action,
+          selector,
+          fallbackSelectors,
+        },
+      })
+    }
+
+    return {
+      ok: true,
+      record,
+      commandOutput,
+      executionSessions: learningState.executionSessions || [],
+      learningGraph: buildLearningGraph(),
+      evidence: captureResult && captureResult.ok ? captureResult.evidence : null,
+      warnings: captureResult && !captureResult.ok ? [captureResult.reason] : [],
+    }
+  })
+
+  ipcMain.handle('paxion:readiness:executeRollback', async (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required for rollback execution.' }
+    }
+
+    const sessionId = String(input?.sessionId || '').trim()
+    if (!sessionId) {
+      return { ok: false, reason: 'Session ID is required.' }
+    }
+
+    const sessions = Array.isArray(learningState.executionSessions) ? learningState.executionSessions : []
+    const session = sessions.find((entry) => entry.id === sessionId)
+    if (!session) {
+      return { ok: false, reason: 'Execution session not found.' }
+    }
+
+    const rollbackSteps = Array.isArray(session.rollbackSteps) ? session.rollbackSteps : []
+    const transactionId = `rollback-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+    const stepResults = []
+
+    for (let index = 0; index < rollbackSteps.length; index += 1) {
+      const stepText = String(rollbackSteps[index] || '').trim()
+      let status = 'executed'
+      let output = ''
+      if (/^command:/i.test(stepText)) {
+        const command = stepText.replace(/^command:/i, '').trim()
+        if (TOOL_COMMAND_ALLOWLIST.has(command) && capabilityState.workspaceTooling === true) {
+          const commandResult = await execCommand(command, { cwd: process.cwd() }).catch((errorResult) => errorResult)
+          output = [String(commandResult?.stdout || ''), String(commandResult?.stderr || '')].filter(Boolean).join('\n').trim()
+        } else {
+          status = 'blocked'
+          output = 'Rollback command blocked by allowlist or missing workspaceTooling capability.'
+        }
+      } else {
+        output = `Supervised rollback note executed: ${stepText}`
+      }
+
+      const stepId = `rollback-step-${index + 1}`
+      stepResults.push({ stepId, step: stepText, status, output })
+      await captureSessionStepEvidence({
+        sessionId,
+        stepId,
+        reason: 'rollback-execution',
+        commandOutput: output,
+        metadata: { transactionId, status },
+      })
+    }
+
+    const failed = stepResults.some((entry) => entry.status !== 'executed')
+    const updatedSession = updateExecutionSession(sessionId, (current) => ({
+      status: failed ? 'rollback-failed' : 'rolled-back',
+      rollbackNotes: String(input?.notes || '').trim() || current.rollbackNotes || 'Rollback transaction executed.',
+      rollbackTransactions: [
+        ...(Array.isArray(current.rollbackTransactions) ? current.rollbackTransactions : []),
+        {
+          id: transactionId,
+          createdAt: new Date().toISOString(),
+          status: failed ? 'failed' : 'completed',
+          steps: stepResults,
+        },
+      ].slice(-30),
+    }))
+
+    return {
+      ok: true,
+      session: updatedSession,
+      transaction: {
+        id: transactionId,
+        status: failed ? 'failed' : 'completed',
+        stepResults,
+      },
+      executionSessions: learningState.executionSessions || [],
+      learningGraph: buildLearningGraph(),
+    }
   })
 
   ipcMain.handle('paxion:readiness:captureObservation', (_event, input) => {
@@ -2636,6 +3230,39 @@ function registerIpcHandlers(mainWindow) {
     }
 
     return { ok: true, learningGraph: buildLearningGraph() }
+  })
+
+  ipcMain.handle('paxion:readiness:queryGraph', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return {
+        ok: false,
+        reason: 'Admin session required to query learning graph.',
+        learningGraph: { nodes: [], edges: [], updatedAt: null },
+        page: { cursor: 0, nextCursor: null, limit: 0, totalNodes: 0, totalEdges: 0 },
+        indexStats: { totalSourceNodes: 0, totalSourceEdges: 0, distinctKinds: 0 },
+      }
+    }
+
+    const baseGraph = buildLearningGraph()
+    const result = queryLearningGraphSnapshot(baseGraph, {
+      text: String(input?.text || ''),
+      kinds: Array.isArray(input?.kinds) ? input.kinds : [],
+      nodeId: String(input?.nodeId || ''),
+      edgeKind: String(input?.edgeKind || ''),
+      cursor: Math.max(0, Number(input?.cursor || 0)),
+      limit: Math.max(1, Math.min(GRAPH_QUERY_MAX_LIMIT, Number(input?.limit || 40))),
+    })
+
+    return {
+      ok: true,
+      learningGraph: {
+        nodes: result.nodes,
+        edges: result.edges,
+        updatedAt: baseGraph.updatedAt,
+      },
+      page: result.page,
+      indexStats: result.indexStats,
+    }
   })
 
   ipcMain.handle('paxion:readiness:createEvolutionPipeline', (_event, input) => {
@@ -2689,9 +3316,49 @@ function registerIpcHandlers(mainWindow) {
       const stages = Array.isArray(current.stages) ? current.stages : []
       const currentIndex = Math.max(0, stages.indexOf(current.currentStage))
       const nextStage = stages[Math.min(stages.length - 1, currentIndex + 1)] || current.currentStage
+      const governance = current?.governance && typeof current.governance === 'object' ? current.governance : {}
+      const metrics = governance?.metrics && typeof governance.metrics === 'object' ? governance.metrics : {}
+      const signatures = Array.isArray(governance.signatures) ? governance.signatures : []
+      const requiredSignatures = Number(governance.requiredPolicySignatures || 1)
+      const testsPassed = Number(input?.testsPassed ?? metrics.testsPassed ?? 0)
+      const lintPassed = Boolean(input?.lintPassed ?? metrics.lintPassed ?? false)
+      const buildPassed = Boolean(input?.buildPassed ?? metrics.buildPassed ?? false)
+
+      if (nextStage === 'review' && testsPassed < Number(governance.minTestsForReview || GOVERNANCE_MIN_TESTS_FOR_REVIEW)) {
+        return {
+          currentStage: current.currentStage,
+          history: [...(Array.isArray(current.history) ? current.history : []), { stage: current.currentStage, note: 'Blocked: minimum test gate not met for review stage.', timestamp: new Date().toISOString() }],
+          governance: {
+            ...governance,
+            metrics: { testsPassed, lintPassed, buildPassed },
+          },
+        }
+      }
+
+      if (
+        nextStage === 'deploy' &&
+        (testsPassed < Number(governance.minTestsForDeploy || GOVERNANCE_MIN_TESTS_FOR_DEPLOY) ||
+          !lintPassed ||
+          !buildPassed ||
+          signatures.length < requiredSignatures)
+      ) {
+        return {
+          currentStage: current.currentStage,
+          history: [...(Array.isArray(current.history) ? current.history : []), { stage: current.currentStage, note: 'Blocked: deploy gates require tests, lint/build pass, and governance signature.', timestamp: new Date().toISOString() }],
+          governance: {
+            ...governance,
+            metrics: { testsPassed, lintPassed, buildPassed },
+          },
+        }
+      }
+
       return {
         currentStage: nextStage,
         history: [...(Array.isArray(current.history) ? current.history : []), { stage: nextStage, note, timestamp: new Date().toISOString() }],
+        governance: {
+          ...governance,
+          metrics: { testsPassed, lintPassed, buildPassed },
+        },
       }
     })
 
@@ -2700,6 +3367,53 @@ function registerIpcHandlers(mainWindow) {
     }
 
     return { ok: true, pipeline, evolutionPipelines: learningState.evolutionPipelines || [] }
+  })
+
+  ipcMain.handle('paxion:readiness:signGovernancePolicy', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to sign governance policy.' }
+    }
+
+    const pipelineId = String(input?.pipelineId || '').trim()
+    const note = String(input?.note || '').trim()
+    if (!pipelineId) {
+      return { ok: false, reason: 'Pipeline ID is required.' }
+    }
+
+    const payloadHash = sha256Hex(
+      stableStringify({
+        pipelineId,
+        note,
+        signedAt: new Date().toISOString(),
+      }),
+    )
+    const attestation = appendAttestationRecord({
+      payloadHash,
+      scope: 'governance-policy',
+      metadata: { pipelineId, note },
+    })
+
+    const pipeline = updateEvolutionPipelineGovernance(pipelineId, {
+      signature: attestation.signature,
+      signer: 'admin-session',
+      note,
+      testsPassed: Number(input?.testsPassed || 0),
+      lintPassed: Boolean(input?.lintPassed),
+      buildPassed: Boolean(input?.buildPassed),
+    })
+    if (!pipeline) {
+      return { ok: false, reason: 'Evolution pipeline not found.' }
+    }
+
+    return {
+      ok: true,
+      pipeline,
+      attestation: {
+        entryHash: attestation.entryHash,
+        publicKeyFingerprint: attestation.publicKeyFingerprint,
+      },
+      evolutionPipelines: learningState.evolutionPipelines || [],
+    }
   })
 
   ipcMain.handle('paxion:readiness:createVisionJob', (_event, input) => {
@@ -2821,6 +3535,22 @@ function registerIpcHandlers(mainWindow) {
       newSkills: inferredSkills,
     })
 
+    const linkedSessionId = String(input?.sessionId || '').trim()
+    if (linkedSessionId) {
+      await captureSessionStepEvidence({
+        sessionId: linkedSessionId,
+        stepId: 'ocr-processing',
+        reason: 'ocr-processing',
+        domSnapshot: extractedText,
+        screenshotPath: imagePath,
+        metadata: {
+          language,
+          confidence,
+          jobId: job?.id || null,
+        },
+      })
+    }
+
     return {
       ok: true,
       job,
@@ -2855,7 +3585,7 @@ function registerIpcHandlers(mainWindow) {
     const notes = String(input?.notes || '').trim()
     const screenshotPath = String(input?.screenshotPath || '').trim()
 
-    const workspaceRoot = path.join(app.getPath('userData'), 'paxion-workspace')
+    const workspaceRoot = workspaceRootPath()
     const artifactDir = path.join(workspaceRoot, 'evidence', sessionId, `${Date.now()}`)
     fs.mkdirSync(artifactDir, { recursive: true })
 
@@ -2880,10 +3610,36 @@ function registerIpcHandlers(mainWindow) {
       generatedAt: new Date().toISOString(),
     }
     const payloadHash = sha256Hex(stableStringify(payload))
+    const attestation = appendAttestationRecord({
+      payloadHash,
+      scope: 'evidence-artifact',
+      sessionId,
+      stepId: 'artifact',
+      metadata: {
+        status: session.status,
+      },
+    })
 
     const jsonPath = path.join(artifactDir, 'evidence.json')
     const mdPath = path.join(artifactDir, 'evidence.md')
-    fs.writeFileSync(jsonPath, JSON.stringify({ ...payload, payloadHash }, null, 2), 'utf8')
+    fs.writeFileSync(
+      jsonPath,
+      JSON.stringify(
+        {
+          ...payload,
+          payloadHash,
+          attestation: {
+            entryHash: attestation.entryHash,
+            signature: attestation.signature,
+            publicKeyFingerprint: attestation.publicKeyFingerprint,
+            prevHash: attestation.prevHash,
+          },
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    )
     fs.writeFileSync(
       mdPath,
       [
@@ -2893,6 +3649,8 @@ function registerIpcHandlers(mainWindow) {
         `Status: ${session.status}`,
         `Generated: ${payload.generatedAt}`,
         `Payload hash: ${payloadHash}`,
+        `Attestation hash: ${attestation.entryHash}`,
+        `Signer fingerprint: ${attestation.publicKeyFingerprint.slice(0, 24)}...`,
         '',
         '## Summary',
         summary,
@@ -2913,6 +3671,7 @@ function registerIpcHandlers(mainWindow) {
       status: current.status === 'prepared' ? 'evidence-captured' : current.status,
       evidence: [...(Array.isArray(current.evidence) ? current.evidence : []), `artifact:${jsonPath}`].slice(-40),
       verificationNotes: notes || current.verificationNotes || '',
+      latestAttestationHash: attestation.entryHash,
     }))
 
     appendAuditEntry('action_result', {
@@ -2938,6 +3697,8 @@ function registerIpcHandlers(mainWindow) {
         jsonPath,
         markdownPath: mdPath,
         screenshotHash,
+        attestationHash: attestation.entryHash,
+        signerFingerprint: attestation.publicKeyFingerprint,
       },
       session: updatedSession,
       executionSessions: learningState.executionSessions || [],

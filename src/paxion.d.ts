@@ -282,6 +282,8 @@ interface PaxionExecutionSession {
   packName: string
   surface: string
   appType: string
+  appKey?: string
+  appVersion?: string
   targetUrl: string
   intent: string
   executionSteps: string[]
@@ -292,6 +294,18 @@ interface PaxionExecutionSession {
   verificationNotes: string
   rollbackNotes: string
   artifactPath: string
+  compatibilityProfile?: Record<string, unknown> | null
+  stepStates?: Array<{
+    id: string
+    index: number
+    title: string
+    status: string
+    evidenceRefs: string[]
+    attestationHash: string | null
+    updatedAt: string
+  }>
+  rollbackTransactions?: Array<Record<string, unknown>>
+  latestAttestationHash?: string | null
 }
 
 interface PaxionObservationSnapshot {
@@ -376,6 +390,19 @@ interface PaxionEvidenceArtifact {
   jsonPath: string
   markdownPath: string
   screenshotHash: string | null
+  attestationHash?: string
+  signerFingerprint?: string
+}
+
+interface PaxionNativeActionResult {
+  ok: boolean
+  reason?: string
+  record?: PaxionExecutionRecord
+  commandOutput?: string
+  executionSessions?: PaxionExecutionSession[]
+  learningGraph?: PaxionLearningGraphSnapshot
+  evidence?: Record<string, unknown> | null
+  warnings?: string[]
 }
 
 interface PaxionReadinessLoadResult {
@@ -568,6 +595,8 @@ declare global {
           packId: string
           variables: Record<string, string>
           explicitPermission: boolean
+          appKey?: string
+          appVersion?: string
         }): Promise<
           | {
               ok: true
@@ -600,6 +629,49 @@ declare global {
             }
           | { ok: false; reason: string }
         >
+        executeRollback(input: { sessionId: string; notes?: string }): Promise<
+          | {
+              ok: true
+              session: PaxionExecutionSession | null
+              transaction: Record<string, unknown>
+              executionSessions: PaxionExecutionSession[]
+              learningGraph: PaxionLearningGraphSnapshot
+            }
+          | { ok: false; reason: string }
+        >
+        executeNativeAction(input: {
+          sessionId?: string
+          stepId?: string
+          action: 'click' | 'fill' | 'select' | 'extractText' | 'command'
+          selector?: string
+          fallbackSelectors?: string[]
+          command?: string
+          appType?: string
+          appKey?: string
+          appVersion?: string
+          intendedStep?: string
+          domSnapshot?: string
+          explicitPermission: boolean
+        }): Promise<PaxionNativeActionResult>
+        captureStepEvidence(input: {
+          sessionId: string
+          stepId: string
+          reason?: string
+          domSnapshot?: string
+          commandOutput?: string
+          screenshotPath?: string
+          autoScreenshot?: boolean
+          metadata?: Record<string, unknown>
+        }): Promise<
+          | {
+              ok: true
+              session: PaxionExecutionSession | null
+              evidence: Record<string, unknown>
+              executionSessions: PaxionExecutionSession[]
+              learningGraph: PaxionLearningGraphSnapshot
+            }
+          | { ok: false; reason: string }
+        >
         captureObservation(input: {
           title: string
           appType: string
@@ -624,6 +696,48 @@ declare global {
           | { ok: true; learningGraph: PaxionLearningGraphSnapshot }
           | { ok: false; reason: string; learningGraph: PaxionLearningGraphSnapshot }
         >
+        queryGraph(input: {
+          text?: string
+          kinds?: string[]
+          nodeId?: string
+          edgeKind?: string
+          cursor?: number
+          limit?: number
+        }): Promise<
+          | {
+              ok: true
+              learningGraph: PaxionLearningGraphSnapshot
+              page: {
+                cursor: number
+                nextCursor: number | null
+                limit: number
+                totalNodes: number
+                totalEdges: number
+              }
+              indexStats: {
+                totalSourceNodes: number
+                totalSourceEdges: number
+                distinctKinds: number
+              }
+            }
+          | {
+              ok: false
+              reason: string
+              learningGraph: PaxionLearningGraphSnapshot
+              page: {
+                cursor: number
+                nextCursor: number | null
+                limit: number
+                totalNodes: number
+                totalEdges: number
+              }
+              indexStats: {
+                totalSourceNodes: number
+                totalSourceEdges: number
+                distinctKinds: number
+              }
+            }
+        >
         createEvolutionPipeline(input: {
           title: string
           objective: string
@@ -634,6 +748,24 @@ declare global {
         >
         advanceEvolutionPipeline(input: { pipelineId: string; note: string }): Promise<
           | { ok: true; pipeline: PaxionEvolutionPipeline; evolutionPipelines: PaxionEvolutionPipeline[] }
+          | { ok: false; reason: string }
+        >
+        signGovernancePolicy(input: {
+          pipelineId: string
+          note: string
+          testsPassed?: number
+          lintPassed?: boolean
+          buildPassed?: boolean
+        }): Promise<
+          | {
+              ok: true
+              pipeline: PaxionEvolutionPipeline
+              attestation: {
+                entryHash: string
+                publicKeyFingerprint: string
+              }
+              evolutionPipelines: PaxionEvolutionPipeline[]
+            }
           | { ok: false; reason: string }
         >
         createVisionJob(input: {
@@ -665,6 +797,7 @@ declare global {
           language?: string
           objective?: string
           notes?: string
+          sessionId?: string
         }): Promise<
           | {
               ok: true

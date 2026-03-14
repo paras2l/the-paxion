@@ -5,10 +5,13 @@ const assert = require('node:assert/strict')
 
 const {
   buildCrossAppMission,
+  createHashChainEntry,
   buildLearningGraphSnapshot,
   buildReplayPreviewPayload,
+  queryLearningGraphSnapshot,
   rankCapabilitySuggestions,
   resolveTemplateVariables,
+  selectVersionedPackProfile,
 } = require('./readiness-utils.cjs')
 
 test('resolveTemplateVariables replaces placeholders', () => {
@@ -97,4 +100,38 @@ test('buildLearningGraphSnapshot links logs and observations to skills', () => {
   assert.equal(graph.nodes.some((node) => node.id === 'skill:React UI Development'), true)
   assert.equal(graph.edges.some((edge) => edge.kind === 'suggests'), true)
   assert.equal(graph.edges.some((edge) => edge.kind === 'has-status'), true)
+})
+
+test('selectVersionedPackProfile picks profile by version constraints', () => {
+  const profile = selectVersionedPackProfile(
+    [
+      { id: 'legacy', constraints: ['<6.6'] },
+      { id: 'modern', constraints: ['>=6.6', '<7.0'] },
+    ],
+    '6.6.2',
+  )
+
+  assert.equal(profile?.id, 'modern')
+})
+
+test('createHashChainEntry links to previous hash deterministically', () => {
+  const entry = createHashChainEntry({ sessionId: 's1', stepId: 'step-1' }, 'abc123')
+  assert.equal(entry.prevHash, 'abc123')
+  assert.equal(typeof entry.entryHash, 'string')
+  assert.equal(entry.entryHash.length, 64)
+})
+
+test('queryLearningGraphSnapshot paginates and filters by kind', () => {
+  const graph = buildLearningGraphSnapshot({
+    skills: ['React', 'TypeScript'],
+    logs: [{ id: 'l1', title: 'React update', newSkills: ['React'] }],
+    executionRecords: [{ id: 'e1', intendedStep: 'Run lint', simpleLog: 'Lint run', adapterId: 'adapter-1', newSkills: [] }],
+    observations: [],
+    visionJobs: [],
+  })
+
+  const result = queryLearningGraphSnapshot(graph, { kinds: ['skill'], limit: 1, cursor: 0 })
+  assert.equal(result.nodes.length, 1)
+  assert.equal(result.page.totalNodes >= 2, true)
+  assert.equal(result.page.nextCursor, 1)
 })
