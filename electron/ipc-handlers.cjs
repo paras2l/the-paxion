@@ -5,6 +5,9 @@ const fs = require('fs')
 const path = require('path')
 const pdfParse = require('pdf-parse')
 
+const ADMIN_CODEWORD = 'paro the chief'
+const ADMIN_SESSION_TTL_MS = 15 * 60 * 1000
+
 // ── Policy constants (authoritative main-process mirror of src/security/policy.ts) ──
 
 const BLOCKED_ACTION_IDS = new Set([
@@ -90,10 +93,34 @@ function enforcePolicy(request) {
   }
 }
 
+function buildAdminSessionState() {
+  return {
+    unlocked: false,
+    unlockedAt: null,
+    expiresAt: null,
+  }
+}
+
+function isAdminUnlocked(adminSession) {
+  if (!adminSession.unlocked || !adminSession.expiresAt) {
+    return false
+  }
+
+  if (Date.now() > adminSession.expiresAt) {
+    adminSession.unlocked = false
+    adminSession.unlockedAt = null
+    adminSession.expiresAt = null
+    return false
+  }
+
+  return true
+}
+
 // ── IPC handler registration ──
 
 function registerIpcHandlers(mainWindow) {
   const auditFilePath = path.join(app.getPath('userData'), 'paxion-audit.jsonl')
+  const adminSession = buildAdminSessionState()
 
   // Persist a single audit entry as a JSON line.
   ipcMain.handle('paxion:audit:append', (_event, entry) => {
@@ -105,11 +132,26 @@ function registerIpcHandlers(mainWindow) {
   })
 
   // Load the full persisted audit log on startup.
+  // This endpoint is privileged and requires an active admin session.
   ipcMain.handle('paxion:audit:load', () => {
+    if (!isAdminUnlocked(adminSession)) {
+      return {
+        ok: false,
+        reason: 'Admin session required.',
+        entries: [],
+      }
+    }
+
     try {
-      if (!fs.existsSync(auditFilePath)) return []
+      if (!fs.existsSync(auditFilePath)) {
+        return {
+          ok: true,
+          entries: [],
+        }
+      }
+
       const raw = fs.readFileSync(auditFilePath, 'utf8')
-      return raw
+      const entries = raw
         .split('\n')
         .filter(Boolean)
         .reduce((acc, line) => {
@@ -120,9 +162,56 @@ function registerIpcHandlers(mainWindow) {
           }
           return acc
         }, [])
+
+      return {
+        ok: true,
+        entries,
+      }
     } catch (err) {
       console.error('[Paxion] audit load failed:', err)
-      return []
+      return {
+        ok: false,
+        reason: 'Failed to read audit log.',
+        entries: [],
+      }
+    }
+  })
+
+  ipcMain.handle('paxion:admin:unlock', (_event, codeword) => {
+    const valid = String(codeword || '').trim().toLowerCase() === ADMIN_CODEWORD
+    if (!valid) {
+      return {
+        ok: false,
+        reason: 'Invalid codeword.',
+      }
+    }
+
+    const now = Date.now()
+    adminSession.unlocked = true
+    adminSession.unlockedAt = now
+    adminSession.expiresAt = now + ADMIN_SESSION_TTL_MS
+
+    return {
+      ok: true,
+      unlocked: true,
+      expiresAt: adminSession.expiresAt,
+    }
+  })
+
+  ipcMain.handle('paxion:admin:status', () => {
+    return {
+      unlocked: isAdminUnlocked(adminSession),
+      expiresAt: adminSession.expiresAt,
+    }
+  })
+
+  ipcMain.handle('paxion:admin:lock', () => {
+    adminSession.unlocked = false
+    adminSession.unlockedAt = null
+    adminSession.expiresAt = null
+    return {
+      ok: true,
+      unlocked: false,
     }
   })
 

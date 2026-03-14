@@ -97,6 +97,9 @@ function App() {
   const [adminCodeword, setAdminCodeword] = useState('')
   const [lastDecision, setLastDecision] = useState<string>('No action evaluated yet.')
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([])
+  const [adminUnlocked, setAdminUnlocked] = useState(false)
+  const [adminExpiresAt, setAdminExpiresAt] = useState<number | null>(null)
+  const [adminMessage, setAdminMessage] = useState('')
 
   // Library state
   const libraryStore = useMemo(() => new LibraryStore(), [])
@@ -125,19 +128,43 @@ function App() {
   const brain = useMemo(() => new PaxionBrain(), [])
 
 
-  // Restore persisted audit log from disk when running inside Electron.
+  async function refreshAdminStatus() {
+    if (!window.paxion) return
+    const status = await window.paxion.admin.status().catch(() => null)
+    if (!status) return
+
+    setAdminUnlocked(status.unlocked)
+    setAdminExpiresAt(status.expiresAt)
+  }
+
+  async function loadAuditIfAllowed() {
+    if (!window.paxion) return
+    const result = await window.paxion.audit.load().catch(() => null)
+    if (!result || !result.ok) {
+      setAuditEntries([])
+      return
+    }
+
+    auditLedger.loadExternal(result.entries)
+    setAuditEntries(auditLedger.getAll())
+  }
+
+  // Keep admin session status fresh.
   useEffect(() => {
     if (!window.paxion) return
-    window.paxion.audit
-      .load()
-      .then((entries) => {
-        if (entries.length > 0) {
-          auditLedger.loadExternal(entries)
-          setAuditEntries(auditLedger.getAll())
-        }
-      })
-      .catch(() => undefined)
-  }, [auditLedger])
+
+    queueMicrotask(() => {
+      refreshAdminStatus()
+    })
+
+    const intervalId = window.setInterval(() => {
+      refreshAdminStatus()
+    }, 30 * 1000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [])
 
   const selectedAction = useMemo(
     () => actionPresets.find((preset) => preset.id === selectedActionId) ?? actionPresets[0],
@@ -151,6 +178,29 @@ function App() {
 
   function syncAuditState() {
     setAuditEntries(auditLedger.getAll())
+  }
+
+  async function unlockAdminSession() {
+    if (!window.paxion) return
+    const result = await window.paxion.admin.unlock(adminCodeword).catch(() => null)
+    if (!result || !result.ok) {
+      setAdminMessage(result?.reason ?? 'Failed to unlock admin session.')
+      return
+    }
+
+    setAdminUnlocked(true)
+    setAdminExpiresAt(result.expiresAt ?? null)
+    setAdminMessage('Admin session unlocked.')
+    await loadAuditIfAllowed()
+  }
+
+  async function lockAdminSession() {
+    if (!window.paxion) return
+    await window.paxion.admin.lock().catch(() => undefined)
+    setAdminUnlocked(false)
+    setAdminExpiresAt(null)
+    setAuditEntries([])
+    setAdminMessage('Admin session locked.')
   }
 
   // Append an entry to the in-memory ledger and persist it via IPC when in Electron.
@@ -527,6 +577,31 @@ function App() {
     }
 
     if (activeTab === 'access') {
+      if (!adminUnlocked) {
+        return (
+          <div className="tab-content-stack">
+            <div className="decision-card">
+              <strong>Admin Session Required</strong>
+              <p>Unlock with Paro codeword to open Access controls.</p>
+            </div>
+            <div className="control-group">
+              <label htmlFor="unlock-admin-access">Admin codeword</label>
+              <input
+                id="unlock-admin-access"
+                type="password"
+                value={adminCodeword}
+                onChange={(event) => setAdminCodeword(event.target.value)}
+                placeholder="Enter admin codeword"
+              />
+            </div>
+            <button className="run-button" onClick={unlockAdminSession}>
+              Unlock Admin Session
+            </button>
+            {adminMessage && <p className="muted">{adminMessage}</p>}
+          </div>
+        )
+      }
+
       return (
         <div className="tab-content-stack">
           <div className="control-group">
@@ -594,6 +669,31 @@ function App() {
     }
 
     if (activeTab === 'logs') {
+      if (!adminUnlocked) {
+        return (
+          <div className="tab-content-stack">
+            <div className="decision-card">
+              <strong>Admin Session Required</strong>
+              <p>Unlock with Paro codeword to read append-only logs.</p>
+            </div>
+            <div className="control-group">
+              <label htmlFor="unlock-admin-logs">Admin codeword</label>
+              <input
+                id="unlock-admin-logs"
+                type="password"
+                value={adminCodeword}
+                onChange={(event) => setAdminCodeword(event.target.value)}
+                placeholder="Enter admin codeword"
+              />
+            </div>
+            <button className="run-button" onClick={unlockAdminSession}>
+              Unlock Admin Session
+            </button>
+            {adminMessage && <p className="muted">{adminMessage}</p>}
+          </div>
+        )
+      }
+
       return (
         <div className="tab-content-stack">
           <p>Append-only audit chain for policy checks and sensitive approvals.</p>
@@ -667,6 +767,21 @@ function App() {
         <main className="panel work-panel" role="tabpanel" aria-label={activeTabMeta.name}>
           <h2>{activeTabMeta.name}</h2>
           <p>{activeTabMeta.description}</p>
+          <div className="admin-session-row">
+            <span>
+              Admin session:{' '}
+              <strong>{adminUnlocked ? 'Unlocked' : 'Locked'}</strong>
+              {adminUnlocked && adminExpiresAt
+                ? ` (expires ${new Date(adminExpiresAt).toLocaleTimeString()})`
+                : ''}
+            </span>
+            {adminUnlocked ? (
+              <button className="run-button" onClick={lockAdminSession}>
+                Lock
+              </button>
+            ) : null}
+          </div>
+          {adminMessage && <p className="muted">{adminMessage}</p>}
           {renderTabBody()}
         </main>
 

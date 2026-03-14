@@ -140,6 +140,23 @@
   margin-bottom: 0.2rem;
 }
 
+.admin-session-row {
+  margin-top: 0.5rem;
+  border: 1px solid var(--edge-soft);
+  border-radius: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(0, 212, 255, 0.03);
+  font-size: 0.78rem;
+}
+
+.admin-session-row strong {
+  color: var(--accent-cyan);
+}
+
 /* â”€â”€ Placeholder â”€â”€ */
 .placeholder {
   margin-top: 0.8rem;
