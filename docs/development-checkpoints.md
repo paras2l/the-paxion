@@ -35,3 +35,9 @@ Use this file to protect continuity and prevent missing work.
 - v0.5.0-paxion-brain: no external API model path; local PaxionBrain and dark mission UI.
 - v0.6.0-workspace-mvp: admin session hardening, atomic main-process decision+execution+audit flow, persisted approvals, and workspace mission executor queue.
 - v0.7.0-access-voice: persisted capability registry in Access tab with policy blocking, plus local voice input/output controls in Chat.
+- v0.8.0-knowledge-growth: persisted Library memory state and chunk-indexed PaxionBrain retrieval so capability scales with ingested books/documents.
+- v0.9.0-desktop-relay: no-API ChatGPT/Google desktop relay added with admin session + capability gating.
+- v0.10.0-skill-growth: learning timeline persistence, inferred skill acquisition, relay capture ingestion, and admin-gated growth capabilities.
+- v0.11.0-video-and-bridges: allowlisted workspace tool runner, VS Code command bridge, media adapter job artifacts, and YouTube segmented learning planner with parallel batch opening.
+- v0.12.0-automation-recorder: strict task-specific UI adapters, observe+learn templates by app type, and execution recorder panel with simple-language skill gain logs.
+- v0.13.0-profiles-replay-suggest: real app adapter profiles, execution recorder replay mode, and skill-to-capability auto-suggestion engine.

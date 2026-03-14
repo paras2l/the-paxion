@@ -12,6 +12,25 @@ function makeExcerpt(text: string, maxLen = 220): string {
 export class LibraryStore {
   private docs: LibraryDocument[] = []
 
+  hydrate(docs: LibraryDocument[]): void {
+    const normalized: LibraryDocument[] = docs
+      .filter((doc) => Boolean(doc?.id) && Boolean(doc?.content))
+      .map((doc) => ({
+        id: doc.id,
+        name: doc.name?.trim() || 'Untitled document',
+        content: doc.content,
+        addedAt: doc.addedAt || new Date().toISOString(),
+        wordCount:
+          typeof doc.wordCount === 'number' && doc.wordCount > 0
+            ? doc.wordCount
+            : doc.content.trim().split(/\s+/).filter(Boolean).length,
+        excerpt: doc.excerpt || makeExcerpt(doc.content),
+        source: (doc.source === 'file' ? 'file' : 'paste') as LibraryDocument['source'],
+      }))
+
+    this.docs = normalized
+  }
+
   add(
     name: string,
     content: string,

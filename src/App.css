@@ -496,6 +496,56 @@
   color: var(--ink-muted);
 }
 
+.lib-web-panel {
+  border: 1px solid var(--edge);
+  border-radius: 0.6rem;
+  padding: 0.65rem;
+  background: rgba(0, 212, 255, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.lib-web-panel strong {
+  color: var(--accent-cyan);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.lib-web-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.lib-web-results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.lib-web-result {
+  border: 1px solid var(--edge-soft);
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.6rem;
+  background: rgba(0, 0, 0, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.lib-web-result strong {
+  font-size: 0.84rem;
+  color: var(--ink-light);
+}
+
+.lib-web-link {
+  color: var(--accent-cyan);
+  font-size: 0.76rem;
+  word-break: break-all;
+}
+
 /* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    Chat tab
    â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
@@ -670,6 +720,16 @@
   flex-wrap: wrap;
 }
 
+.chat-mode-select {
+  border: 1px solid var(--edge);
+  border-radius: 0.45rem;
+  background: rgba(0, 212, 255, 0.06);
+  color: var(--ink-main);
+  padding: 0.4rem 0.55rem;
+  font-size: 0.78rem;
+  outline: none;
+}
+
 /* Toggle reasoning button */
 .chat-toggle-thought {
   background: none;
@@ -757,6 +817,30 @@
   margin-top: 0.4rem;
   display: flex;
   gap: 0.4rem;
+}
+
+.learning-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.learning-log-item {
+  border: 1px solid var(--edge-soft);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  background: rgba(0, 212, 255, 0.03);
+}
+
+.learning-log-item strong {
+  color: var(--ink-light);
+  font-size: 0.82rem;
+}
+
+.learning-log-item p {
+  margin: 0.2rem 0 0;
+  font-size: 0.76rem;
 }
 
 .capability-list {

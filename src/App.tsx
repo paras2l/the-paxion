@@ -76,8 +76,16 @@ type WorkspaceStep = {
 type CapabilityState = {
   workspaceExecution: boolean
   workspaceFileWrite: boolean
+  workspaceTooling: boolean
+  vscodeControl: boolean
+  desktopAppAutomation: boolean
+  webAppAutomation: boolean
+  mediaGeneration: boolean
+  selfEvolution: boolean
+  videoLearning: boolean
   libraryIngestLocal: boolean
   libraryIngestWeb: boolean
+  chatExternalModel: boolean
   voiceInput: boolean
   voiceOutput: boolean
 }
@@ -105,6 +113,92 @@ type SpeechRecognitionLike = {
 
 type SpeechRecognitionCtorLike = new () => SpeechRecognitionLike
 
+type ChatMode = 'local' | 'desktop-relay'
+
+type IntegrationStatus = {
+  desktopRelay: boolean
+  googleReady: boolean
+  gptReady: boolean
+  requiresAdminApproval: boolean
+}
+
+type LearningLogEntry = {
+  id: string
+  timestamp: string
+  title: string
+  detail: string
+  source: string
+  newSkills: string[]
+}
+
+type VideoLearningSegment = {
+  id: string
+  label: string
+  startMinute: number
+  endMinute: number
+  status: string
+  notes: string
+}
+
+type VideoLearningPlan = {
+  id: string
+  topic: string
+  videoUrl: string
+  durationMinutes: number
+  segmentMinutes: number
+  parallelSlots: number
+  createdAt: string
+  segments: VideoLearningSegment[]
+}
+
+type AutomationTemplate = {
+  id: string
+  appType: string
+  name: string
+  observe: string[]
+  learnFocus: string
+  skillSignals: string[]
+}
+
+type ExecutionRecord = {
+  id: string
+  timestamp: string
+  domain: string
+  adapterId: string | null
+  templateId: string | null
+  appType: string | null
+  intendedStep: string
+  performedStep: string
+  result: string
+  newSkills: string[]
+  metadata: Record<string, unknown>
+  simpleLog: string
+}
+
+type AutomationProfile = {
+  id: string
+  name: string
+  appType: string
+  adapterId: 'browser.formFill.basic' | 'browser.clickFlow.basic'
+  targetUrl: string
+  intent: string
+  stepTemplate: string[]
+  gainedSkills: string[]
+}
+
+type CapabilitySuggestion = {
+  capability: string
+  reason: string
+  recommendedAction: string
+}
+
+type AutomationStepInput = {
+  action: 'fill' | 'click' | 'select' | 'wait' | 'extractText'
+  selector?: string
+  value?: string
+  waitMs?: number
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms)
@@ -127,6 +221,48 @@ const actionPresets: ActionPreset[] = [
     detail: 'Create a new project component from prompt context.',
   },
   {
+    id: 'workspace.runToolCommand',
+    label: 'Run workspace tool command',
+    category: 'system',
+    targetPath: '/workspace/toolchain',
+    detail: 'command=npm run lint',
+  },
+  {
+    id: 'vscode.executeCommand',
+    label: 'Execute VS Code command bridge',
+    category: 'system',
+    targetPath: '/workspace/vscode',
+    detail: 'command=workbench.action.terminal.toggleTerminal',
+  },
+  {
+    id: 'automation.desktopAppEdit',
+    label: 'Desktop app edit automation playbook',
+    category: 'system',
+    targetPath: '/workspace/automation/desktop',
+    detail: 'app=Photoshop; intent=Update promo banner title and export PNG',
+  },
+  {
+    id: 'automation.webAppEdit',
+    label: 'Web app edit automation playbook',
+    category: 'system',
+    targetPath: '/workspace/automation/web',
+    detail: 'url=https://example.com/dashboard; intent=Update product content block',
+  },
+  {
+    id: 'media.generateAsset',
+    label: 'Generate media asset prompt',
+    category: 'codegen',
+    targetPath: '/workspace/media/asset-prompt.txt',
+    detail: 'Create media generation artifact prompt: cinematic project teaser video.',
+  },
+  {
+    id: 'workspace.selfEvolve',
+    label: 'Create self-evolution proposal',
+    category: 'codegen',
+    targetPath: '/workspace/evolution/skill-proposal.md',
+    detail: 'Propose and scaffold new Paxion capability implementation.',
+  },
+  {
     id: 'filesystem.editSecurityFile',
     label: 'Attempt edit of immutable security file',
     category: 'filesystem',
@@ -147,10 +283,42 @@ const immutableSummary = getImmutablePolicySummary()
 const defaultCapabilityState: CapabilityState = {
   workspaceExecution: true,
   workspaceFileWrite: true,
+  workspaceTooling: false,
+  vscodeControl: false,
+  desktopAppAutomation: false,
+  webAppAutomation: false,
+  mediaGeneration: false,
+  selfEvolution: false,
+  videoLearning: false,
   libraryIngestLocal: true,
   libraryIngestWeb: false,
+  chatExternalModel: false,
   voiceInput: true,
   voiceOutput: true,
+}
+
+const defaultIntegrationStatus: IntegrationStatus = {
+  desktopRelay: true,
+  googleReady: false,
+  gptReady: false,
+  requiresAdminApproval: true,
+}
+
+const SKILL_PATTERNS: Array<{ skill: string; pattern: RegExp }> = [
+  { skill: 'React UI Development', pattern: /react|tsx|component|jsx/i },
+  { skill: 'TypeScript Engineering', pattern: /typescript|tsconfig|type|interface|generic/i },
+  { skill: 'Electron Desktop Integration', pattern: /electron|ipc|main process|preload/i },
+  { skill: 'Security Policy Design', pattern: /policy|approval|audit|permission|security/i },
+  { skill: 'Workspace Automation', pattern: /workspace|mission|automation|executor|queue/i },
+  { skill: 'Web Research', pattern: /google|search|web research|browser/i },
+  { skill: 'AI Prompt Engineering', pattern: /prompt|llm|chatgpt|assistant|reasoning/i },
+  { skill: 'Media Generation Workflow', pattern: /image|video|media|render|generation/i },
+  { skill: 'Data Processing', pattern: /json|csv|parse|dataset|transform/i },
+]
+
+function inferSkills(text: string): string[] {
+  const hits = SKILL_PATTERNS.filter((entry) => entry.pattern.test(text)).map((entry) => entry.skill)
+  return Array.from(new Set(hits))
 }
 
 function buildWorkspacePlan(goal: string): WorkspaceStep[] {
@@ -206,6 +374,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<TabId>('chat')
   const [selectedActionId, setSelectedActionId] = useState(actionPresets[0].id)
   const [targetPath, setTargetPath] = useState(actionPresets[0].targetPath)
+  const [actionDetail, setActionDetail] = useState(actionPresets[0].detail)
   const [adminCodeword, setAdminCodeword] = useState('')
   const [lastDecision, setLastDecision] = useState<string>('No action evaluated yet.')
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([])
@@ -214,6 +383,36 @@ function App() {
   const [adminMessage, setAdminMessage] = useState('')
   const [capabilities, setCapabilities] = useState<CapabilityState>(defaultCapabilityState)
   const [accessMessage, setAccessMessage] = useState('')
+  const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus>(defaultIntegrationStatus)
+  const [learningLogs, setLearningLogs] = useState<LearningLogEntry[]>([])
+  const [learnedSkills, setLearnedSkills] = useState<string[]>([])
+  const [videoPlans, setVideoPlans] = useState<VideoLearningPlan[]>([])
+  const [learningUpdatedAt, setLearningUpdatedAt] = useState<string | null>(null)
+  const [videoTopic, setVideoTopic] = useState('')
+  const [videoUrl, setVideoUrl] = useState('')
+  const [videoDurationMinutes, setVideoDurationMinutes] = useState('60')
+  const [videoSegmentMinutes, setVideoSegmentMinutes] = useState('10')
+  const [videoParallelSlots, setVideoParallelSlots] = useState('3')
+  const [videoPermission, setVideoPermission] = useState(false)
+  const [videoMessage, setVideoMessage] = useState('')
+  const [videoTargetPlanId, setVideoTargetPlanId] = useState('')
+  const [videoTargetSegmentId, setVideoTargetSegmentId] = useState('')
+  const [videoSegmentSummary, setVideoSegmentSummary] = useState('')
+  const [videoSegmentSkills, setVideoSegmentSkills] = useState('')
+  const [automationTemplates, setAutomationTemplates] = useState<AutomationTemplate[]>([])
+  const [automationProfiles, setAutomationProfiles] = useState<AutomationProfile[]>([])
+  const [executionRecords, setExecutionRecords] = useState<ExecutionRecord[]>([])
+  const [capabilitySuggestions, setCapabilitySuggestions] = useState<CapabilitySuggestion[]>([])
+  const [automationAdapterId, setAutomationAdapterId] = useState<'browser.formFill.basic' | 'browser.clickFlow.basic'>('browser.formFill.basic')
+  const [automationTargetUrl, setAutomationTargetUrl] = useState('')
+  const [automationIntent, setAutomationIntent] = useState('')
+  const [automationStepsText, setAutomationStepsText] = useState('fill|#email|chief@paxion.ai\nfill|#password|********\nclick|button[type="submit"]')
+  const [automationPermission, setAutomationPermission] = useState(false)
+  const [automationTemplateId, setAutomationTemplateId] = useState('')
+  const [automationSourceKnowledge, setAutomationSourceKnowledge] = useState('')
+  const [replayRecordId, setReplayRecordId] = useState('')
+  const [replayPermission, setReplayPermission] = useState(false)
+  const [automationMessage, setAutomationMessage] = useState('')
 
   // Library state
   const libraryStore = useMemo(() => new LibraryStore(), [])
@@ -224,12 +423,20 @@ function App() {
   const [libPasteName, setLibPasteName] = useState('')
   const [libPasteText, setLibPasteText] = useState('')
   const [libAddError, setLibAddError] = useState('')
+  const [libraryUpdatedAt, setLibraryUpdatedAt] = useState<string | null>(null)
+  const [webSearchQuery, setWebSearchQuery] = useState('')
+  const [webSearchLoading, setWebSearchLoading] = useState(false)
+  const [webSearchMessage, setWebSearchMessage] = useState('')
+  const libraryLoadedRef = useRef(false)
 
   // Chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
+  const [chatMode, setChatMode] = useState<ChatMode>('local')
   const [chatNotice, setChatNotice] = useState('')
+  const [relayCaptureTitle, setRelayCaptureTitle] = useState('')
+  const [relayCaptureText, setRelayCaptureText] = useState('')
   const [chatVoiceListening, setChatVoiceListening] = useState(false)
   const [chatVoiceEnabled, setChatVoiceEnabled] = useState(true)
   const [showThought, setShowThought] = useState<string | null>(null)
@@ -291,6 +498,97 @@ function App() {
       setCapabilities(result.capabilities)
     }
   }, [])
+
+  const loadIntegrationStatus = useCallback(async () => {
+    if (!window.paxion) {
+      setIntegrationStatus(defaultIntegrationStatus)
+      return
+    }
+
+    const result = await window.paxion.integrations.getStatus().catch(() => null)
+    if (result?.ok) {
+      setIntegrationStatus({
+        desktopRelay: result.desktopRelay,
+        googleReady: result.googleReady,
+        gptReady: result.gptReady,
+        requiresAdminApproval: result.requiresAdminApproval,
+      })
+    }
+  }, [])
+
+  const loadLearningState = useCallback(async () => {
+    if (!window.paxion) {
+      setLearningLogs([])
+      setLearnedSkills([])
+      setVideoPlans([])
+      setLearningUpdatedAt(null)
+      return
+    }
+
+    const result = await window.paxion.learning.load().catch(() => null)
+    if (!result?.ok) {
+      setLearningLogs([])
+      setLearnedSkills([])
+      setVideoPlans([])
+      setLearningUpdatedAt(null)
+      return
+    }
+
+    setLearningLogs(result.logs)
+    setLearnedSkills(result.skills)
+    setVideoPlans(result.videoPlans)
+    setLearningUpdatedAt(result.updatedAt)
+  }, [])
+
+  const loadAutomationState = useCallback(async () => {
+    if (!window.paxion) {
+      setAutomationTemplates([])
+      setAutomationProfiles([])
+      setExecutionRecords([])
+      setCapabilitySuggestions([])
+      return
+    }
+
+    const result = await window.paxion.automation.load().catch(() => null)
+    if (!result?.ok) {
+      setAutomationTemplates([])
+      setAutomationProfiles([])
+      setExecutionRecords([])
+      setCapabilitySuggestions([])
+      return
+    }
+
+    setAutomationTemplates(result.templates)
+    setAutomationProfiles(result.profiles)
+    setExecutionRecords(result.records)
+    setCapabilitySuggestions(result.suggestions)
+    if (!automationTemplateId && result.templates.length > 0) {
+      setAutomationTemplateId(result.templates[0].id)
+    }
+  }, [automationTemplateId])
+
+  const recordLearning = useCallback(
+    async (input: { title: string; detail: string; source: string; newSkills: string[] }) => {
+      if (!window.paxion) {
+        return
+      }
+
+      const result = await window.paxion.learning.record(input).catch(() => null)
+      if (!result?.ok) {
+        return
+      }
+
+      setLearnedSkills(result.skills)
+      setLearningUpdatedAt(result.updatedAt)
+      if (Array.isArray(result.videoPlans)) {
+        setVideoPlans(result.videoPlans)
+      }
+      const entry = result.entry
+      if (!entry) return
+      setLearningLogs((prev) => [...prev, entry].slice(-600))
+    },
+    [],
+  )
 
   const setCapability = useCallback(async (key: CapabilityKey, enabled: boolean) => {
     if (!window.paxion) {
@@ -396,6 +694,53 @@ function App() {
     setWorkspaceUpdatedAt(payload.updatedAt)
   }, [])
 
+  const loadLibraryState = useCallback(async () => {
+    if (window.paxion) {
+      const loaded = await window.paxion.library.load().catch(() => null)
+      if (loaded?.ok) {
+        libraryStore.hydrate(loaded.docs)
+        setLibDocs(libraryStore.getAll())
+        setLibraryUpdatedAt(loaded.updatedAt)
+      }
+    } else {
+      try {
+        const raw = localStorage.getItem('paxion-library-state')
+        if (raw) {
+          const parsed = JSON.parse(raw) as {
+            docs?: LibraryDocument[]
+            updatedAt?: string | null
+          }
+
+          libraryStore.hydrate(Array.isArray(parsed.docs) ? parsed.docs : [])
+          setLibDocs(libraryStore.getAll())
+          setLibraryUpdatedAt(parsed.updatedAt ?? null)
+        }
+      } catch {
+        // Ignore corrupted local library state and continue with fresh state.
+      }
+    }
+
+    libraryLoadedRef.current = true
+  }, [libraryStore])
+
+  const persistLibraryState = useCallback(async (nextDocs: LibraryDocument[]) => {
+    if (window.paxion) {
+      const result = await window.paxion.library.save({ docs: nextDocs }).catch(() => null)
+      if (result?.ok && result.updatedAt) {
+        setLibraryUpdatedAt(result.updatedAt)
+      }
+      return
+    }
+
+    const payload = {
+      docs: nextDocs,
+      updatedAt: new Date().toISOString(),
+    }
+
+    localStorage.setItem('paxion-library-state', JSON.stringify(payload))
+    setLibraryUpdatedAt(payload.updatedAt)
+  }, [])
+
   // Keep admin session status fresh.
   useEffect(() => {
     if (!window.paxion) return
@@ -403,6 +748,9 @@ function App() {
     queueMicrotask(() => {
       refreshAdminStatus()
       loadCapabilities()
+      loadIntegrationStatus()
+      loadLearningState()
+      loadAutomationState()
     })
 
     const intervalId = window.setInterval(() => {
@@ -412,7 +760,15 @@ function App() {
     return () => {
       window.clearInterval(intervalId)
     }
-  }, [loadCapabilities, refreshAdminStatus])
+  }, [loadAutomationState, loadCapabilities, loadIntegrationStatus, loadLearningState, refreshAdminStatus])
+
+  useEffect(() => {
+    if (!adminUnlocked) return
+    queueMicrotask(() => {
+      loadLearningState()
+      loadAutomationState()
+    })
+  }, [adminUnlocked, loadAutomationState, loadLearningState])
 
   // Restore workspace mission state from persistence.
   useEffect(() => {
@@ -421,6 +777,13 @@ function App() {
     })
   }, [loadWorkspaceState])
 
+  // Restore library knowledge index from persistence.
+  useEffect(() => {
+    queueMicrotask(() => {
+      loadLibraryState()
+    })
+  }, [loadLibraryState])
+
   // Autosave workspace mission state after local updates are initialized.
   useEffect(() => {
     if (!workspaceLoadedRef.current) return
@@ -428,6 +791,14 @@ function App() {
       persistWorkspaceState(workspaceGoal, workspacePlan)
     })
   }, [workspaceGoal, workspacePlan, persistWorkspaceState])
+
+  // Autosave library index after initial load.
+  useEffect(() => {
+    if (!libraryLoadedRef.current) return
+    queueMicrotask(() => {
+      persistLibraryState(libDocs)
+    })
+  }, [libDocs, persistLibraryState])
 
   const selectedAction = useMemo(
     () => actionPresets.find((preset) => preset.id === selectedActionId) ?? actionPresets[0],
@@ -568,7 +939,7 @@ function App() {
       actionId: selectedAction.id,
       category: selectedAction.category,
       targetPath,
-      detail: selectedAction.detail,
+      detail: actionDetail,
     }
 
     if (window.paxion) {
@@ -660,16 +1031,74 @@ function App() {
     libraryStore.add(result.name, result.content, 'file')
     setLibDocs(libraryStore.getAll())
     setLibAddMode(false)
+
+    const newSkills = inferSkills(`${result.name}\n${result.content}`)
+    await recordLearning({
+      title: `Knowledge ingested: ${result.name}`,
+      detail:
+        newSkills.length > 0
+          ? `Acquired ${newSkills.length} skill signal(s) from book/document.`
+          : 'Learned new reference material from document ingestion.',
+      source: 'library-file',
+      newSkills,
+    })
+  }
+
+  async function handleWebSearch() {
+    if (!window.paxion) {
+      setWebSearchMessage('Web search is available only in desktop mode.')
+      return
+    }
+
+    if (!webSearchQuery.trim()) {
+      setWebSearchMessage('Enter a search query first.')
+      return
+    }
+
+    setWebSearchLoading(true)
+    setWebSearchMessage('Opening Google search in your browser...')
+
+    const result = await window.paxion.integrations
+      .googleSearch({ query: webSearchQuery.trim() })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setWebSearchLoading(false)
+      setWebSearchMessage(result?.reason ?? 'Web search failed.')
+      return
+    }
+
+    setWebSearchLoading(false)
+    setWebSearchMessage('Google opened. Review results manually, then paste approved knowledge into Library.')
+
+    await recordLearning({
+      title: `Web research launched: ${webSearchQuery.trim()}`,
+      detail: 'Opened Google in browser with admin-approved desktop relay.',
+      source: 'google-relay',
+      newSkills: ['Web Research'],
+    })
   }
 
   function handleAddByPaste() {
     if (!libPasteText.trim()) return
     setLibAddError('')
-    libraryStore.add(libPasteName || 'Pasted document', libPasteText, 'paste')
+    const title = libPasteName || 'Pasted document'
+    libraryStore.add(title, libPasteText, 'paste')
     setLibDocs(libraryStore.getAll())
     setLibAddMode(false)
     setLibPasteName('')
     setLibPasteText('')
+
+    const newSkills = inferSkills(`${title}\n${libPasteText}`)
+    void recordLearning({
+      title: `Knowledge pasted: ${title}`,
+      detail:
+        newSkills.length > 0
+          ? `Acquired ${newSkills.length} skill signal(s) from pasted knowledge.`
+          : 'Stored pasted knowledge for future reasoning.',
+      source: 'library-paste',
+      newSkills,
+    })
   }
 
   function handleRemoveDoc(id: string) {
@@ -912,10 +1341,254 @@ function App() {
     }
   }
 
+  async function createYoutubeLearningPlan() {
+    if (!window.paxion) return
+
+    const result = await window.paxion.learning
+      .youtubePlanCreate({
+        topic: videoTopic,
+        videoUrl,
+        durationMinutes: Number(videoDurationMinutes || 60),
+        segmentMinutes: Number(videoSegmentMinutes || 10),
+        parallelSlots: Number(videoParallelSlots || 3),
+        explicitPermission: videoPermission,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setVideoMessage(result?.reason ?? 'Failed to create YouTube learning plan.')
+      return
+    }
+
+    setVideoPlans(result.videoPlans)
+    setVideoMessage(
+      `Plan created: ${result.plan.topic} with ${result.plan.segments.length} segment(s).`,
+    )
+    setVideoPermission(false)
+  }
+
+  async function openYoutubeSegment(planId: string, segmentId: string) {
+    if (!window.paxion) return
+    const result = await window.paxion.learning
+      .youtubeSegmentOpen({
+        planId,
+        segmentId,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setVideoMessage(result?.reason ?? 'Failed to open segment.')
+      return
+    }
+
+    setVideoPlans(result.videoPlans)
+    setVideoMessage('Opened segment in browser.')
+  }
+
+  async function openYoutubeParallelBatch(planId: string) {
+    const plan = videoPlans.find((entry) => entry.id === planId)
+    if (!plan) return
+
+    const pending = plan.segments.filter((segment) => segment.status !== 'learned')
+    const batch = pending.slice(0, Math.max(1, plan.parallelSlots))
+    if (batch.length === 0) {
+      setVideoMessage('No pending segments left in this plan.')
+      return
+    }
+
+    for (const segment of batch) {
+      await openYoutubeSegment(planId, segment.id)
+    }
+
+    setVideoMessage(`Opened ${batch.length} segment(s) in parallel batch.`)
+  }
+
+  async function completeYoutubeSegmentLearning() {
+    if (!window.paxion) return
+    if (!videoTargetPlanId || !videoTargetSegmentId) {
+      setVideoMessage('Select plan and segment IDs for completion.')
+      return
+    }
+
+    const newSkills = inferSkills(videoSegmentSkills)
+    const manualSkills = videoSegmentSkills
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    const mergedSkills = Array.from(new Set([...newSkills, ...manualSkills]))
+
+    const result = await window.paxion.learning
+      .youtubeSegmentComplete({
+        planId: videoTargetPlanId,
+        segmentId: videoTargetSegmentId,
+        summary: videoSegmentSummary,
+        newSkills: mergedSkills,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setVideoMessage(result?.reason ?? 'Failed to complete segment learning.')
+      return
+    }
+
+    setVideoPlans(result.videoPlans)
+    setLearnedSkills(result.skills)
+    setLearningUpdatedAt(result.updatedAt)
+    await loadLearningState()
+    setVideoMessage('Segment marked as learned and logged.')
+    setVideoSegmentSummary('')
+    setVideoSegmentSkills('')
+  }
+
+  function parseAutomationSteps(input: string): AutomationStepInput[] {
+    const lines = input
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+
+    return lines.map((line) => {
+      const [rawAction, rawSelector = '', rawValue = ''] = line.split('|').map((s) => s.trim())
+      const action = (rawAction || 'click') as AutomationStepInput['action']
+      if (action === 'wait') {
+        return {
+          action,
+          waitMs: Number(rawValue || rawSelector || 500),
+        }
+      }
+
+      return {
+        action,
+        selector: rawSelector,
+        value: rawValue,
+      }
+    })
+  }
+
+  async function runAutomationAdapter() {
+    if (!window.paxion) return
+
+    const steps = parseAutomationSteps(automationStepsText)
+    const result = await window.paxion.automation
+      .runAdapter({
+        adapterId: automationAdapterId,
+        targetUrl: automationTargetUrl,
+        intent: automationIntent,
+        steps,
+        explicitPermission: automationPermission,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setAutomationMessage(result?.reason ?? 'Failed to run automation adapter.')
+      return
+    }
+
+    setExecutionRecords(result.executionRecords)
+    setAutomationTemplates(result.templates)
+    setAutomationProfiles(result.profiles)
+    setCapabilitySuggestions(result.suggestions)
+    setLearnedSkills(result.skills)
+    setLearningUpdatedAt(result.updatedAt)
+    await loadLearningState()
+    setAutomationMessage(`Adapter ${result.adapterId} executed with ${result.records.length} record(s).`)
+    setAutomationPermission(false)
+  }
+
+  async function runObserveLearnTemplate() {
+    if (!window.paxion) return
+
+    const result = await window.paxion.automation
+      .observeLearn({
+        templateId: automationTemplateId,
+        sourceKnowledge: automationSourceKnowledge,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setAutomationMessage(result?.reason ?? 'Failed to run observe+learn template.')
+      return
+    }
+
+    setExecutionRecords(result.executionRecords)
+    setAutomationTemplates(result.templates)
+    setAutomationProfiles(result.profiles)
+    setCapabilitySuggestions(result.suggestions)
+    setLearnedSkills(result.skills)
+    setLearningUpdatedAt(result.updatedAt)
+    await loadLearningState()
+    setAutomationMessage(
+      `Template ${result.template.name} executed with ${result.records.length} observation record(s).`,
+    )
+  }
+
+  function applyAutomationProfile(profileId: string) {
+    const profile = automationProfiles.find((entry) => entry.id === profileId)
+    if (!profile) {
+      setAutomationMessage('Automation profile not found.')
+      return
+    }
+
+    setAutomationAdapterId(profile.adapterId)
+    setAutomationTargetUrl(profile.targetUrl)
+    setAutomationIntent(profile.intent)
+    setAutomationStepsText(profile.stepTemplate.join('\n'))
+    setAutomationMessage(`Loaded profile: ${profile.name}`)
+  }
+
+  async function replayExecutionRecord() {
+    if (!window.paxion) return
+    const id = replayRecordId.trim()
+    if (!id) {
+      setAutomationMessage('Enter execution record ID to replay.')
+      return
+    }
+
+    const result = await window.paxion.automation
+      .replayRecord({
+        recordId: id,
+        explicitPermission: replayPermission,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setAutomationMessage(result?.reason ?? 'Failed to replay execution record.')
+      return
+    }
+
+    setExecutionRecords(result.executionRecords)
+    setCapabilitySuggestions(result.suggestions)
+    setLearningUpdatedAt(result.updatedAt)
+    await loadLearningState()
+    setAutomationMessage(`Replay completed for record: ${id}`)
+    setReplayPermission(false)
+  }
+
   // ── Chat tab handlers ──
 
-  // Chat runs entirely local — no external API. PaxionBrain answers from Library knowledge.
-  function sendChatMessage() {
+  async function openDesktopChatRelay(query: string): Promise<boolean> {
+    if (!window.paxion) return false
+    const result = await window.paxion.integrations
+      .gptChat({
+        query,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setChatNotice(result?.reason ?? 'Desktop relay failed.')
+      return false
+    }
+
+    setChatNotice('ChatGPT opened in browser. Submit your prompt there and paste response back here.')
+    await recordLearning({
+      title: 'Desktop ChatGPT relay opened',
+      detail: 'Opened ChatGPT in browser using explicit capability and admin session.',
+      source: 'chatgpt-relay',
+      newSkills: ['AI Prompt Engineering'],
+    })
+    return true
+  }
+
+  async function sendChatMessage() {
     const text = chatInput.trim()
     if (!text || chatLoading) return
 
@@ -931,24 +1604,77 @@ function App() {
     setChatInput('')
     setChatLoading(true)
 
-    // Small deliberate delay so the typing indicator shows — feels alive.
-    const thinkMs = 500 + Math.random() * 600
-    setTimeout(() => {
-      const response = brain.think(text, libDocs)
+    const localResponse = brain.think(text, libDocs)
+    let finalReply = localResponse.reply
+    const finalContextDocs = localResponse.contextDocs
+    let finalReasoning = localResponse.reasoningSteps
+    const finalConfidence = localResponse.confidence
+
+    if (chatMode === 'desktop-relay') {
+      if (!capabilities.chatExternalModel) {
+        setChatNotice('Desktop ChatGPT relay is disabled in Access tab. Using local mode.')
+      } else {
+        const opened = await openDesktopChatRelay(text)
+        if (opened) {
+          finalReply = [
+            'Desktop ChatGPT relay launched.',
+            'I opened ChatGPT in your browser using your permission.',
+            'Submit the same prompt there and paste the answer here if you want me to store/summarize it.',
+            '',
+            'Local quick answer while you relay:',
+            localResponse.reply,
+          ].join('\n')
+          finalReasoning = [
+            ...localResponse.reasoningSteps,
+            'Desktop relay mode used: no API call, browser opened for manual human-style interaction.',
+          ]
+        }
+      }
+    }
+
+    const thinkMs = 250 + Math.random() * 350
+    window.setTimeout(() => {
       setChatMessages((prev) => [
         ...prev,
         {
           id: `msg-${Date.now()}-a`,
           role: 'assistant',
-          content: response.reply,
+          content: finalReply,
           timestamp: new Date().toISOString(),
-          contextDocs: response.contextDocs,
-          reasoningSteps: response.reasoningSteps,
-          confidence: response.confidence,
+          contextDocs: finalContextDocs,
+          reasoningSteps: finalReasoning,
+          confidence: finalConfidence,
         },
       ])
       setChatLoading(false)
     }, thinkMs)
+  }
+
+  async function ingestRelayCapture() {
+    const text = relayCaptureText.trim()
+    if (!text) {
+      setChatNotice('Paste relay output first.')
+      return
+    }
+
+    const title = relayCaptureTitle.trim() || 'Relay capture'
+    libraryStore.add(`Relay: ${title}`, text, 'paste')
+    setLibDocs(libraryStore.getAll())
+
+    const newSkills = inferSkills(`${title}\n${text}`)
+    await recordLearning({
+      title: `Relay knowledge captured: ${title}`,
+      detail:
+        newSkills.length > 0
+          ? `Acquired ${newSkills.length} skill signal(s) from relay capture.`
+          : 'Stored relay output as new knowledge.',
+      source: 'relay-capture',
+      newSkills,
+    })
+
+    setRelayCaptureTitle('')
+    setRelayCaptureText('')
+    setChatNotice('Relay output saved to Library and learning timeline.')
   }
 
   function renderTabBody() {
@@ -974,6 +1700,14 @@ function App() {
           </div>
 
           <div className="chat-voice-row">
+            <select
+              className="chat-mode-select"
+              value={chatMode}
+              onChange={(event) => setChatMode(event.target.value as ChatMode)}
+            >
+              <option value="local">Local Brain</option>
+              <option value="desktop-relay">Desktop ChatGPT Relay (No API)</option>
+            </select>
             <button className="run-button" onClick={toggleChatVoiceOutput}>
               Voice Output: {chatVoiceEnabled && capabilities.voiceOutput ? 'ON' : 'OFF'}
             </button>
@@ -1049,7 +1783,7 @@ function App() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
-                  sendChatMessage()
+                  void sendChatMessage()
                 }
               }}
               placeholder="Ask Paxion anything… (Enter to send, Shift+Enter newline)"
@@ -1059,7 +1793,9 @@ function App() {
             <div className="chat-input-actions">
               <button
                 className="run-button"
-                onClick={sendChatMessage}
+                onClick={() => {
+                  void sendChatMessage()
+                }}
                 disabled={chatLoading || !chatInput.trim()}
               >
                 Send
@@ -1070,6 +1806,30 @@ function App() {
                 </button>
               )}
             </div>
+          </div>
+
+          <div className="lib-add-panel">
+            <div className="control-group">
+              <label>Relay capture title</label>
+              <input
+                value={relayCaptureTitle}
+                onChange={(event) => setRelayCaptureTitle(event.target.value)}
+                placeholder="Example: ChatGPT solution for workspace task"
+              />
+            </div>
+            <div className="control-group">
+              <label>Paste ChatGPT/Google output</label>
+              <textarea
+                className="lib-paste-area"
+                value={relayCaptureText}
+                onChange={(event) => setRelayCaptureText(event.target.value)}
+                rows={5}
+                placeholder="Paste approved output here, then store as knowledge"
+              />
+            </div>
+            <button className="run-button" onClick={() => void ingestRelayCapture()}>
+              Save Relay Knowledge
+            </button>
           </div>
         </div>
       )
@@ -1084,9 +1844,41 @@ function App() {
               d.content.toLowerCase().includes(libSearch.toLowerCase()),
           )
         : libDocs
+      const totalWords = libDocs.reduce((acc, doc) => acc + doc.wordCount, 0)
+      const estimatedChunks = Math.max(1, Math.ceil(totalWords / 130))
+      const rank = rankFromDocs(libDocs.length)
 
       return (
         <div className="tab-content-stack">
+          <div className="decision-card">
+            <strong>Knowledge Core</strong>
+            <p>
+              Rank: {rank} | {libDocs.length} docs | {totalWords.toLocaleString()} words |{' '}
+              {estimatedChunks.toLocaleString()} indexed chunks
+            </p>
+            <p className="muted">
+              {libraryUpdatedAt
+                ? `Last sync: ${libraryUpdatedAt}`
+                : 'No persistence snapshot yet.'}
+            </p>
+          </div>
+
+          <div className="lib-web-panel">
+            <strong>Approved Web Search (Google)</strong>
+            <div className="lib-web-row">
+              <input
+                className="lib-search"
+                value={webSearchQuery}
+                onChange={(event) => setWebSearchQuery(event.target.value)}
+                placeholder="Open Google search in browser (manual, permission-based)"
+              />
+              <button className="run-button" onClick={handleWebSearch} disabled={webSearchLoading}>
+                {webSearchLoading ? 'Opening...' : 'Open Google'}
+              </button>
+            </div>
+            {webSearchMessage && <p className="muted">{webSearchMessage}</p>}
+          </div>
+
           <div className="lib-toolbar">
             <input
               className="lib-search"
@@ -1228,6 +2020,19 @@ function App() {
             {accessMessage && <p className="muted">{accessMessage}</p>}
           </div>
 
+          <div className="decision-card">
+            <strong>External Integrations</strong>
+            <p>
+              Mode: {integrationStatus.desktopRelay ? 'Desktop Relay (No API)' : 'Unavailable'} |
+              Google Relay: {integrationStatus.googleReady ? 'Ready' : 'Off'} | ChatGPT Relay:{' '}
+              {integrationStatus.gptReady ? 'Ready' : 'Off'}
+            </p>
+            <p className="muted">
+              No API keys. Paxion opens your desktop browser for ChatGPT and Google only after
+              your permission through Access capabilities and active admin session.
+            </p>
+          </div>
+
           <div className="control-group">
             <label htmlFor="action-preset">Action preset</label>
             <select
@@ -1239,6 +2044,7 @@ function App() {
                 const next = actionPresets.find((item) => item.id === nextId)
                 if (next) {
                   setTargetPath(next.targetPath)
+                  setActionDetail(next.detail)
                 }
               }}
             >
@@ -1257,6 +2063,16 @@ function App() {
               value={targetPath}
               onChange={(event) => setTargetPath(event.target.value)}
               placeholder="/workspace/project/file.ts"
+            />
+          </div>
+
+          <div className="control-group">
+            <label htmlFor="action-detail">Action detail</label>
+            <input
+              id="action-detail"
+              value={actionDetail}
+              onChange={(event) => setActionDetail(event.target.value)}
+              placeholder="Example: command=npm run build"
             />
           </div>
 
@@ -1344,6 +2160,33 @@ function App() {
                 ))
             )}
           </div>
+
+          <div className="decision-card">
+            <strong>Learning Timeline (Simple)</strong>
+            <p>
+              Skills learned: {learnedSkills.length}
+              {learningUpdatedAt ? ` | Updated: ${new Date(learningUpdatedAt).toLocaleString()}` : ''}
+            </p>
+            {learningLogs.length === 0 ? (
+              <p className="muted">No learning events yet. Ingest books or relay captures to grow skills.</p>
+            ) : (
+              <div className="learning-log-list">
+                {[...learningLogs]
+                  .reverse()
+                  .slice(0, 12)
+                  .map((entry) => (
+                    <article className="learning-log-item" key={entry.id}>
+                      <strong>{entry.title}</strong>
+                      <p className="muted">{entry.detail}</p>
+                      {entry.newSkills.length > 0 ? (
+                        <p className="muted">New skills: {entry.newSkills.join(', ')}</p>
+                      ) : null}
+                      <p className="muted">{new Date(entry.timestamp).toLocaleString()}</p>
+                    </article>
+                  ))}
+              </div>
+            )}
+          </div>
         </div>
       )
     }
@@ -1351,6 +2194,388 @@ function App() {
     if (activeTab === 'workspace') {
       return (
         <div className="tab-content-stack">
+          <div className="decision-card">
+            <strong>Skill Growth Board</strong>
+            <p>
+              Current unlocked skills: {learnedSkills.length}. Paxion grows by books, web research,
+              and relay captures.
+            </p>
+            {learnedSkills.length > 0 ? (
+              <p className="muted">{learnedSkills.slice(0, 10).join(' | ')}</p>
+            ) : (
+              <p className="muted">No skills unlocked yet. Add knowledge to start growth.</p>
+            )}
+          </div>
+
+          <div className="decision-card">
+            <strong>YouTube Learning Planner</strong>
+            <p>
+              Create segmented video learning plans with any chunk length (2 min, 5 min, 10 min,
+              or custom) and open multiple segments in parallel workspaces.
+            </p>
+            <div className="control-group">
+              <label htmlFor="yt-topic">Topic</label>
+              <input
+                id="yt-topic"
+                value={videoTopic}
+                onChange={(event) => setVideoTopic(event.target.value)}
+                placeholder="Example: Python and C language core concepts"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="yt-url">YouTube URL</label>
+              <input
+                id="yt-url"
+                value={videoUrl}
+                onChange={(event) => setVideoUrl(event.target.value)}
+                placeholder="https://www.youtube.com/watch?v=..."
+              />
+            </div>
+            <div className="workspace-actions">
+              <div className="control-group">
+                <label htmlFor="yt-duration">Duration (min)</label>
+                <input
+                  id="yt-duration"
+                  value={videoDurationMinutes}
+                  onChange={(event) => setVideoDurationMinutes(event.target.value)}
+                />
+              </div>
+              <div className="control-group">
+                <label htmlFor="yt-segment">Segment (min)</label>
+                <input
+                  id="yt-segment"
+                  value={videoSegmentMinutes}
+                  onChange={(event) => setVideoSegmentMinutes(event.target.value)}
+                  placeholder="Any value like 2, 5, 10"
+                />
+              </div>
+              <div className="control-group">
+                <label htmlFor="yt-parallel">Parallel slots</label>
+                <input
+                  id="yt-parallel"
+                  value={videoParallelSlots}
+                  onChange={(event) => setVideoParallelSlots(event.target.value)}
+                />
+              </div>
+            </div>
+            <label className="muted">
+              <input
+                type="checkbox"
+                checked={videoPermission}
+                onChange={(event) => setVideoPermission(event.target.checked)}
+              />{' '}
+              I give explicit permission to launch YouTube learning segments.
+            </label>
+            <div className="workspace-actions">
+              <button className="run-button" onClick={() => void createYoutubeLearningPlan()}>
+                Create Video Plan
+              </button>
+              <button
+                className="run-button"
+                onClick={() => {
+                  const latest = videoPlans.at(-1)
+                  if (!latest) {
+                    setVideoMessage('No video plan available for batch open.')
+                    return
+                  }
+                  void openYoutubeParallelBatch(latest.id)
+                }}
+              >
+                Open Latest Plan Batch
+              </button>
+            </div>
+            {videoMessage && <p className="muted">{videoMessage}</p>}
+
+            {videoPlans.length > 0 && (
+              <div className="learning-log-list">
+                {[...videoPlans]
+                  .reverse()
+                  .slice(0, 4)
+                  .map((plan) => (
+                    <article className="learning-log-item" key={plan.id}>
+                      <strong>{plan.topic}</strong>
+                      <p className="muted">
+                        Segments: {plan.segments.length} | chunk: {plan.segmentMinutes} min |
+                        parallel: {plan.parallelSlots}
+                      </p>
+                      <div className="workspace-step-actions">
+                        <button
+                          className="run-button"
+                          onClick={() => {
+                            void openYoutubeParallelBatch(plan.id)
+                          }}
+                        >
+                          Open Parallel Batch
+                        </button>
+                      </div>
+                      <div className="learning-log-list">
+                        {plan.segments.slice(0, 8).map((segment) => (
+                          <article className="learning-log-item" key={segment.id}>
+                            <strong>{segment.label}</strong>
+                            <p className="muted">Status: {segment.status}</p>
+                            <div className="workspace-step-actions">
+                              <button
+                                className="run-button"
+                                onClick={() => {
+                                  void openYoutubeSegment(plan.id, segment.id)
+                                }}
+                              >
+                                Open
+                              </button>
+                              <button
+                                className="run-button"
+                                onClick={() => {
+                                  setVideoTargetPlanId(plan.id)
+                                  setVideoTargetSegmentId(segment.id)
+                                }}
+                              >
+                                Mark Learned
+                              </button>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    </article>
+                  ))}
+              </div>
+            )}
+
+            <div className="control-group">
+              <label htmlFor="yt-plan-id">Completion plan ID</label>
+              <input
+                id="yt-plan-id"
+                value={videoTargetPlanId}
+                onChange={(event) => setVideoTargetPlanId(event.target.value)}
+                placeholder="Plan ID"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="yt-segment-id">Completion segment ID</label>
+              <input
+                id="yt-segment-id"
+                value={videoTargetSegmentId}
+                onChange={(event) => setVideoTargetSegmentId(event.target.value)}
+                placeholder="Segment ID"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="yt-summary">What was learned</label>
+              <textarea
+                id="yt-summary"
+                className="lib-paste-area"
+                value={videoSegmentSummary}
+                onChange={(event) => setVideoSegmentSummary(event.target.value)}
+                rows={3}
+                placeholder="Simple summary of what Paxion learned from this segment"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="yt-skills">New skills (comma separated)</label>
+              <input
+                id="yt-skills"
+                value={videoSegmentSkills}
+                onChange={(event) => setVideoSegmentSkills(event.target.value)}
+                placeholder="Python Basics, C Language Syntax"
+              />
+            </div>
+            <button className="run-button" onClick={() => void completeYoutubeSegmentLearning()}>
+              Save Segment Learning
+            </button>
+          </div>
+
+          <div className="decision-card">
+            <strong>Task-Specific UI Automation</strong>
+            <p>
+              Run strict allowlisted browser automation adapters (form fill and click flow) with
+              explicit permission.
+            </p>
+            <div className="control-group">
+              <label htmlFor="automation-profile">Profile (real app templates)</label>
+              <select
+                id="automation-profile"
+                value=""
+                onChange={(event) => {
+                  const id = event.target.value
+                  if (id) {
+                    applyAutomationProfile(id)
+                  }
+                }}
+              >
+                <option value="">Select profile...</option>
+                {automationProfiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.name} ({profile.appType})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="control-group">
+              <label htmlFor="automation-adapter">Adapter</label>
+              <select
+                id="automation-adapter"
+                value={automationAdapterId}
+                onChange={(event) =>
+                  setAutomationAdapterId(
+                    event.target.value as 'browser.formFill.basic' | 'browser.clickFlow.basic',
+                  )
+                }
+              >
+                <option value="browser.formFill.basic">browser.formFill.basic</option>
+                <option value="browser.clickFlow.basic">browser.clickFlow.basic</option>
+              </select>
+            </div>
+            <div className="control-group">
+              <label htmlFor="automation-url">Target URL</label>
+              <input
+                id="automation-url"
+                value={automationTargetUrl}
+                onChange={(event) => setAutomationTargetUrl(event.target.value)}
+                placeholder="https://example.com/form"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="automation-intent">Intent</label>
+              <input
+                id="automation-intent"
+                value={automationIntent}
+                onChange={(event) => setAutomationIntent(event.target.value)}
+                placeholder="Submit signup form for approved account flow"
+              />
+            </div>
+            <div className="control-group">
+              <label htmlFor="automation-steps">Steps (action|selector|value)</label>
+              <textarea
+                id="automation-steps"
+                className="lib-paste-area"
+                value={automationStepsText}
+                onChange={(event) => setAutomationStepsText(event.target.value)}
+                rows={5}
+                placeholder={[
+                  'fill|#email|chief@paxion.ai',
+                  'fill|#password|********',
+                  'click|button[type="submit"]',
+                  'wait||1000',
+                ].join('\n')}
+              />
+            </div>
+            <label className="muted">
+              <input
+                type="checkbox"
+                checked={automationPermission}
+                onChange={(event) => setAutomationPermission(event.target.checked)}
+              />{' '}
+              I give explicit permission for this automation run.
+            </label>
+            <div className="workspace-actions">
+              <button className="run-button" onClick={() => void runAutomationAdapter()}>
+                Run Adapter
+              </button>
+            </div>
+            {capabilitySuggestions.length > 0 && (
+              <div className="learning-log-list">
+                {capabilitySuggestions.slice(0, 6).map((suggestion) => (
+                  <article className="learning-log-item" key={suggestion.capability}>
+                    <strong>Capability suggestion: {suggestion.capability}</strong>
+                    <p className="muted">{suggestion.reason}</p>
+                    <p className="muted">{suggestion.recommendedAction}</p>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="decision-card">
+            <strong>Observe + Learn Templates</strong>
+            <p>
+              Apply workflow templates for code editor, CMS, and design tools using your provided
+              knowledge source.
+            </p>
+            <div className="control-group">
+              <label htmlFor="observe-template">Template</label>
+              <select
+                id="observe-template"
+                value={automationTemplateId}
+                onChange={(event) => setAutomationTemplateId(event.target.value)}
+              >
+                {automationTemplates.length === 0 ? (
+                  <option value="">No templates loaded</option>
+                ) : (
+                  automationTemplates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+            <div className="control-group">
+              <label htmlFor="observe-source">Source knowledge</label>
+              <textarea
+                id="observe-source"
+                className="lib-paste-area"
+                value={automationSourceKnowledge}
+                onChange={(event) => setAutomationSourceKnowledge(event.target.value)}
+                rows={4}
+                placeholder="Example: Notes from Python + C lessons, CMS publishing guide, design heuristics"
+              />
+            </div>
+            <button className="run-button" onClick={() => void runObserveLearnTemplate()}>
+              Run Observe + Learn
+            </button>
+          </div>
+
+          <div className="decision-card">
+            <strong>Execution Recorder</strong>
+            <p>
+              Logs intended step, performed step, result, and new skill gained in simple language.
+            </p>
+            <div className="control-group">
+              <label htmlFor="replay-record-id">Replay record ID</label>
+              <input
+                id="replay-record-id"
+                value={replayRecordId}
+                onChange={(event) => setReplayRecordId(event.target.value)}
+                placeholder="exec-..."
+              />
+            </div>
+            <label className="muted">
+              <input
+                type="checkbox"
+                checked={replayPermission}
+                onChange={(event) => setReplayPermission(event.target.checked)}
+              />{' '}
+              I give explicit permission to replay this record.
+            </label>
+            <div className="workspace-actions">
+              <button className="run-button" onClick={() => void replayExecutionRecord()}>
+                Replay Record
+              </button>
+            </div>
+            {executionRecords.length === 0 ? (
+              <p className="muted">No execution records yet. Run adapter or template to populate.</p>
+            ) : (
+              <div className="learning-log-list">
+                {[...executionRecords]
+                  .reverse()
+                  .slice(0, 15)
+                  .map((record) => (
+                    <article className="learning-log-item" key={record.id}>
+                      <strong>{record.simpleLog}</strong>
+                      <p className="muted">Intended: {record.intendedStep}</p>
+                      <p className="muted">Performed: {record.performedStep}</p>
+                      <p className="muted">Result: {record.result}</p>
+                      {record.newSkills.length > 0 ? (
+                        <p className="muted">New skill gained: {record.newSkills.join(', ')}</p>
+                      ) : (
+                        <p className="muted">New skill gained: none</p>
+                      )}
+                    </article>
+                  ))}
+              </div>
+            )}
+            {automationMessage && <p className="muted">{automationMessage}</p>}
+          </div>
+
           <div className="control-group">
             <label htmlFor="workspace-goal">Mission goal</label>
             <input
@@ -1539,7 +2764,7 @@ function App() {
       <footer className="footer">
         <span>Profile: Paro the Chief</span>
         <span>Mode: Policy-Enforced Build</span>
-        <span>Version: v0.7.0-access-voice</span>
+        <span>Version: v0.13.0-profiles-replay-suggest</span>
       </footer>
     </div>
   )

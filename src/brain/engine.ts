@@ -57,26 +57,74 @@ function scoreDoc(keywords: string[], doc: LibraryDocument): number {
   return score
 }
 
-// Extract the sentences from a document most relevant to the query.
-function extractPassages(query: string, content: string, maxPassages = 5): string[] {
+type DocChunk = {
+  text: string
+  startWord: number
+}
+
+function buildChunks(content: string, wordsPerChunk = 130, overlap = 28): DocChunk[] {
+  const words = content
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+
+  if (words.length === 0) {
+    return []
+  }
+
+  const chunks: DocChunk[] = []
+  const step = Math.max(20, wordsPerChunk - overlap)
+  for (let i = 0; i < words.length; i += step) {
+    const text = words.slice(i, i + wordsPerChunk).join(' ').trim()
+    if (text.length >= 80) {
+      chunks.push({ text, startWord: i + 1 })
+    }
+    if (i + wordsPerChunk >= words.length) {
+      break
+    }
+  }
+
+  return chunks
+}
+
+function scoreChunk(keywords: string[], chunkText: string): number {
+  if (keywords.length === 0) return 0
+  const low = chunkText.toLowerCase()
+  let score = 0
+
+  for (const kw of keywords) {
+    if (low.includes(kw)) {
+      score += 2
+    }
+
+    let idx = 0
+    let count = 0
+    while ((idx = low.indexOf(kw, idx)) !== -1 && count < 6) {
+      count += 1
+      idx += kw.length
+    }
+    score += count
+  }
+
+  return score
+}
+
+function extractPassages(query: string, content: string, maxPassages = 4): string[] {
   const keywords = extractKeywords(query)
+  const chunks = buildChunks(content)
 
-  // Split on sentence terminators and paragraph breaks.
-  const sentences = content
-    .split(/(?<=[.!?])\s+|\n{2,}/)
-    .map((s) => s.replace(/\s+/g, ' ').trim())
-    .filter((s) => s.length > 30)
-
-  const scored = sentences
-    .map((text) => {
-      const low = text.toLowerCase()
-      const score = keywords.reduce((acc, kw) => acc + (low.includes(kw) ? 1 : 0), 0)
-      return { text, score }
-    })
-    .filter((s) => s.score > 0)
+  const scored = chunks
+    .map((chunk) => ({
+      chunk,
+      score: scoreChunk(keywords, chunk.text),
+    }))
+    .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score)
 
-  return scored.slice(0, maxPassages).map((s) => s.text)
+  return scored
+    .slice(0, maxPassages)
+    .map((item) => `[chunk @ word ${item.chunk.startWord}] ${item.chunk.text}`)
 }
 
 function totalWords(library: LibraryDocument[]): number {
@@ -180,11 +228,18 @@ export class PaxionBrain {
     )
 
     const allPassages: string[] = []
+    let chunkCount = 0
     for (const { doc } of topDocs) {
+      const docChunks = buildChunks(doc.content)
+      chunkCount += docChunks.length
       const passages = extractPassages(q, doc.content)
       allPassages.push(...passages)
-      steps.push(`Extracted ${passages.length} passage(s) from "${doc.name}"`)
+      steps.push(
+        `Indexed ${docChunks.length} chunk(s), extracted ${passages.length} from "${doc.name}"`,
+      )
     }
+
+    steps.push(`Chunk scan complete across ${chunkCount} chunk(s).`)
 
     if (allPassages.length === 0) {
       steps.push('Documents were matched but no relevant passages could be isolated.')

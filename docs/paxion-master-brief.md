@@ -58,6 +58,44 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Chat includes local voice input/output controls (no external API dependency).
 - Voice features respect Access capability toggles.
 
+## Knowledge growth baseline
+- Library ingestion is now persisted locally so learned documents survive restarts.
+- Brain retrieval now scans ranked text chunks across top-matched documents for better recall.
+- Library tab shows growth telemetry (docs, words, chunk index estimate, last sync).
+- Capability growth is tied directly to owner-provided books/documents.
+
+## Optional external connectors
+- No API connector mode: ChatGPT and Google access run through desktop browser relay only.
+- Paxion opens ChatGPT/Google pages with explicit permission and active admin session.
+- User performs the same human flow (read/search/chat), then pastes approved knowledge back into Library/Chat.
+- Local mode remains primary and always available.
+
+## Skill growth and evolution baseline
+- Paxion tracks learned skills from documents, relay captures, and research actions.
+- Learning timeline is logged in simple language (example: acquired skill, learned from source).
+- Growth capabilities are admin-gated (workspace tooling, VS Code bridge, media generation, self-evolution).
+- Self-evolution currently creates controlled capability proposals/artifacts under approved workspace paths.
+
+## Video learning baseline
+- YouTube learning is permission-gated and admin-session gated.
+- Paxion can split a recommended video into configurable segments (for example 2, 5, 10 minutes, or custom).
+- Workspace can open segment batches in parallel slots for faster supervised study flow.
+- Each segment can be marked learned with simple summary + skill tags, then stored in learning logs.
+
+## App automation baseline
+- Desktop app and web app automation are capability-gated and admin controlled.
+- Current implementation generates deterministic automation playbooks and launch relays with full logs.
+- Purpose is command-driven execution on user's behalf with explicit permission and traceability.
+
+## Automation adapters and recorder baseline
+- Task-specific UI automation adapters are implemented with strict step allowlists.
+- Current adapters include supervised browser form fill and click-flow execution.
+- Observe+Learn templates exist for code editor, CMS, and design app workflows.
+- Execution recorder captures intended step, performed step, result, and new skill gained in simple language.
+- Adapter profiles now include real target workflows (example CMS update, design export flow, PR review prep).
+- Recorder replay mode is available with explicit permission and admin session.
+- Skill-to-capability suggestion engine recommends next capability unlocks based on learned skills.
+
 ## Out of scope for v1
 - Unrestricted autonomous operations.
 - Unrestricted web crawling.

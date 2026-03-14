@@ -25,6 +25,25 @@ contextBridge.exposeInMainWorld('paxion', {
     load: () => ipcRenderer.invoke('paxion:access:load'),
     set: (input) => ipcRenderer.invoke('paxion:access:set', input),
   },
+  integrations: {
+    getStatus: () => ipcRenderer.invoke('paxion:integrations:getStatus'),
+    googleSearch: (input) => ipcRenderer.invoke('paxion:integrations:googleSearch', input),
+    gptChat: (input) => ipcRenderer.invoke('paxion:integrations:gptChat', input),
+  },
+  learning: {
+    load: () => ipcRenderer.invoke('paxion:learning:load'),
+    record: (input) => ipcRenderer.invoke('paxion:learning:record', input),
+    youtubePlanCreate: (input) => ipcRenderer.invoke('paxion:learning:youtubePlanCreate', input),
+    youtubeSegmentOpen: (input) => ipcRenderer.invoke('paxion:learning:youtubeSegmentOpen', input),
+    youtubeSegmentComplete: (input) => ipcRenderer.invoke('paxion:learning:youtubeSegmentComplete', input),
+  },
+  automation: {
+    load: () => ipcRenderer.invoke('paxion:automation:load'),
+    runAdapter: (input) => ipcRenderer.invoke('paxion:automation:runAdapter', input),
+    observeLearn: (input) => ipcRenderer.invoke('paxion:automation:observeLearn', input),
+    replayRecord: (input) => ipcRenderer.invoke('paxion:automation:replayRecord', input),
+    suggestions: () => ipcRenderer.invoke('paxion:automation:suggestions'),
+  },
   workspace: {
     load: () => ipcRenderer.invoke('paxion:workspace:load'),
     save: (input) => ipcRenderer.invoke('paxion:workspace:save', input),
@@ -32,5 +51,8 @@ contextBridge.exposeInMainWorld('paxion', {
   },
   library: {
     pickFile: () => ipcRenderer.invoke('paxion:library:pickFile'),
+    load: () => ipcRenderer.invoke('paxion:library:load'),
+    save: (input) => ipcRenderer.invoke('paxion:library:save', input),
+    clear: () => ipcRenderer.invoke('paxion:library:clear'),
   },
 })
