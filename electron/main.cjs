@@ -1,5 +1,6 @@
 const { app, BrowserWindow } = require('electron')
 const path = require('path')
+const { registerIpcHandlers } = require('./ipc-handlers.cjs')
 
 const devServerUrl = process.env.PAXION_DEV_SERVER_URL
 
@@ -15,8 +16,11 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      preload: path.join(__dirname, 'preload.cjs'),
     },
   })
+
+  registerIpcHandlers(mainWindow)
 
   if (devServerUrl) {
     mainWindow.loadURL(devServerUrl)

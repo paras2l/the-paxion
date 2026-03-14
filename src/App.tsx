@@ -1,5 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './App.css'
+import { LibraryStore } from './library/libraryStore'
+import type { LibraryDocument } from './library/types'
 import { ApprovalStore } from './security/approvals'
 import { AuditLedger } from './security/audit'
 import {
@@ -8,7 +10,7 @@ import {
   getImmutablePolicySummary,
   verifyAdminCodeword,
 } from './security/policy'
-import type { ActionCategory, ActionRequest, AuditEntry } from './security/types'
+import type { ActionCategory, ActionRequest, AuditEntry, AuditEventType } from './security/types'
 
 type TabId = 'chat' | 'library' | 'logs' | 'workspace' | 'access'
 
@@ -93,6 +95,16 @@ function App() {
   const [lastDecision, setLastDecision] = useState<string>('No action evaluated yet.')
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([])
 
+  // Library state
+  const libraryStore = useMemo(() => new LibraryStore(), [])
+  const [libDocs, setLibDocs] = useState<LibraryDocument[]>([])
+  const [libSearch, setLibSearch] = useState('')
+  const [libSelectedId, setLibSelectedId] = useState<string | null>(null)
+  const [libAddMode, setLibAddMode] = useState(false)
+  const [libPasteName, setLibPasteName] = useState('')
+  const [libPasteText, setLibPasteText] = useState('')
+  const [libAddError, setLibAddError] = useState('')
+
   const activeTabMeta = useMemo(
     () => tabs.find((tab) => tab.id === activeTab) ?? tabs[0],
     [activeTab],
@@ -100,6 +112,20 @@ function App() {
 
   const approvalStore = useMemo(() => new ApprovalStore(), [])
   const auditLedger = useMemo(() => new AuditLedger(), [])
+
+  // Restore persisted audit log from disk when running inside Electron.
+  useEffect(() => {
+    if (!window.paxion) return
+    window.paxion.audit
+      .load()
+      .then((entries) => {
+        if (entries.length > 0) {
+          auditLedger.loadExternal(entries)
+          setAuditEntries(auditLedger.getAll())
+        }
+      })
+      .catch(() => undefined)
+  }, [auditLedger])
 
   const selectedAction = useMemo(
     () => actionPresets.find((preset) => preset.id === selectedActionId) ?? actionPresets[0],
@@ -110,6 +136,14 @@ function App() {
     setAuditEntries(auditLedger.getAll())
   }
 
+  // Append an entry to the in-memory ledger and persist it via IPC when in Electron.
+  async function appendAudit(type: AuditEventType, payload: Record<string, unknown>) {
+    const entry = await auditLedger.append(type, payload)
+    if (window.paxion) {
+      await window.paxion.audit.append(entry).catch(() => undefined)
+    }
+  }
+
   async function runPolicyEvaluation() {
     const request: ActionRequest = {
       actionId: selectedAction.id,
@@ -118,14 +152,15 @@ function App() {
       detail: selectedAction.detail,
     }
 
-    const baseDecision = evaluateActionPolicy(request)
-    await auditLedger.append('policy_check', {
-      request,
-      decision: baseDecision,
-    })
+    // Use main-process enforcement when available; fall back to renderer module.
+    const baseDecision = window.paxion
+      ? await window.paxion.policy.evaluate(request)
+      : evaluateActionPolicy(request)
+
+    await appendAudit('policy_check', { request, decision: baseDecision })
 
     if (!baseDecision.allowed && !baseDecision.requiresApproval) {
-      await auditLedger.append('action_result', {
+      await appendAudit('action_result', {
         actionId: request.actionId,
         status: 'denied',
         reason: baseDecision.reason,
@@ -142,7 +177,7 @@ function App() {
           adminVerified: false,
           approvalGranted: false,
         })
-        await auditLedger.append('action_result', {
+        await appendAudit('action_result', {
           actionId: request.actionId,
           status: 'denied',
           reason: deniedDecision.reason,
@@ -153,14 +188,14 @@ function App() {
       }
 
       const ticket = approvalStore.issue(request.actionId)
-      await auditLedger.append('approval_issue', {
+      await appendAudit('approval_issue', {
         actionId: request.actionId,
         ticketId: ticket.id,
         expiresAt: new Date(ticket.expiresAt).toISOString(),
       })
 
       const approvalGranted = approvalStore.consume(ticket.id, request.actionId)
-      await auditLedger.append('approval_use', {
+      await appendAudit('approval_use', {
         actionId: request.actionId,
         ticketId: ticket.id,
         approvalGranted,
@@ -171,7 +206,7 @@ function App() {
         approvalGranted,
       })
 
-      await auditLedger.append('action_result', {
+      await appendAudit('action_result', {
         actionId: request.actionId,
         status: finalDecision.allowed ? 'allowed' : 'denied',
         reason: finalDecision.reason,
@@ -182,7 +217,7 @@ function App() {
       return
     }
 
-    await auditLedger.append('action_result', {
+    await appendAudit('action_result', {
       actionId: request.actionId,
       status: 'allowed',
       reason: baseDecision.reason,
@@ -191,7 +226,143 @@ function App() {
     setLastDecision(`Allowed: ${baseDecision.reason}`)
   }
 
+  // ── Library tab handlers ──
+
+  async function handleAddByFile() {
+    if (!window.paxion) return
+    setLibAddError('')
+    const result = await window.paxion.library.pickFile()
+    if (!result) return
+    if ('error' in result) {
+      setLibAddError(result.error)
+      return
+    }
+    libraryStore.add(result.name, result.content, 'file')
+    setLibDocs(libraryStore.getAll())
+    setLibAddMode(false)
+  }
+
+  function handleAddByPaste() {
+    if (!libPasteText.trim()) return
+    setLibAddError('')
+    libraryStore.add(libPasteName || 'Pasted document', libPasteText, 'paste')
+    setLibDocs(libraryStore.getAll())
+    setLibAddMode(false)
+    setLibPasteName('')
+    setLibPasteText('')
+  }
+
+  function handleRemoveDoc(id: string) {
+    libraryStore.remove(id)
+    if (libSelectedId === id) setLibSelectedId(null)
+    setLibDocs(libraryStore.getAll())
+  }
+
   function renderTabBody() {
+    if (activeTab === 'library') {
+      const selectedDoc = libDocs.find((d) => d.id === libSelectedId) ?? null
+      const displayDocs = libSearch.trim()
+        ? libDocs.filter(
+            (d) =>
+              d.name.toLowerCase().includes(libSearch.toLowerCase()) ||
+              d.content.toLowerCase().includes(libSearch.toLowerCase()),
+          )
+        : libDocs
+
+      return (
+        <div className="tab-content-stack">
+          <div className="lib-toolbar">
+            <input
+              className="lib-search"
+              value={libSearch}
+              onChange={(e) => setLibSearch(e.target.value)}
+              placeholder="Search documents…"
+            />
+            <button
+              className="run-button"
+              onClick={() => {
+                setLibAddMode((m) => !m)
+                setLibAddError('')
+              }}
+            >
+              {libAddMode ? 'Cancel' : '+ Add Document'}
+            </button>
+          </div>
+
+          {libAddMode && (
+            <div className="lib-add-panel">
+              <div className="control-group">
+                <label>Document name</label>
+                <input
+                  value={libPasteName}
+                  onChange={(e) => setLibPasteName(e.target.value)}
+                  placeholder="e.g. Mission Brief v2"
+                />
+              </div>
+              <div className="control-group">
+                <label>Paste content</label>
+                <textarea
+                  className="lib-paste-area"
+                  value={libPasteText}
+                  onChange={(e) => setLibPasteText(e.target.value)}
+                  placeholder="Paste text, markdown, or code here…"
+                  rows={6}
+                />
+              </div>
+              <div className="lib-add-actions">
+                <button className="run-button" onClick={handleAddByPaste}>
+                  Ingest Pasted Text
+                </button>
+                {window.paxion && (
+                  <button className="run-button" onClick={handleAddByFile}>
+                    Pick File from Disk
+                  </button>
+                )}
+              </div>
+              {libAddError && <p className="lib-error">{libAddError}</p>}
+            </div>
+          )}
+
+          {displayDocs.length === 0 ? (
+            <p className="muted">
+              {libSearch.trim()
+                ? 'No documents match the search.'
+                : 'Library is empty. Add a document to begin.'}
+            </p>
+          ) : (
+            <div className="lib-doc-list">
+              {displayDocs.map((doc) => (
+                <article
+                  key={doc.id}
+                  className={`lib-doc-card${libSelectedId === doc.id ? ' is-selected' : ''}`}
+                  onClick={() => setLibSelectedId(doc.id === libSelectedId ? null : doc.id)}
+                >
+                  <div className="lib-doc-head">
+                    <strong>{doc.name}</strong>
+                    <span className="muted">{doc.wordCount.toLocaleString()} words</span>
+                    <button
+                      className="lib-remove-btn"
+                      aria-label={`Remove ${doc.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleRemoveDoc(doc.id)
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <p className="lib-excerpt muted">{doc.excerpt}</p>
+                  {libSelectedId === doc.id && selectedDoc && (
+                    <pre className="lib-doc-content">{selectedDoc.content}</pre>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+      )
+    }
+
     if (activeTab === 'access') {
       return (
         <div className="tab-content-stack">
@@ -352,7 +523,7 @@ function App() {
       <footer className="footer">
         <span>Profile: Paro the Chief</span>
         <span>Mode: Policy-Enforced Build</span>
-        <span>Version: v0.2.0-security-core</span>
+        <span>Version: v0.3.0-library</span>
       </footer>
     </div>
   )

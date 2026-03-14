@@ -42,6 +42,11 @@ export class AuditLedger {
     return [...this.entries]
   }
 
+  /** Restore a previously persisted set of entries (e.g. loaded from disk via IPC). */
+  loadExternal(entries: AuditEntry[]): void {
+    this.entries = [...entries]
+  }
+
   async append(type: AuditEventType, payload: Record<string, unknown>): Promise<AuditEntry> {
     const prevHash = this.entries.at(-1)?.hash ?? 'GENESIS'
     const entrySeed = {

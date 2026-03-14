@@ -212,3 +212,126 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Library tab ── */
+
+.lib-toolbar {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.lib-search {
+  flex: 1;
+  border: 1px solid var(--edge-soft);
+  border-radius: 0.65rem;
+  padding: 0.56rem 0.72rem;
+  background: rgba(255, 255, 255, 0.76);
+  color: var(--ink-main);
+  font-size: 0.9rem;
+}
+
+.lib-add-panel {
+  border: 1px solid var(--edge-soft);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.54);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.lib-paste-area {
+  border: 1px solid var(--edge-soft);
+  border-radius: 0.65rem;
+  padding: 0.58rem 0.7rem;
+  background: rgba(255, 255, 255, 0.76);
+  color: var(--ink-main);
+  resize: vertical;
+  font-family: monospace;
+  font-size: 0.84rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.lib-add-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.lib-error {
+  color: #c0392b;
+  font-size: 0.88rem;
+  margin: 0;
+}
+
+.lib-doc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.lib-doc-card {
+  border: 1px solid var(--edge-soft);
+  border-radius: 0.7rem;
+  padding: 0.65rem;
+  background: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  transition: border-color 150ms ease;
+}
+
+.lib-doc-card:hover {
+  border-color: var(--accent-hot);
+}
+
+.lib-doc-card.is-selected {
+  border-color: var(--accent-hot);
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.lib-doc-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.lib-doc-head strong {
+  flex: 1;
+  font-size: 0.92rem;
+}
+
+.lib-remove-btn {
+  background: none;
+  border: none;
+  color: var(--ink-muted);
+  cursor: pointer;
+  font-size: 1.15rem;
+  line-height: 1;
+  padding: 0 0.2rem;
+}
+
+.lib-remove-btn:hover {
+  color: #c0392b;
+}
+
+.lib-excerpt {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.lib-doc-content {
+  margin-top: 0.65rem;
+  padding: 0.65rem;
+  border: 1px solid var(--edge-soft);
+  border-radius: 0.55rem;
+  background: rgba(255, 255, 255, 0.55);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow-y: auto;
+}
