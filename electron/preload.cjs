@@ -16,6 +16,10 @@ contextBridge.exposeInMainWorld('paxion', {
   },
   policy: {
     evaluate: (request) => ipcRenderer.invoke('paxion:policy:evaluate', request),
+    decide: (input) => ipcRenderer.invoke('paxion:policy:decide', input),
+  },
+  action: {
+    execute: (input) => ipcRenderer.invoke('paxion:action:execute', input),
   },
   library: {
     pickFile: () => ipcRenderer.invoke('paxion:library:pickFile'),

@@ -1,12 +1,14 @@
 'use strict'
 
 const { ipcMain, dialog, app } = require('electron')
+const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
 const pdfParse = require('pdf-parse')
 
 const ADMIN_CODEWORD = 'paro the chief'
 const ADMIN_SESSION_TTL_MS = 15 * 60 * 1000
+const APPROVAL_TTL_MS = 5 * 60 * 1000
 
 // ── Policy constants (authoritative main-process mirror of src/security/policy.ts) ──
 
@@ -93,6 +95,41 @@ function enforcePolicy(request) {
   }
 }
 
+function finalizePolicyDecision(baseDecision, context) {
+  if (!baseDecision.allowed || !baseDecision.requiresApproval) {
+    return baseDecision
+  }
+
+  if (!context.adminVerified) {
+    return {
+      allowed: false,
+      requiresApproval: true,
+      ruleId: 'admin-verification-required',
+      reason: 'Sensitive action rejected because admin codeword verification is missing.',
+    }
+  }
+
+  if (!context.approvalGranted) {
+    return {
+      allowed: false,
+      requiresApproval: true,
+      ruleId: 'approval-ticket-required',
+      reason: 'Sensitive action rejected because approval ticket is missing or invalid.',
+    }
+  }
+
+  return {
+    allowed: true,
+    requiresApproval: true,
+    ruleId: 'sensitive-action-approved',
+    reason: 'Sensitive action approved with admin verification and valid approval ticket.',
+  }
+}
+
+function makeId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
 function buildAdminSessionState() {
   return {
     unlocked: false,
@@ -116,18 +153,355 @@ function isAdminUnlocked(adminSession) {
   return true
 }
 
+function buildDeniedDecision(ruleId, reason) {
+  return {
+    allowed: false,
+    requiresApproval: true,
+    ruleId,
+    reason,
+  }
+}
+
+function sanitizeRelativePath(inputPath) {
+  const normalized = String(inputPath || '').replace(/\\/g, '/').replace(/^\/+/, '')
+  const safe = normalized
+    .split('/')
+    .filter((segment) => segment && segment !== '.' && segment !== '..')
+    .join(path.sep)
+  return safe
+}
+
+function sortValue(value) {
+  if (Array.isArray(value)) {
+    return value.map(sortValue)
+  }
+
+  if (value && typeof value === 'object') {
+    const sorted = Object.keys(value)
+      .sort()
+      .map((key) => [key, sortValue(value[key])])
+    return Object.fromEntries(sorted)
+  }
+
+  return value
+}
+
+function stableStringify(value) {
+  return JSON.stringify(sortValue(value))
+}
+
+function sha256Hex(text) {
+  return crypto.createHash('sha256').update(text).digest('hex')
+}
+
 // ── IPC handler registration ──
 
 function registerIpcHandlers(mainWindow) {
   const auditFilePath = path.join(app.getPath('userData'), 'paxion-audit.jsonl')
+  const approvalsFilePath = path.join(app.getPath('userData'), 'paxion-approvals.json')
   const adminSession = buildAdminSessionState()
+  const approvalTickets = new Map()
+  const auditState = {
+    lastHash: 'GENESIS',
+    lastIndex: 0,
+  }
 
-  // Persist a single audit entry as a JSON line.
-  ipcMain.handle('paxion:audit:append', (_event, entry) => {
+  function loadAuditEntriesFromDisk() {
+    if (!fs.existsSync(auditFilePath)) {
+      return []
+    }
+
+    const raw = fs.readFileSync(auditFilePath, 'utf8')
+    return raw
+      .split('\n')
+      .filter(Boolean)
+      .reduce((acc, line) => {
+        try {
+          acc.push(JSON.parse(line))
+        } catch {
+          // Skip corrupt lines rather than crashing.
+        }
+        return acc
+      }, [])
+  }
+
+  function initializeAuditState() {
     try {
-      fs.appendFileSync(auditFilePath, JSON.stringify(entry) + '\n', 'utf8')
+      const entries = loadAuditEntriesFromDisk()
+      const last = entries.at(-1)
+
+      if (!last) {
+        auditState.lastHash = 'GENESIS'
+        auditState.lastIndex = 0
+        return
+      }
+
+      auditState.lastHash = typeof last.hash === 'string' ? last.hash : 'GENESIS'
+      const matched = /^log-(\d+)$/.exec(String(last.id || ''))
+      auditState.lastIndex = matched ? Number(matched[1]) : entries.length
+    } catch {
+      auditState.lastHash = 'GENESIS'
+      auditState.lastIndex = 0
+    }
+  }
+
+  function appendAuditEntry(type, payload) {
+    const nextIndex = auditState.lastIndex + 1
+    const entrySeed = {
+      id: `log-${nextIndex}`,
+      timestamp: new Date().toISOString(),
+      type,
+      payload,
+      prevHash: auditState.lastHash,
+    }
+
+    const entry = {
+      ...entrySeed,
+      hash: sha256Hex(stableStringify(entrySeed)),
+    }
+
+    fs.appendFileSync(auditFilePath, JSON.stringify(entry) + '\n', 'utf8')
+    auditState.lastIndex = nextIndex
+    auditState.lastHash = entry.hash
+    return entry
+  }
+
+  function saveApprovalTickets() {
+    try {
+      const data = JSON.stringify(Array.from(approvalTickets.values()), null, 2)
+      fs.writeFileSync(approvalsFilePath, data, 'utf8')
+    } catch (err) {
+      console.error('[Paxion] approval save failed:', err)
+    }
+  }
+
+  function cleanupExpiredApprovalTickets() {
+    const now = Date.now()
+    let changed = false
+    for (const [ticketId, ticket] of approvalTickets.entries()) {
+      if (ticket.expiresAt < now) {
+        approvalTickets.delete(ticketId)
+        changed = true
+      }
+    }
+    if (changed) {
+      saveApprovalTickets()
+    }
+  }
+
+  function loadApprovalTickets() {
+    if (!fs.existsSync(approvalsFilePath)) {
+      return
+    }
+
+    try {
+      const raw = fs.readFileSync(approvalsFilePath, 'utf8')
+      const rows = JSON.parse(raw)
+      if (!Array.isArray(rows)) {
+        return
+      }
+
+      for (const row of rows) {
+        if (!row || typeof row !== 'object') {
+          continue
+        }
+
+        const ticket = {
+          id: String(row.id || ''),
+          actionId: String(row.actionId || ''),
+          createdAt: Number(row.createdAt || 0),
+          expiresAt: Number(row.expiresAt || 0),
+        }
+
+        if (!ticket.id || !ticket.actionId) {
+          continue
+        }
+
+        approvalTickets.set(ticket.id, ticket)
+      }
+
+      cleanupExpiredApprovalTickets()
+    } catch (err) {
+      console.error('[Paxion] approval load failed:', err)
+    }
+  }
+
+  function issueApprovalTicket(actionId, ttlMs = APPROVAL_TTL_MS) {
+    cleanupExpiredApprovalTickets()
+
+    const createdAt = Date.now()
+    const ticket = {
+      id: makeId(),
+      actionId,
+      createdAt,
+      expiresAt: createdAt + ttlMs,
+    }
+
+    approvalTickets.set(ticket.id, ticket)
+    saveApprovalTickets()
+    return ticket
+  }
+
+  function consumeApprovalTicket(ticketId, actionId) {
+    cleanupExpiredApprovalTickets()
+
+    const ticket = approvalTickets.get(ticketId)
+    if (!ticket) {
+      return false
+    }
+
+    approvalTickets.delete(ticketId)
+    saveApprovalTickets()
+
+    if (ticket.actionId !== actionId) {
+      return false
+    }
+
+    return Date.now() <= ticket.expiresAt
+  }
+
+  function isCodewordValid(codeword) {
+    return String(codeword || '').trim().toLowerCase() === ADMIN_CODEWORD
+  }
+
+  function decideRequest(request, adminCodeword) {
+    const baseDecision = enforcePolicy(request)
+
+    if (!baseDecision.allowed || !baseDecision.requiresApproval) {
+      return {
+        baseDecision,
+        finalDecision: baseDecision,
+        context: {
+          adminSessionActive: isAdminUnlocked(adminSession),
+          adminVerified: false,
+          approvalGranted: false,
+          approvalTicketId: null,
+          approvalExpiresAt: null,
+        },
+      }
+    }
+
+    const adminSessionActive = isAdminUnlocked(adminSession)
+    if (!adminSessionActive) {
+      const deniedDecision = buildDeniedDecision(
+        'admin-session-required',
+        'Sensitive action rejected because admin session is locked or expired.',
+      )
+
+      return {
+        baseDecision,
+        finalDecision: deniedDecision,
+        context: {
+          adminSessionActive: false,
+          adminVerified: false,
+          approvalGranted: false,
+          approvalTicketId: null,
+          approvalExpiresAt: null,
+        },
+      }
+    }
+
+    const adminVerified = isCodewordValid(adminCodeword)
+    if (!adminVerified) {
+      const deniedDecision = finalizePolicyDecision(baseDecision, {
+        adminVerified: false,
+        approvalGranted: false,
+      })
+
+      return {
+        baseDecision,
+        finalDecision: deniedDecision,
+        context: {
+          adminSessionActive,
+          adminVerified: false,
+          approvalGranted: false,
+          approvalTicketId: null,
+          approvalExpiresAt: null,
+        },
+      }
+    }
+
+    const ticket = issueApprovalTicket(request.actionId)
+    const approvalGranted = consumeApprovalTicket(ticket.id, request.actionId)
+    const finalDecision = finalizePolicyDecision(baseDecision, {
+      adminVerified,
+      approvalGranted,
+    })
+
+    return {
+      baseDecision,
+      finalDecision,
+      context: {
+        adminSessionActive,
+        adminVerified,
+        approvalGranted,
+        approvalTicketId: ticket.id,
+        approvalExpiresAt: ticket.expiresAt,
+      },
+    }
+  }
+
+  async function executeAllowedAction(request) {
+    const actionId = request?.actionId
+
+    if (actionId === 'workspace.generateComponent') {
+      const targetPath = String(request?.targetPath || '/workspace/generated-component.tsx')
+      const rel = sanitizeRelativePath(targetPath.replace(/^\/workspace\/?/i, ''))
+      const workspaceRoot = path.join(app.getPath('userData'), 'paxion-workspace')
+      const outputPath = path.join(workspaceRoot, rel || 'generated-component.tsx')
+
+      fs.mkdirSync(path.dirname(outputPath), { recursive: true })
+
+      const componentName = 'PaxionGeneratedComponent'
+      const code = [
+        "import React from 'react'",
+        '',
+        `export function ${componentName}() {`,
+        "  return <section>Generated by Paxion under guarded execution flow.</section>",
+        '}',
+        '',
+      ].join('\n')
+
+      fs.writeFileSync(outputPath, code, 'utf8')
+
+      return {
+        executed: true,
+        mode: 'filesystem-write',
+        outputPath,
+      }
+    }
+
+    if (actionId === 'library.ingestDocument') {
+      return {
+        executed: true,
+        mode: 'knowledge-op',
+        note: 'Library ingestion is handled in renderer flow with user-picked content.',
+      }
+    }
+
+    return {
+      executed: true,
+      mode: 'no-op',
+      note: 'Action was allowed and acknowledged; no execution adapter registered yet.',
+    }
+  }
+
+  loadApprovalTickets()
+  initializeAuditState()
+
+  // Legacy endpoint for compatibility with existing renderer logging calls.
+  ipcMain.handle('paxion:audit:append', (_event, input) => {
+    try {
+      const type = typeof input?.type === 'string' ? input.type : 'action_result'
+      const payload =
+        input && typeof input === 'object' && input.payload && typeof input.payload === 'object'
+          ? input.payload
+          : { detail: input }
+
+      return appendAuditEntry(type, payload)
     } catch (err) {
       console.error('[Paxion] audit append failed:', err)
+      return null
     }
   })
 
@@ -143,25 +517,7 @@ function registerIpcHandlers(mainWindow) {
     }
 
     try {
-      if (!fs.existsSync(auditFilePath)) {
-        return {
-          ok: true,
-          entries: [],
-        }
-      }
-
-      const raw = fs.readFileSync(auditFilePath, 'utf8')
-      const entries = raw
-        .split('\n')
-        .filter(Boolean)
-        .reduce((acc, line) => {
-          try {
-            acc.push(JSON.parse(line))
-          } catch {
-            // Skip corrupt lines rather than crashing.
-          }
-          return acc
-        }, [])
+      const entries = loadAuditEntriesFromDisk()
 
       return {
         ok: true,
@@ -218,6 +574,64 @@ function registerIpcHandlers(mainWindow) {
   // Authoritative main-process policy evaluation.
   ipcMain.handle('paxion:policy:evaluate', (_event, request) => {
     return enforcePolicy(request)
+  })
+
+  // Full decision endpoint: policy evaluate + admin verify + approval ticket consume.
+  ipcMain.handle('paxion:policy:decide', (_event, input) => {
+    const request = input?.request
+    const adminCodeword = input?.adminCodeword
+    return decideRequest(request, adminCodeword)
+  })
+
+  // Atomic endpoint: decision and execution are coupled in main process.
+  ipcMain.handle('paxion:action:execute', async (_event, input) => {
+    const request = input?.request
+    const adminCodeword = input?.adminCodeword
+    const decision = decideRequest(request, adminCodeword)
+
+    appendAuditEntry('policy_check', {
+      request,
+      decision: decision.baseDecision,
+    })
+
+    if (decision.context.approvalTicketId) {
+      appendAuditEntry('approval_issue', {
+        actionId: request?.actionId,
+        ticketId: decision.context.approvalTicketId,
+        expiresAt: decision.context.approvalExpiresAt
+          ? new Date(decision.context.approvalExpiresAt).toISOString()
+          : null,
+      })
+
+      appendAuditEntry('approval_use', {
+        actionId: request?.actionId,
+        ticketId: decision.context.approvalTicketId,
+        approvalGranted: decision.context.approvalGranted,
+      })
+    }
+
+    let execution
+    if (!decision.finalDecision.allowed) {
+      execution = {
+        executed: false,
+        mode: 'blocked',
+        note: 'Execution skipped because final decision denied.',
+      }
+    } else {
+      execution = await executeAllowedAction(request)
+    }
+
+    appendAuditEntry('action_result', {
+      actionId: request?.actionId,
+      status: decision.finalDecision.allowed ? 'allowed' : 'denied',
+      reason: decision.finalDecision.reason,
+      execution,
+    })
+
+    return {
+      ...decision,
+      execution,
+    }
   })
 
   // Native file picker for Library ingestion.

@@ -219,11 +219,21 @@ function App() {
       detail: selectedAction.detail,
     }
 
-    // Use main-process enforcement when available; fall back to renderer module.
-    const baseDecision = window.paxion
-      ? await window.paxion.policy.evaluate(request)
-      : evaluateActionPolicy(request)
+    if (window.paxion) {
+      const decisionEnvelope = await window.paxion.action.execute({
+        request,
+        adminCodeword,
+      })
 
+      await loadAuditIfAllowed()
+      setLastDecision(
+        `${decisionEnvelope.finalDecision.allowed ? 'Allowed' : 'Denied'}: ${decisionEnvelope.finalDecision.reason}${decisionEnvelope.execution?.executed ? ` | executed: ${decisionEnvelope.execution.mode}` : ''}`,
+      )
+      return
+    }
+
+    // Browser-only fallback (non-Electron): keep current renderer-local behavior.
+    const baseDecision = evaluateActionPolicy(request)
     await appendAudit('policy_check', { request, decision: baseDecision })
 
     if (!baseDecision.allowed && !baseDecision.requiresApproval) {
@@ -239,34 +249,25 @@ function App() {
 
     if (baseDecision.requiresApproval) {
       const adminVerified = verifyAdminCodeword(adminCodeword)
-      if (!adminVerified) {
-        const deniedDecision = finalizePolicyDecision(baseDecision, {
-          adminVerified: false,
-          approvalGranted: false,
-        })
-        await appendAudit('action_result', {
+      const ticket = adminVerified ? approvalStore.issue(request.actionId) : null
+
+      if (ticket) {
+        await appendAudit('approval_issue', {
           actionId: request.actionId,
-          status: 'denied',
-          reason: deniedDecision.reason,
+          ticketId: ticket.id,
+          expiresAt: new Date(ticket.expiresAt).toISOString(),
         })
-        syncAuditState()
-        setLastDecision(`Denied: ${deniedDecision.reason}`)
-        return
       }
 
-      const ticket = approvalStore.issue(request.actionId)
-      await appendAudit('approval_issue', {
-        actionId: request.actionId,
-        ticketId: ticket.id,
-        expiresAt: new Date(ticket.expiresAt).toISOString(),
-      })
+      const approvalGranted = ticket ? approvalStore.consume(ticket.id, request.actionId) : false
 
-      const approvalGranted = approvalStore.consume(ticket.id, request.actionId)
-      await appendAudit('approval_use', {
-        actionId: request.actionId,
-        ticketId: ticket.id,
-        approvalGranted,
-      })
+      if (ticket) {
+        await appendAudit('approval_use', {
+          actionId: request.actionId,
+          ticketId: ticket.id,
+          approvalGranted,
+        })
+      }
 
       const finalDecision = finalizePolicyDecision(baseDecision, {
         adminVerified,
