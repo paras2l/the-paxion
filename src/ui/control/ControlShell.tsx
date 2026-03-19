@@ -111,6 +111,16 @@ type ControlShellProps = {
     confirmationRequired: boolean
   }
   onToggleSmartglass?: (enabled: boolean) => void
+  m6Language?: {
+    selectedLanguage: string
+    sttLanguage: string
+    responseLanguage: string
+    ttsLanguage: string
+    fallbackChain: string[]
+    runtimeNote: string
+  }
+  m6LanguageOptions?: Array<{ code: string; label: string }>
+  onSelectM6Language?: (code: string) => void
   onAppendAudit?: (type: AuditEventType, payload: Record<string, unknown>) => Promise<void> | void
 }
 
@@ -209,6 +219,16 @@ export default function ControlShell({
     confirmationRequired: false,
   },
   onToggleSmartglass,
+  m6Language = {
+    selectedLanguage: 'en-US',
+    sttLanguage: 'en-US',
+    responseLanguage: 'English',
+    ttsLanguage: 'en-US',
+    fallbackChain: ['en-US'],
+    runtimeNote: '',
+  },
+  m6LanguageOptions = [],
+  onSelectM6Language,
   onAppendAudit,
 }: ControlShellProps) {
   const [activeTab, setActiveTab] = useState<TabId>('chat')
@@ -1116,6 +1136,9 @@ export default function ControlShell({
                 m4RoutingPreview={m4RoutingPreview}
                 smartglass={smartglass}
                 onToggleSmartglass={onToggleSmartglass}
+                m6Language={m6Language}
+                m6LanguageOptions={m6LanguageOptions}
+                onSelectM6Language={onSelectM6Language}
                 onPairNew={() => setLastQueueMessage('New device pairing started.')}
                 onRotateSecret={(nodeId) => setLastQueueMessage(`Requested secret rotation for ${nodeId}.`)}
                 onRefreshRelay={onRefreshRelay}

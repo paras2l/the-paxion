@@ -102,7 +102,8 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Mobile companion now surfaces active route mode visibility so operators can see when desktop delegation is required.
 - M2-M3 baseline has been landed (session recovery plus delegated queue lifecycle).
 - M4-M5 baseline is now started (unified call/channel routing fallback chain and smart-glass voice-first safety confirmation gate).
-- M6-M7 execution remains staged: multilingual voice stack and reliability telemetry.
+- M6 baseline is now started (language-aware STT/response/TTS routing with fallback chains and session language memory).
+- M7 execution remains staged: reliability telemetry.
 
 ## Cross-device parity M2/M3 kickoff baseline
 - Mobile companion now has persisted session recovery for key assistant and action context state.
@@ -115,6 +116,12 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Control surfaces now show routing previews for both channel and call intents.
 - Smart-glass mode now has persisted state and one-click enablement in integrations/device views.
 - Approval-sensitive actions now require concise smart-glass confirmation text before execution.
+
+## Cross-device parity M6 kickoff baseline
+- Multilingual session language selection now persists across restarts.
+- STT route now follows session language pipeline settings.
+- TTS route now applies locale fallback chain based on available voices.
+- Response generation now receives session language hints for multilingual interaction continuity.
 
 ## Advanced autonomy foundations
 - Advanced governance now includes policy-diff simulation, staged canary rollout planning, and anomaly-driven rollback recommendations.

@@ -53,6 +53,13 @@ Use this file to protect continuity and prevent missing work.
 - Smart-glass execution requires concise confirmation before approval-sensitive actions run.
 - Smart-glass mode defaults assistant experience to voice-first when enabled.
 
+## Device Expansion Verification (M6 kickoff)
+- Session language selection persists and restores across restarts.
+- STT runtime uses selected session language route.
+- TTS runtime applies language fallback chain when preferred voice locale is unavailable.
+- Response generation path receives session language hint for multilingual replies.
+- Active control surface shows language route, fallback chain, and runtime note.
+
 ## Fresh machine recovery
 1. Clone repository.
 2. Install Node.js 20.18+ (or newer LTS).
@@ -85,3 +92,4 @@ Use this file to protect continuity and prevent missing work.
 - v0.21.0-device-expansion-kickoff: M1 routing core started with shared device profiles, action route mode decisions, mobile route visibility in UI, and M1-M7 execution tracker baseline.
 - v0.21.1-device-expansion-m2m3-kickoff: mobile/tablet session recovery baseline plus delegated desktop queue lifecycle with correlation IDs, approval gating, and audit-linked status transitions.
 - v0.21.2-device-expansion-m4m5-kickoff: unified call/channel intent routing with fallback-chain previews plus smart-glass voice-mode toggle and concise confirmation safety gate.
+- v0.21.3-device-expansion-m6-kickoff: multilingual voice pipeline with session language memory, STT/TTS routing, fallback language chain, and control-surface language visibility.

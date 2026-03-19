@@ -54,6 +54,16 @@ interface NodesProps {
     confirmationRequired: boolean
   }
   onToggleSmartglass?: (enabled: boolean) => void
+  m6Language?: {
+    selectedLanguage: string
+    sttLanguage: string
+    responseLanguage: string
+    ttsLanguage: string
+    fallbackChain: string[]
+    runtimeNote: string
+  }
+  m6LanguageOptions?: Array<{ code: string; label: string }>
+  onSelectM6Language?: (code: string) => void
   children?: ReactNode
 }
 
@@ -81,6 +91,16 @@ export function Nodes(props: NodesProps) {
       confirmationRequired: false,
     },
     onToggleSmartglass,
+    m6Language = {
+      selectedLanguage: 'en-US',
+      sttLanguage: 'en-US',
+      responseLanguage: 'English',
+      ttsLanguage: 'en-US',
+      fallbackChain: ['en-US'],
+      runtimeNote: '',
+    },
+    m6LanguageOptions = [],
+    onSelectM6Language,
   } = props
 
   const localNodes = nodes.filter((n) => n.type === 'local')
@@ -257,6 +277,31 @@ export function Nodes(props: NodesProps) {
           <button className="run-button" onClick={() => onToggleSmartglass?.(!smartglass.enabled)}>
             {smartglass.enabled ? 'Disable Smart-glass Mode' : 'Enable Smart-glass Mode'}
           </button>
+        </div>
+
+        <div className="nova-card">
+          <h3>M6 Multilingual Voice Stack</h3>
+          <p className="muted">
+            Session language memory controls STT input language, model response language hint, and TTS output language with fallback rules.
+          </p>
+          <div className="control-group" style={{ marginTop: '10px' }}>
+            <label>Session language</label>
+            <select
+              value={m6Language.selectedLanguage}
+              onChange={(event) => onSelectM6Language?.(event.target.value)}
+            >
+              {m6LanguageOptions.map((option) => (
+                <option key={option.code} value={option.code}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="muted">STT route: <strong>{m6Language.sttLanguage}</strong></p>
+          <p className="muted">Response language: <strong>{m6Language.responseLanguage}</strong></p>
+          <p className="muted">TTS preferred: <strong>{m6Language.ttsLanguage}</strong></p>
+          <p className="muted">Fallback chain: <strong>{m6Language.fallbackChain.join(' -> ')}</strong></p>
+          {m6Language.runtimeNote && <p className="muted">Runtime: {m6Language.runtimeNote}</p>}
         </div>
 
         <div className="nova-card">

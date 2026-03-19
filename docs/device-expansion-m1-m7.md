@@ -13,7 +13,7 @@ Enable one policy-safe assistant experience across desktop, mobile, tablet, and 
 - M3 Secure delegation pipeline: in progress (started)
 - M4 Messaging and call parity: in progress (started)
 - M5 Smart-glass voice mode: in progress (started)
-- M6 Multilingual voice stack: planned
+- M6 Multilingual voice stack: in progress (started)
 - M7 Observability and reliability: planned
 
 ## M1 scope (started now)
@@ -73,6 +73,12 @@ Delivered in this slice:
 
 - Add language-aware STT, response, and TTS selection pipeline.
 - Add per-session language memory and fallback language rules.
+
+Delivered in this slice:
+
+- Added shared language pipeline model with supported language options and fallback chains.
+- Wired STT input language and TTS output language selection with runtime fallback behavior.
+- Added per-session language memory with persisted selection and control-surface visibility.
 
 ## M7 scope
 

@@ -213,7 +213,8 @@ Current state:
 - M3 started in code: delegated desktop queue lifecycle with correlation IDs and audit-linked transitions.
 - M4 started in code: unified call/channel intent decisioning and fallback-chain previews.
 - M5 started in code: smart-glass voice-first mode toggle with concise confirmation gate for safety-gated actions.
-- M6-M7 staged: multilingual voice and observability/reliability telemetry.
+- M6 started in code: multilingual STT/response/TTS pipeline with session language memory and fallback routing.
+- M7 staged: observability/reliability telemetry.
 
 Execution model for cross-device requests:
 

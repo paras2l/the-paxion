@@ -17,6 +17,12 @@ import {
 import { deriveDeviceProfile } from './core/device/actionRouter'
 import { buildUnifiedIntentDecision } from './core/device/unifiedIntents'
 import {
+  LANGUAGE_PIPELINE_OPTIONS,
+  chooseTtsLanguage,
+  resolveLanguagePipeline,
+  type SupportedLanguageCode,
+} from './core/device/languagePipeline'
+import {
   enqueueDelegatedRequest,
   updateDelegatedStatus,
   type DelegatedActionItem,
@@ -262,6 +268,15 @@ type SmartglassPanelState = {
   enabled: boolean
   voiceModeActive: boolean
   confirmationRequired: boolean
+}
+
+type M6LanguagePanelState = {
+  selectedLanguage: string
+  sttLanguage: string
+  responseLanguage: string
+  ttsLanguage: string
+  fallbackChain: string[]
+  runtimeNote: string
 }
 
 type VoiceRuntimeProfile = {
@@ -711,6 +726,7 @@ const defaultFeatureFlags: FeatureFlagState = {
 }
 
 const MOBILE_SESSION_KEY = 'paxion.mobile.session.v1'
+const VOICE_LANGUAGE_KEY = 'paxion.voice.language.v1'
 
 const SKILL_PATTERNS: Array<{ skill: string; pattern: RegExp }> = [
   { skill: 'React UI Development', pattern: /react|tsx|component|jsx/i },
@@ -938,6 +954,8 @@ function App() {
   const [chatVoicePending, setChatVoicePending] = useState<'idle' | 'starting' | 'stopping'>('idle')
   const [chatVoiceEnabled, setChatVoiceEnabled] = useState(true)
   const [assistantMode, setAssistantMode] = useState<AssistantMode>('chat')
+  const [voiceSessionLanguage, setVoiceSessionLanguage] = useState<SupportedLanguageCode>('en-US')
+  const [voiceLanguageRuntimeNote, setVoiceLanguageRuntimeNote] = useState('')
   const [smartglassModeEnabled, setSmartglassModeEnabled] = useState(false)
   const [smartglassConfirmationText, setSmartglassConfirmationText] = useState('')
   const [wakePhrase, setWakePhrase] = useState('paxion wakeup')
@@ -1619,6 +1637,7 @@ function App() {
 
       const parsed = JSON.parse(raw) as {
         assistantMode?: AssistantMode
+        voiceSessionLanguage?: SupportedLanguageCode
         smartglassModeEnabled?: boolean
         smartglassConfirmationText?: string
         wakePhrase?: string
@@ -1633,6 +1652,10 @@ function App() {
 
       if (parsed.assistantMode === 'chat' || parsed.assistantMode === 'voice') {
         setAssistantMode(parsed.assistantMode)
+      }
+      if (typeof parsed.voiceSessionLanguage === 'string') {
+        const recoveredLanguage = resolveLanguagePipeline(parsed.voiceSessionLanguage).code
+        setVoiceSessionLanguage(recoveredLanguage)
       }
       if (parsed.smartglassModeEnabled === true || parsed.smartglassModeEnabled === false) {
         setSmartglassModeEnabled(parsed.smartglassModeEnabled)
@@ -1675,6 +1698,7 @@ function App() {
     try {
       const payload = {
         assistantMode,
+        voiceSessionLanguage,
         smartglassModeEnabled,
         smartglassConfirmationText,
         wakePhrase,
@@ -1690,7 +1714,7 @@ function App() {
     } catch {
       // Ignore storage write failures.
     }
-  }, [actionDetail, assistantMode, chatInput, delegatedQueue, isWebRuntime, lastDecision, selectedActionId, smartglassConfirmationText, smartglassModeEnabled, targetPath, wakePhrase])
+  }, [actionDetail, assistantMode, chatInput, delegatedQueue, isWebRuntime, lastDecision, selectedActionId, smartglassConfirmationText, smartglassModeEnabled, targetPath, voiceSessionLanguage, wakePhrase])
 
   // Restore workspace mission state from persistence.
   useEffect(() => {
@@ -1703,6 +1727,10 @@ function App() {
     const storedMode = localStorage.getItem('paxion-assistant-mode')
     if (storedMode === 'voice' || storedMode === 'chat') {
       setAssistantMode(storedMode)
+    }
+    const storedVoiceLanguage = localStorage.getItem(VOICE_LANGUAGE_KEY)
+    if (typeof storedVoiceLanguage === 'string' && storedVoiceLanguage.trim()) {
+      setVoiceSessionLanguage(resolveLanguagePipeline(storedVoiceLanguage).code)
     }
     const storedSmartglass = localStorage.getItem('paxion-smartglass-mode')
     if (storedSmartglass === '1') {
@@ -1772,6 +1800,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem('paxion-assistant-mode', assistantMode)
   }, [assistantMode])
+
+  useEffect(() => {
+    localStorage.setItem(VOICE_LANGUAGE_KEY, voiceSessionLanguage)
+  }, [voiceSessionLanguage])
 
   useEffect(() => {
     localStorage.setItem('paxion-smartglass-mode', smartglassModeEnabled ? '1' : '0')
@@ -2497,6 +2529,17 @@ function App() {
       },
     ]
   }, [capabilities.emergencyCallRelay, currentDeviceProfile, featureFlags.cloudRelayEnabled, featureFlags.desktopAdapterEnabled])
+  const m6LanguagePanel = useMemo<M6LanguagePanelState>(() => {
+    const pipeline = resolveLanguagePipeline(voiceSessionLanguage)
+    return {
+      selectedLanguage: pipeline.code,
+      sttLanguage: pipeline.sttLanguage,
+      responseLanguage: pipeline.responseLanguage,
+      ttsLanguage: pipeline.ttsLanguage,
+      fallbackChain: pipeline.fallbackChain,
+      runtimeNote: voiceLanguageRuntimeNote,
+    }
+  }, [voiceLanguageRuntimeNote, voiceSessionLanguage])
 
   // Auto-scroll chat to bottom whenever a message is added or loading state changes.
   useEffect(() => {
@@ -2523,6 +2566,7 @@ function App() {
     }
 
     const utterance = new SpeechSynthesisUtterance(latestAssistantMessage.content.slice(0, 600))
+    const languagePipeline = resolveLanguagePipeline(voiceSessionLanguage)
     const speakRate = 1.0  // default; voice quality profile uses voiceProfile.prosody for pitch
     utterance.rate = speakRate
     utterance.pitch =
@@ -2530,9 +2574,20 @@ function App() {
       : voiceProfile.prosody === 'energetic' ? 1.15
       : voiceProfile.prosody === 'emphatic' ? 1.05
       : 1.0
-    utterance.lang = 'en-US'
-    // Persona-based voice selection (best-effort browser API)
+    // Apply language-aware TTS with fallback selection based on available browser voices.
     const availableVoices = window.speechSynthesis.getVoices()
+    const fallbackSelection = chooseTtsLanguage(
+      languagePipeline.ttsLanguage,
+      languagePipeline.fallbackChain,
+      availableVoices.map((voice) => voice.lang),
+    )
+    utterance.lang = fallbackSelection.selectedLanguage
+    setVoiceLanguageRuntimeNote(
+      fallbackSelection.usedFallback
+        ? `TTS fallback active: ${fallbackSelection.selectedLanguage}`
+        : `TTS route active: ${fallbackSelection.selectedLanguage}`,
+    )
+
     if (availableVoices.length > 0) {
       const personaKeyword =
         voiceProfile.personaMemory === 'formal' ? 'david'
@@ -2540,14 +2595,17 @@ function App() {
         : voiceProfile.personaMemory === 'warm' ? 'hazel'
         : 'google'
       const matched = availableVoices.find((v) =>
-        v.lang.startsWith('en') && v.name.toLowerCase().includes(personaKeyword)
+        v.lang.toLowerCase().startsWith(fallbackSelection.selectedLanguage.toLowerCase().split('-')[0])
+        && v.name.toLowerCase().includes(personaKeyword)
       )
-      if (matched) utterance.voice = matched
+      if (matched) {
+        utterance.voice = matched
+      }
     }
     window.speechSynthesis.cancel()
     window.speechSynthesis.speak(utterance)
     lastSpokenMessageIdRef.current = latestAssistantMessage.id
-  }, [capabilities.voiceOutput, chatMessages, chatVoiceEnabled])
+  }, [capabilities.voiceOutput, chatMessages, chatVoiceEnabled, voiceProfile.personaMemory, voiceProfile.prosody, voiceSessionLanguage])
 
   function toggleChatVoiceOutput() {
     setChatVoiceEnabled((prev) => !prev)
@@ -2837,9 +2895,11 @@ function App() {
       return
     }
 
+    const languagePipeline = resolveLanguagePipeline(voiceSessionLanguage)
+
     if (!speechRecognitionRef.current) {
       const recognition = new SpeechRecognitionCtor()
-      recognition.lang = 'en-US'
+      recognition.lang = languagePipeline.sttLanguage
       recognition.continuous = commandLoop
       recognition.interimResults = false
 
@@ -2885,12 +2945,14 @@ function App() {
       speechRecognitionRef.current = recognition
     }
 
+    speechRecognitionRef.current.lang = languagePipeline.sttLanguage
     speechRecognitionRef.current.continuous = commandLoop
     try {
       setChatVoicePending('starting')
       speechRecognitionRef.current.start()
       setChatVoiceListening(true)
       setChatVoicePending('idle')
+      setVoiceLanguageRuntimeNote(`STT route active: ${languagePipeline.sttLanguage}`)
       setChatNotice(commandLoop ? 'Voice mode active. Say wake phrase and command.' : 'Listening...')
     } catch {
       setChatVoicePending('idle')
@@ -4969,6 +5031,7 @@ function App() {
   async function sendChatMessage(overrideText?: string) {
     const text = typeof overrideText === 'string' ? overrideText.trim() : chatInput.trim()
     if (!text || chatLoading) return
+    const languagePipeline = resolveLanguagePipeline(voiceSessionLanguage)
 
     const declaredName = extractDeclaredName(text)
     if (declaredName) {
@@ -5082,7 +5145,11 @@ function App() {
       return
     }
 
-    const localResponse = brain.think(text, libDocs)
+    const languageAwareText =
+      languagePipeline.responseLanguage === 'English'
+        ? text
+        : `[Respond in ${languagePipeline.responseLanguage}] ${text}`
+    const localResponse = brain.think(languageAwareText, libDocs)
     let finalReply = personalizeReply(localResponse.reply)
     const finalContextDocs = localResponse.contextDocs
     let finalReasoning = localResponse.reasoningSteps
@@ -8254,6 +8321,15 @@ function App() {
           if (enabled) {
             setAssistantMode('voice')
           }
+        }}
+        m6Language={m6LanguagePanel}
+        m6LanguageOptions={LANGUAGE_PIPELINE_OPTIONS.map((item) => ({
+          code: item.code,
+          label: item.label,
+        }))}
+        onSelectM6Language={(code) => {
+          const resolved = resolveLanguagePipeline(code)
+          setVoiceSessionLanguage(resolved.code)
         }}
         onAppendAudit={appendAudit}
       />
