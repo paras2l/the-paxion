@@ -88,6 +88,14 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Bridge runtime has start/stop/status controls with shared secret protection and persisted configuration.
 - Bridge secret rotation and one-time remote command tokens are now available for tighter remote-session control.
 
+## Pivot F/G/H hardening baseline
+- Sensitive actions now run through a distinct privileged execution pipeline with bounded timeout handling.
+- Queue-to-audit linkage now carries pipeline context and queue references for traceability.
+- Cloud relay and desktop adapter pathways are now feature-flag gated and default to disabled for safer rollout.
+- Relay ingress now includes explicit local-policy checks before queueing remote requests.
+- Audit timeline now supports search/filter/pagination/export, and anomaly patterns emit threat-detected audit events.
+- Per-channel session memory now uses a normalized schema for consistent retrieval context.
+
 ## Advanced autonomy foundations
 - Advanced governance now includes policy-diff simulation, staged canary rollout planning, and anomaly-driven rollback recommendations.
 - Live broker module foundation now includes provider configuration, live-order preview, and gated broker order execution staging.

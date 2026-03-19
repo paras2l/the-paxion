@@ -1,4 +1,5 @@
 import type { AuditEntry, AuditEventType } from './types'
+import { detectAuditAnomaly } from './anomalyDetector'
 
 function sortValue(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -37,6 +38,7 @@ function makeEntryId(index: number): string {
 
 export class AuditLedger {
   private entries: AuditEntry[] = []
+  private anomalyCooldownUntil = 0
 
   getAll(): AuditEntry[] {
     return [...this.entries]
@@ -63,7 +65,22 @@ export class AuditLedger {
       hash,
     }
 
+    const priorEntries = [...this.entries]
     this.entries.push(entry)
+
+    if (type !== 'threat_detected') {
+      const now = Date.now()
+      const signal = detectAuditAnomaly(priorEntries, entry)
+      if (signal.detected && now >= this.anomalyCooldownUntil) {
+        this.anomalyCooldownUntil = now + 60_000
+        await this.append('threat_detected', {
+          signal: signal.reason || 'Anomaly detected in audit stream.',
+          score: signal.score,
+          sourceEntryId: entry.id,
+        })
+      }
+    }
+
     return entry
   }
 }

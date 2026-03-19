@@ -14,9 +14,11 @@ export type QueueItem = {
   id: string
   actionId: string
   status: QueueStatus
+  pipeline: 'normal' | 'privileged'
   requestedAt: string
   approvedAt?: string
   completedAt?: string
+  auditEntryId?: string
   detail?: string
   request: ActionRequest
 }
@@ -50,12 +52,18 @@ function nowIso(): string {
   return new Date().toISOString()
 }
 
+function pipelineFor(request: ActionRequest): 'normal' | 'privileged' {
+  const base = evaluateActionPolicy(request)
+  return base.requiresApproval ? 'privileged' : 'normal'
+}
+
 export function createSeedQueue(): QueueItem[] {
   const now = nowIso()
   return BASE_ACTIONS.map((request) => ({
     id: makeQueueId(),
     actionId: request.actionId,
     status: 'pending',
+    pipeline: pipelineFor(request),
     requestedAt: now,
     detail: request.detail,
     request,
@@ -68,6 +76,7 @@ export function enqueueAction(items: QueueItem[], request: ActionRequest): Queue
       id: makeQueueId(),
       actionId: request.actionId,
       status: 'pending',
+      pipeline: pipelineFor(request),
       requestedAt: nowIso(),
       detail: request.detail,
       request,
@@ -122,6 +131,7 @@ export function approveQueuedAction(
   }
 
   const completedAt = nowIso()
+  const auditEntryId = `audit-${itemId}`
   const next = items.map((item) => {
     if (item.id !== itemId) {
       return item
@@ -133,6 +143,7 @@ export function approveQueuedAction(
         status: 'denied' as const,
         approvedAt,
         completedAt,
+        auditEntryId,
         detail: reason,
       }
     }
@@ -142,6 +153,7 @@ export function approveQueuedAction(
       status: 'completed' as const,
       approvedAt,
       completedAt,
+      auditEntryId,
       detail: reason,
     }
   })

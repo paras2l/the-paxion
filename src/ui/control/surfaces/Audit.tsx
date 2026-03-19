@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import type { AuditEntry } from '../../../security/types'
 
 interface AuditProps {
@@ -9,6 +9,9 @@ interface AuditProps {
 
 export function Audit(props: AuditProps) {
   const { entries, adminUnlocked } = props
+  const [query, setQuery] = useState('')
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [page, setPage] = useState(1)
 
   if (!adminUnlocked) {
     return (
@@ -24,7 +27,31 @@ export function Audit(props: AuditProps) {
     )
   }
 
-  const recentEntries = [...entries].reverse().slice(0, 16)
+  const filteredEntries = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    return [...entries]
+      .reverse()
+      .filter((entry) => {
+        if (typeFilter !== 'all' && entry.type !== typeFilter) {
+          return false
+        }
+        if (!normalizedQuery) {
+          return true
+        }
+        const payload = JSON.stringify(entry.payload || {}).toLowerCase()
+        return (
+          entry.id.toLowerCase().includes(normalizedQuery)
+          || entry.type.toLowerCase().includes(normalizedQuery)
+          || entry.timestamp.toLowerCase().includes(normalizedQuery)
+          || payload.includes(normalizedQuery)
+        )
+      })
+  }, [entries, query, typeFilter])
+
+  const pageSize = 20
+  const totalPages = Math.max(1, Math.ceil(filteredEntries.length / pageSize))
+  const currentPage = Math.min(page, totalPages)
+  const pagedEntries = filteredEntries.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   return (
     <div className="nova-surface">
@@ -40,15 +67,60 @@ export function Audit(props: AuditProps) {
           </p>
         </div>
 
-        {recentEntries.length === 0 ? (
+        <div className="nova-card">
+          <h3>Search Timeline</h3>
+          <div style={{ display: 'grid', gap: '8px', gridTemplateColumns: '2fr 1fr 1fr' }}>
+            <input
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value)
+                setPage(1)
+              }}
+              placeholder="Search id, type, timestamp, payload"
+            />
+            <select
+              value={typeFilter}
+              onChange={(event) => {
+                setTypeFilter(event.target.value)
+                setPage(1)
+              }}
+            >
+              <option value="all">All types</option>
+              <option value="policy_check">policy_check</option>
+              <option value="approval_issue">approval_issue</option>
+              <option value="approval_use">approval_use</option>
+              <option value="action_result">action_result</option>
+              <option value="threat_detected">threat_detected</option>
+            </select>
+            <button
+              className="run-button"
+              onClick={() => {
+                const blob = new Blob([JSON.stringify(filteredEntries, null, 2)], { type: 'application/json' })
+                const url = URL.createObjectURL(blob)
+                const link = document.createElement('a')
+                link.href = url
+                link.download = `paxion-audit-export-${new Date().toISOString().slice(0, 10)}.json`
+                link.click()
+                URL.revokeObjectURL(url)
+              }}
+            >
+              Export
+            </button>
+          </div>
+          <p className="muted" style={{ marginTop: '8px' }}>
+            Matching entries: <strong>{filteredEntries.length}</strong>
+          </p>
+        </div>
+
+        {pagedEntries.length === 0 ? (
           <div className="nova-card">
             <p className="muted">No audit events yet. Run sensitive actions to populate.</p>
           </div>
         ) : (
           <div className="nova-card">
-            <h3>Recent Events</h3>
+            <h3>Audit Timeline</h3>
             <div className="nova-audit-list">
-              {recentEntries.map((entry) => (
+              {pagedEntries.map((entry) => (
                 <article
                   key={entry.id}
                   className="nova-audit-entry"
@@ -86,6 +158,25 @@ export function Audit(props: AuditProps) {
                   </div>
                 </article>
               ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px' }}>
+              <button
+                className="run-button"
+                onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                disabled={currentPage <= 1}
+              >
+                Previous
+              </button>
+              <p className="muted">
+                Page {currentPage} / {totalPages}
+              </p>
+              <button
+                className="run-button"
+                onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+                disabled={currentPage >= totalPages}
+              >
+                Next
+              </button>
             </div>
           </div>
         )}

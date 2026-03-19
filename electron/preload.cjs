@@ -25,6 +25,10 @@ contextBridge.exposeInMainWorld('paxion', {
     load: () => ipcRenderer.invoke('paxion:access:load'),
     set: (input) => ipcRenderer.invoke('paxion:access:set', input),
   },
+  features: {
+    load: () => ipcRenderer.invoke('paxion:features:load'),
+    set: (input) => ipcRenderer.invoke('paxion:features:set', input),
+  },
   integrations: {
     getStatus: () => ipcRenderer.invoke('paxion:integrations:getStatus'),
     googleSearch: (input) => ipcRenderer.invoke('paxion:integrations:googleSearch', input),

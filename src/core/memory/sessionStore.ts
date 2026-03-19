@@ -10,6 +10,18 @@ export type SessionMemoryRecord = {
   relevanceScore: number
 }
 
+export type ChannelMemorySchema = {
+  id: string
+  channelId: string
+  roleContext: 'webchat' | 'telegram' | 'discord' | 'whatsapp' | 'system'
+  title: string
+  compactSummary: string
+  createdAt: string
+  eventCount: number
+  tokensBudget: number
+  relevanceScore: number
+}
+
 export type MemoryState = {
   sessions: SessionMemoryRecord[]
   totalDocuments: number
@@ -22,6 +34,34 @@ function clampScore(value: number): number {
   if (value < 1) return 1
   if (value > 100) return 100
   return Math.round(value)
+}
+
+function normalizeChannelId(value: string): ChannelMemorySchema['roleContext'] {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (normalized === 'telegram') return 'telegram'
+  if (normalized === 'discord') return 'discord'
+  if (normalized === 'whatsapp') return 'whatsapp'
+  if (normalized === 'system') return 'system'
+  return 'webchat'
+}
+
+function normalizeChannelMemory(raw: Partial<SessionMemoryRecord>): ChannelMemorySchema {
+  const roleContext = normalizeChannelId(String(raw.channelId || 'webchat'))
+  const facts = Number(raw.facts || 0)
+  const eventCount = Math.max(1, Math.min(200, facts || 1))
+  const tokensBudget = Math.max(256, 4096 - Math.min(3000, eventCount * 16))
+
+  return {
+    id: String(raw.id || `session-${Date.now().toString(36)}`),
+    channelId: roleContext,
+    roleContext,
+    title: String(raw.title || 'Untitled Session'),
+    compactSummary: String(raw.compactSummary || ''),
+    createdAt: String(raw.createdAt || new Date().toISOString()),
+    eventCount,
+    tokensBudget,
+    relevanceScore: clampScore(Number(raw.relevanceScore || 50)),
+  }
 }
 
 export function loadMemoryState(): MemoryState | null {
@@ -44,15 +84,18 @@ export function loadMemoryState(): MemoryState | null {
       sessions: parsed.sessions
         .filter((session) => session && typeof session.id === 'string')
         .slice(0, 50)
-        .map((session) => ({
-          id: String(session.id),
-          channelId: String(session.channelId || 'webchat'),
-          title: String(session.title || 'Untitled Session'),
-          compactSummary: String(session.compactSummary || ''),
-          createdAt: String(session.createdAt || new Date().toISOString()),
-          facts: Number(session.facts || 0),
-          relevanceScore: clampScore(Number(session.relevanceScore || 50)),
-        })),
+        .map((session) => {
+          const normalized = normalizeChannelMemory(session)
+          return {
+            id: normalized.id,
+            channelId: normalized.channelId,
+            title: normalized.title,
+            compactSummary: normalized.compactSummary,
+            createdAt: normalized.createdAt,
+            facts: normalized.eventCount,
+            relevanceScore: normalized.relevanceScore,
+          }
+        }),
       totalDocuments: Number(parsed.totalDocuments || 0),
       totalWords: Number(parsed.totalWords || 0),
     }
@@ -85,7 +128,7 @@ export function deriveMemoryState(
     .map((item, index) => {
       const channelId = item.request.jurisdiction || 'webchat'
       const createdAt = item.completedAt || item.approvedAt || item.requestedAt
-      return {
+      const normalized = normalizeChannelMemory({
         id: item.id,
         channelId,
         title: item.actionId,
@@ -93,6 +136,16 @@ export function deriveMemoryState(
         createdAt,
         facts: Math.max(1, Math.min(24, learnedSkills.length + index + 2)),
         relevanceScore: clampScore(80 - index * 2),
+      })
+
+      return {
+        id: normalized.id,
+        channelId: normalized.channelId,
+        title: normalized.title,
+        compactSummary: normalized.compactSummary,
+        createdAt: normalized.createdAt,
+        facts: normalized.eventCount,
+        relevanceScore: normalized.relevanceScore,
       }
     })
 

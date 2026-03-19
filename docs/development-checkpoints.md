@@ -20,6 +20,17 @@ Use this file to protect continuity and prevent missing work.
 - Changelog/release note entry added when needed.
 - Git push succeeds.
 
+## Pivot Final Verification (F/G/H)
+- Tool execution path uses privileged pipeline for approval-required actions.
+- Privileged execution uses bounded timeout and audit linkage.
+- Queue and audit traces include pipeline + queue reference data.
+- Per-channel memory normalization is active for derived session memory.
+- Audit anomaly signal emits `threat_detected` entries under repeated denied patterns.
+- Audit timeline supports search, filter, pagination, and export.
+- Cloud relay is denied when `cloudRelayEnabled` flag is false.
+- Desktop adapter is denied when `desktopAdapterEnabled` flag is false.
+- Local policy remains final authority for relay ingress and completion paths.
+
 ## Fresh machine recovery
 1. Clone repository.
 2. Install Node.js 20.18+ (or newer LTS).
@@ -48,3 +59,4 @@ Use this file to protect continuity and prevent missing work.
 - v0.17.0-native-evidence-governance: native execution IPC engine with deterministic selector recovery, automatic per-step evidence hooks (state + screenshot + transcript), signed attestation chain records, universal rollback transaction executor, paginated graph query API, versioned target-pack compatibility profiles, governance signature gates for self-evolution promotion, and expanded readiness integration tests.
 - v0.18.0-readiness-closure: automatic DOM extraction fallback in evidence hooks, attestation key status/rotation APIs, full operator controls for native action execution + rollback execution + graph paging queries + governance signature gates, version-aware target pack metadata inputs, and workspace-scale operational controls for long-running supervised sessions.
 - v0.19.0-safe-domain-expansion-bootstrap: jurisdiction-aware compliance engine integration into main policy flow, secure device control-plane APIs (register/list/revoke), autonomous learning v2 update+hypothesis endpoints, trading backtest and paper-order endpoints, medical safety/confidence review endpoint, media generation queue endpoint, and expanded node:test coverage for new engines.
+- v0.20.0-pivot-fgh-core: privileged-vs-normal execution pipeline split with timeout controls, feature-flag gated cloud relay and desktop adapter, relay local-policy ingress checks, per-channel memory normalization, searchable/exportable audit timeline, and anomaly-driven `threat_detected` audit signaling.

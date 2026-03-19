@@ -6,6 +6,36 @@ const crypto = require('crypto')
 const PORT = Number(process.env.PORT || process.env.PAXION_RELAY_PORT || 8787)
 const RELAY_TOKEN = String(process.env.PAXION_RELAY_TOKEN || '').trim()
 const pending = new Map()
+const relayAudit = []
+
+function appendRelayAudit(type, payload) {
+  relayAudit.push({
+    id: `audit-${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`,
+    timestamp: new Date().toISOString(),
+    type,
+    payload,
+  })
+  if (relayAudit.length > 300) {
+    relayAudit.shift()
+  }
+}
+
+function localPolicyCheck(request) {
+  const actionId = String(request?.actionId || '').toLowerCase()
+  const detail = String(request?.detail || '').toLowerCase()
+  const blockedPatterns = ['exfiltrate', 'disable policy', 'delete audit', 'bypass']
+  const blocked = blockedPatterns.some((pattern) => actionId.includes(pattern) || detail.includes(pattern))
+  if (blocked) {
+    return {
+      allowed: false,
+      reason: 'Relay denied request due to local policy block pattern.',
+    }
+  }
+  return {
+    allowed: true,
+    reason: 'Relay accepted request. Final authority remains local desktop policy.',
+  }
+}
 
 function writeJson(res, statusCode, payload) {
   res.writeHead(statusCode, { 'content-type': 'application/json; charset=utf-8' })
@@ -46,13 +76,29 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
 
   if (req.method === 'GET' && url.pathname === '/health') {
-    writeJson(res, 200, { ok: true, service: 'paxion-cloud-relay' })
+    writeJson(res, 200, { ok: true, service: 'paxion-cloud-relay', auditDepth: relayAudit.length })
+    return
+  }
+
+  if (req.method === 'GET' && url.pathname === '/relay/audit') {
+    if (!requireToken(req, res)) return
+    writeJson(res, 200, { ok: true, entries: relayAudit.slice(-120) })
     return
   }
 
   if (req.method === 'POST' && url.pathname === '/relay/request') {
     if (!requireToken(req, res)) return
     const body = await readBody(req)
+    const policy = localPolicyCheck(body?.request || null)
+    if (!policy.allowed) {
+      appendRelayAudit('request_blocked', {
+        reason: policy.reason,
+        request: body?.request || null,
+      })
+      writeJson(res, 403, { ok: false, reason: policy.reason })
+      return
+    }
+
     const requestId = `relay-${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}`
     const row = {
       id: requestId,
@@ -62,6 +108,11 @@ const server = http.createServer(async (req, res) => {
       result: null,
     }
     pending.set(requestId, row)
+    appendRelayAudit('request_queued', {
+      requestId,
+      actionId: body?.request?.actionId || null,
+      policy: policy.reason,
+    })
     writeJson(res, 200, { ok: true, requestId, state: row.state })
     return
   }
@@ -90,6 +141,10 @@ const server = http.createServer(async (req, res) => {
     row.state = String(body?.state || 'completed')
     row.result = body?.result || null
     pending.set(requestId, row)
+    appendRelayAudit('request_completed', {
+      requestId,
+      state: row.state,
+    })
     writeJson(res, 200, { ok: true, request: row })
     return
   }

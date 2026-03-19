@@ -75,6 +75,12 @@ const DEFAULT_CAPABILITIES = {
   emergencyCallRelay: true,
 }
 
+const DEFAULT_FEATURE_FLAGS = {
+  desktopAdapterEnabled: false,
+  cloudRelayEnabled: false,
+  memoryNormalizationEnabled: true,
+}
+
 const ACTION_REQUIRED_CAPABILITY = {
   'workspace.generateComponent': 'workspaceExecution',
   'library.ingestDocument': 'libraryIngestLocal',
@@ -853,6 +859,7 @@ function registerIpcHandlers(mainWindow) {
   const approvalsFilePath = path.join(app.getPath('userData'), 'paxion-approvals.json')
   const workspaceStateFilePath = path.join(app.getPath('userData'), 'paxion-workspace-state.json')
   const capabilityStateFilePath = path.join(app.getPath('userData'), 'paxion-capabilities.json')
+  const featureFlagsFilePath = path.join(app.getPath('userData'), 'paxion-feature-flags.json')
   const libraryStateFilePath = path.join(app.getPath('userData'), 'paxion-library-state.json')
   const learningStateFilePath = path.join(app.getPath('userData'), 'paxion-learning-state.json')
   const attestationStateFilePath = path.join(app.getPath('userData'), 'paxion-attestation-state.json')
@@ -873,6 +880,7 @@ function registerIpcHandlers(mainWindow) {
   const approvalTickets = new Map()
   const replayPreviewApprovals = new Map()
   let capabilityState = { ...DEFAULT_CAPABILITIES }
+  let featureFlags = { ...DEFAULT_FEATURE_FLAGS }
   let learningState = {
     skills: [],
     logs: [],
@@ -1012,6 +1020,12 @@ function registerIpcHandlers(mainWindow) {
   }
 
   function appendAuditEntry(type, payload) {
+    const entry = appendAuditEntryRaw(type, payload)
+    maybeAppendThreat(entry)
+    return entry
+  }
+
+  function appendAuditEntryRaw(type, payload) {
     const nextIndex = auditState.lastIndex + 1
     const entrySeed = {
       id: `log-${nextIndex}`,
@@ -1030,6 +1044,30 @@ function registerIpcHandlers(mainWindow) {
     auditState.lastIndex = nextIndex
     auditState.lastHash = entry.hash
     return entry
+  }
+
+  function maybeAppendThreat(entry) {
+    if (!entry || entry.type === 'threat_detected') {
+      return
+    }
+
+    try {
+      const entries = loadAuditEntriesFromDisk().slice(-8)
+      const deniedCount = entries.filter((row) => {
+        if (row?.type !== 'action_result') return false
+        return String(row?.payload?.status || '').toLowerCase() === 'denied'
+      }).length
+
+      if (deniedCount >= 5) {
+        appendAuditEntryRaw('threat_detected', {
+          sourceEntryId: entry.id,
+          signal: `Repeated denied actions detected (${deniedCount}).`,
+          score: 90,
+        })
+      }
+    } catch {
+      // Never fail primary audit append due to anomaly detection issues.
+    }
   }
 
   function saveApprovalTickets() {
@@ -1146,6 +1184,28 @@ function registerIpcHandlers(mainWindow) {
     } catch {
       capabilityState = { ...DEFAULT_CAPABILITIES }
     }
+  }
+
+  function loadFeatureFlags() {
+    if (!fs.existsSync(featureFlagsFilePath)) {
+      featureFlags = { ...DEFAULT_FEATURE_FLAGS }
+      return
+    }
+
+    try {
+      const raw = fs.readFileSync(featureFlagsFilePath, 'utf8')
+      const parsed = JSON.parse(raw)
+      featureFlags = {
+        ...DEFAULT_FEATURE_FLAGS,
+        ...(parsed && typeof parsed === 'object' ? parsed : {}),
+      }
+    } catch {
+      featureFlags = { ...DEFAULT_FEATURE_FLAGS }
+    }
+  }
+
+  function saveFeatureFlags() {
+    fs.writeFileSync(featureFlagsFilePath, JSON.stringify(featureFlags, null, 2), 'utf8')
   }
 
   function saveCapabilityState() {
@@ -3112,6 +3172,27 @@ function registerIpcHandlers(mainWindow) {
       }
     }
 
+    if (request?.actionId === 'automation.desktopAppEdit' && featureFlags.desktopAdapterEnabled !== true) {
+      const deniedDecision = {
+        allowed: false,
+        requiresApproval: false,
+        ruleId: 'feature-flag-disabled',
+        reason: 'Desktop adapter is disabled by feature flag. Enable it in Nodes > Experimental Flags.',
+      }
+
+      return {
+        baseDecision: deniedDecision,
+        finalDecision: deniedDecision,
+        context: {
+          adminSessionActive: isAdminUnlocked(adminSession),
+          adminVerified: false,
+          approvalGranted: false,
+          approvalTicketId: null,
+          approvalExpiresAt: null,
+        },
+      }
+    }
+
     if (!baseDecision.allowed || !baseDecision.requiresApproval) {
       return {
         baseDecision,
@@ -3667,9 +3748,25 @@ function registerIpcHandlers(mainWindow) {
     }
   }
 
+  async function executeWithTimeout(request, timeoutMs) {
+    return Promise.race([
+      executeAllowedAction(request),
+      new Promise((resolve) => {
+        setTimeout(() => {
+          resolve({
+            executed: false,
+            mode: 'timeout',
+            note: `Execution timed out after ${timeoutMs}ms.`,
+          })
+        }, timeoutMs)
+      }),
+    ])
+  }
+
   loadApprovalTickets()
   initializeAuditState()
   loadCapabilityState()
+  loadFeatureFlags()
   loadLearningState()
   loadDomainStates()
   ensureAttestationState()
@@ -3774,6 +3871,38 @@ function registerIpcHandlers(mainWindow) {
     return {
       ok: true,
       capabilities: capabilityState,
+    }
+  })
+
+  ipcMain.handle('paxion:features:load', () => {
+    return {
+      ok: true,
+      flags: featureFlags,
+    }
+  })
+
+  ipcMain.handle('paxion:features:set', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to update feature flags.', flags: featureFlags }
+    }
+
+    featureFlags = {
+      ...featureFlags,
+      desktopAdapterEnabled: Boolean(input?.desktopAdapterEnabled ?? featureFlags.desktopAdapterEnabled),
+      cloudRelayEnabled: Boolean(input?.cloudRelayEnabled ?? featureFlags.cloudRelayEnabled),
+      memoryNormalizationEnabled: Boolean(input?.memoryNormalizationEnabled ?? featureFlags.memoryNormalizationEnabled),
+    }
+    saveFeatureFlags()
+
+    appendAuditEntry('action_result', {
+      actionId: 'features.set',
+      status: 'allowed',
+      flags: featureFlags,
+    })
+
+    return {
+      ok: true,
+      flags: featureFlags,
     }
   })
 
@@ -6636,10 +6765,15 @@ function registerIpcHandlers(mainWindow) {
         updatedAt: new Date().toISOString(),
       }
     }
+    const requestedMode = String(input?.mode || 'disabled').trim() || 'disabled'
+    if (requestedMode === 'cloud' && featureFlags.cloudRelayEnabled !== true) {
+      return { ok: false, reason: 'Cloud relay feature flag is disabled.' }
+    }
+
     advancedState.relay = {
       ...(advancedState.relay || {}),
       config: {
-        mode: String(input?.mode || 'disabled').trim() || 'disabled',
+        mode: requestedMode,
         endpoint: String(input?.endpoint || '').trim(),
         deviceId: String(input?.deviceId || advancedState?.relay?.config?.deviceId || 'paxion-primary').trim() || 'paxion-primary',
         pollingEnabled: Boolean(input?.pollingEnabled),
@@ -6667,6 +6801,9 @@ function registerIpcHandlers(mainWindow) {
     const relaySecrets = loadRelaySecrets()
     if (String(relayConfig.mode || 'disabled') !== 'cloud') {
       return { ok: false, reason: 'Cloud relay mode is not enabled.' }
+    }
+    if (featureFlags.cloudRelayEnabled !== true) {
+      return { ok: false, reason: 'Cloud relay feature flag is disabled.' }
     }
     const result = await submitRelayRequest({
       endpoint: relayConfig.endpoint,
@@ -6703,6 +6840,9 @@ function registerIpcHandlers(mainWindow) {
     if (String(relayConfig.mode || 'disabled') !== 'cloud') {
       return { ok: false, reason: 'Cloud relay mode is not enabled.' }
     }
+    if (featureFlags.cloudRelayEnabled !== true) {
+      return { ok: false, reason: 'Cloud relay feature flag is disabled.' }
+    }
     const result = await listPendingRelayRequests({
       endpoint: relayConfig.endpoint,
       token: relaySecrets.cloudToken,
@@ -6729,6 +6869,9 @@ function registerIpcHandlers(mainWindow) {
     const relaySecrets = loadRelaySecrets()
     if (String(relayConfig.mode || 'disabled') !== 'cloud') {
       return { ok: false, reason: 'Cloud relay mode is not enabled.' }
+    }
+    if (featureFlags.cloudRelayEnabled !== true) {
+      return { ok: false, reason: 'Cloud relay feature flag is disabled.' }
     }
     const result = await completeRelayRequest({
       endpoint: relayConfig.endpoint,
@@ -7096,20 +7239,30 @@ function registerIpcHandlers(mainWindow) {
     }
 
     let execution
+    let pipeline = 'normal'
     if (!decision.finalDecision.allowed) {
       execution = {
         executed: false,
         mode: 'blocked',
         note: 'Execution skipped because final decision denied.',
       }
+      pipeline = decision.baseDecision.requiresApproval ? 'privileged' : 'normal'
     } else {
-      execution = await executeAllowedAction(request)
+      if (decision.baseDecision.requiresApproval) {
+        pipeline = 'privileged'
+        execution = await executeWithTimeout(request, 30_000)
+      } else {
+        pipeline = 'normal'
+        execution = await executeAllowedAction(request)
+      }
     }
 
     appendAuditEntry('action_result', {
       actionId: request?.actionId,
       status: decision.finalDecision.allowed ? 'allowed' : 'denied',
       reason: decision.finalDecision.reason,
+      pipeline,
+      queueRef: decision.context.approvalTicketId,
       execution,
     })
 

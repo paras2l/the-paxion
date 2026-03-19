@@ -216,6 +216,18 @@ interface PaxionAccessResult {
   capabilities: PaxionCapabilityState
 }
 
+type PaxionFeatureFlags = {
+  desktopAdapterEnabled: boolean
+  cloudRelayEnabled: boolean
+  memoryNormalizationEnabled: boolean
+}
+
+interface PaxionFeatureFlagsResult {
+  ok: boolean
+  reason?: string
+  flags: PaxionFeatureFlags
+}
+
 interface PaxionIntegrationsStatus {
   ok: boolean
   reason?: string
@@ -634,6 +646,10 @@ declare global {
       access: {
         load(): Promise<PaxionAccessResult>
         set(input: { key: keyof PaxionCapabilityState; enabled: boolean }): Promise<PaxionAccessResult>
+      }
+      features: {
+        load(): Promise<PaxionFeatureFlagsResult>
+        set(input: Partial<PaxionFeatureFlags>): Promise<PaxionFeatureFlagsResult>
       }
       integrations: {
         getStatus(): Promise<PaxionIntegrationsStatus>

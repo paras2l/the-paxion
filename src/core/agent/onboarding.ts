@@ -10,4 +10,4 @@ export const onboardingChecklist: OnboardingTask[] = [
   { id: 'set-permissions', title: 'Set permissions for messaging, calls, and automation', done: false },
   { id: 'run-first-command', title: 'Run first real-world command', done: false },
   { id: 'verify-backup', title: 'Create first backup snapshot', done: false },
-]}
+]

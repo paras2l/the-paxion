@@ -39,6 +39,10 @@ interface NodesProps {
   onCompleteRelayRequest?: (requestId: string) => void
   onRefreshBridge?: () => void
   onToggleBridge?: (enabled: boolean) => void
+  desktopAdapterEnabled?: boolean
+  cloudRelayEnabled?: boolean
+  onToggleDesktopAdapter?: (enabled: boolean) => void
+  onToggleCloudRelay?: (enabled: boolean) => void
   children?: ReactNode
 }
 
@@ -55,6 +59,10 @@ export function Nodes(props: NodesProps) {
     onCompleteRelayRequest,
     onRefreshBridge,
     onToggleBridge,
+    desktopAdapterEnabled = false,
+    cloudRelayEnabled = false,
+    onToggleDesktopAdapter,
+    onToggleCloudRelay,
   } = props
 
   const localNodes = nodes.filter((n) => n.type === 'local')
@@ -176,7 +184,33 @@ export function Nodes(props: NodesProps) {
         </div>
 
         <div className="nova-card">
+          <h3>Experimental Flags</h3>
+          <p className="muted">
+            Keep risky modules disabled by default. Enable only during supervised tests.
+          </p>
+          <div style={{ display: 'grid', gap: '8px', gridTemplateColumns: '1fr 1fr' }}>
+            <button
+              className="run-button"
+              onClick={() => onToggleDesktopAdapter?.(!desktopAdapterEnabled)}
+            >
+              Desktop Adapter: {desktopAdapterEnabled ? 'Enabled' : 'Disabled'}
+            </button>
+            <button
+              className="run-button"
+              onClick={() => onToggleCloudRelay?.(!cloudRelayEnabled)}
+            >
+              Cloud Relay: {cloudRelayEnabled ? 'Enabled' : 'Disabled'}
+            </button>
+          </div>
+        </div>
+
+        <div className="nova-card">
           <h3>Hybrid Relay Control</h3>
+          {!cloudRelayEnabled && (
+            <p className="muted accent-cyan">
+              Cloud relay is feature-flag disabled. Enable it above to allow sync/submit/complete.
+            </p>
+          )}
           <p className="muted">
             Mode: <strong>{relay.mode}</strong>
           </p>
@@ -198,10 +232,10 @@ export function Nodes(props: NodesProps) {
             <button className="run-button" onClick={onRefreshRelay}>
               Refresh Relay
             </button>
-            <button className="run-button" onClick={onSyncRelay}>
+            <button className="run-button" onClick={onSyncRelay} disabled={!cloudRelayEnabled}>
               Sync Queue
             </button>
-            <button className="run-button" onClick={onSubmitRelayHeartbeat}>
+            <button className="run-button" onClick={onSubmitRelayHeartbeat} disabled={!cloudRelayEnabled}>
               Send Heartbeat
             </button>
           </div>
@@ -223,7 +257,11 @@ export function Nodes(props: NodesProps) {
                       <strong>{actionId}</strong>
                     </div>
                     <p className="muted">Request ID: {id}</p>
-                    <button className="run-button" onClick={() => onCompleteRelayRequest?.(id)}>
+                    <button
+                      className="run-button"
+                      onClick={() => onCompleteRelayRequest?.(id)}
+                      disabled={!cloudRelayEnabled}
+                    >
                       Mark Completed
                     </button>
                   </article>

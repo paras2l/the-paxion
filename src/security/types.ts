@@ -26,6 +26,7 @@ export type AuditEventType =
   | 'approval_issue'
   | 'approval_use'
   | 'action_result'
+  | 'threat_detected'
 
 export type AuditEntry = {
   id: string

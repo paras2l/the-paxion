@@ -61,6 +61,7 @@ import { Nodes } from './surfaces/Nodes'
 import type { BridgeSummary, DeviceNode, RelaySummary } from './surfaces/Nodes'
 import { Workspace } from './surfaces/Workspace'
 import type { WorkspaceMission } from './surfaces/Workspace'
+import { Audit } from './surfaces/Audit'
 import './ControlShell.css'
 
 type ChannelStatus = {
@@ -95,6 +96,10 @@ type ControlShellProps = {
   onCompleteRelayRequest: (requestId: string) => void
   onRefreshBridge: () => void
   onToggleBridge: (enabled: boolean) => void
+  desktopAdapterEnabled?: boolean
+  cloudRelayEnabled?: boolean
+  onToggleDesktopAdapter?: (enabled: boolean) => void
+  onToggleCloudRelay?: (enabled: boolean) => void
   onAppendAudit?: (type: AuditEventType, payload: Record<string, unknown>) => Promise<void> | void
 }
 
@@ -182,6 +187,10 @@ export default function ControlShell({
   onCompleteRelayRequest,
   onRefreshBridge,
   onToggleBridge,
+  desktopAdapterEnabled = false,
+  cloudRelayEnabled = false,
+  onToggleDesktopAdapter,
+  onToggleCloudRelay,
   onAppendAudit,
 }: ControlShellProps) {
   const [activeTab, setActiveTab] = useState<TabId>('chat')
@@ -1082,6 +1091,10 @@ export default function ControlShell({
                 nodes={nodeViews}
                 relay={relay}
                 bridge={bridge}
+                desktopAdapterEnabled={desktopAdapterEnabled}
+                cloudRelayEnabled={cloudRelayEnabled}
+                onToggleDesktopAdapter={onToggleDesktopAdapter}
+                onToggleCloudRelay={onToggleCloudRelay}
                 onPairNew={() => setLastQueueMessage('New device pairing started.')}
                 onRotateSecret={(nodeId) => setLastQueueMessage(`Requested secret rotation for ${nodeId}.`)}
                 onRefreshRelay={onRefreshRelay}
@@ -1135,6 +1148,9 @@ export default function ControlShell({
                   <p className="muted">{analyticsSummary.blockedIntegration}</p>
                 </article>
               </div>
+
+              <h3 style={{ marginTop: '14px' }}>Audit Timeline</h3>
+              <Audit entries={auditEntries} adminUnlocked={adminUnlocked} />
             </section>
           </div>
         )}

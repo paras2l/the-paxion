@@ -155,6 +155,12 @@ type CapabilityState = {
 
 type CapabilityKey = keyof CapabilityState
 
+type FeatureFlagState = {
+  desktopAdapterEnabled: boolean
+  cloudRelayEnabled: boolean
+  memoryNormalizationEnabled: boolean
+}
+
 type SpeechRecognitionResultLike = {
   transcript: string
 }
@@ -665,6 +671,12 @@ const defaultIntegrationStatus: IntegrationStatus = {
   requiresAdminApproval: true,
 }
 
+const defaultFeatureFlags: FeatureFlagState = {
+  desktopAdapterEnabled: false,
+  cloudRelayEnabled: false,
+  memoryNormalizationEnabled: true,
+}
+
 const SKILL_PATTERNS: Array<{ skill: string; pattern: RegExp }> = [
   { skill: 'React UI Development', pattern: /react|tsx|component|jsx/i },
   { skill: 'TypeScript Engineering', pattern: /typescript|tsconfig|type|interface|generic/i },
@@ -747,6 +759,7 @@ function App() {
   const [pwaInstallMessage, setPwaInstallMessage] = useState('')
   const [pwaInstalled, setPwaInstalled] = useState(false)
   const [capabilities, setCapabilities] = useState<CapabilityState>(defaultCapabilityState)
+  const [featureFlags, setFeatureFlags] = useState<FeatureFlagState>(defaultFeatureFlags)
   const [accessMessage, setAccessMessage] = useState('')
   const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus>(defaultIntegrationStatus)
   const [learningLogs, setLearningLogs] = useState<LearningLogEntry[]>([])
@@ -1142,6 +1155,43 @@ function App() {
     }
   }, [])
 
+  const loadFeatureFlags = useCallback(async () => {
+    if (!window.paxion?.features?.load) {
+      setFeatureFlags(defaultFeatureFlags)
+      return
+    }
+
+    const result = await window.paxion.features.load().catch(() => null)
+    if (!result?.ok || !result.flags) {
+      return
+    }
+
+    setFeatureFlags((prev) => ({
+      ...prev,
+      desktopAdapterEnabled: Boolean(result.flags.desktopAdapterEnabled),
+      cloudRelayEnabled: Boolean(result.flags.cloudRelayEnabled),
+      memoryNormalizationEnabled: Boolean(result.flags.memoryNormalizationEnabled),
+    }))
+  }, [])
+
+  const setFeatureFlag = useCallback(async (patch: Partial<FeatureFlagState>) => {
+    if (!window.paxion?.features?.set) {
+      setFeatureFlags((prev) => ({ ...prev, ...patch }))
+      return
+    }
+
+    const result = await window.paxion.features.set(patch).catch(() => null)
+    if (!result?.ok || !result.flags) {
+      return
+    }
+
+    setFeatureFlags({
+      desktopAdapterEnabled: Boolean(result.flags.desktopAdapterEnabled),
+      cloudRelayEnabled: Boolean(result.flags.cloudRelayEnabled),
+      memoryNormalizationEnabled: Boolean(result.flags.memoryNormalizationEnabled),
+    })
+  }, [])
+
   const loadIntegrationStatus = useCallback(async () => {
     if (!window.paxion) {
       setIntegrationStatus(defaultIntegrationStatus)
@@ -1464,6 +1514,7 @@ function App() {
     queueMicrotask(() => {
       refreshAdminStatus()
       loadCapabilities()
+      loadFeatureFlags()
       loadIntegrationStatus()
       loadLearningState()
       loadAutomationState()
@@ -1477,7 +1528,7 @@ function App() {
     return () => {
       window.clearInterval(intervalId)
     }
-  }, [loadAutomationState, loadCapabilities, loadIntegrationStatus, loadLearningState, loadReadinessState, refreshAdminStatus])
+  }, [loadAutomationState, loadCapabilities, loadFeatureFlags, loadIntegrationStatus, loadLearningState, loadReadinessState, refreshAdminStatus])
 
   useEffect(() => {
     if (!adminUnlocked) return
@@ -1485,6 +1536,7 @@ function App() {
       loadLearningState()
       loadAutomationState()
       loadReadinessState()
+      void loadFeatureFlags()
       void loadVoiceSecretStatus()
       void loadVoiceRuntimeState()
       void loadTerminalPacks()
@@ -1493,7 +1545,7 @@ function App() {
       void loadThreatDashboard()
       void loadWeeklyOptimizationStatus()
     })
-  }, [adminUnlocked, loadAutomationState, loadLearningState, loadReadinessState])
+  }, [adminUnlocked, loadAutomationState, loadFeatureFlags, loadLearningState, loadReadinessState])
 
   // Restore workspace mission state from persistence.
   useEffect(() => {
@@ -7768,6 +7820,10 @@ function App() {
           }
           void stopMobileBridge()
         }}
+        desktopAdapterEnabled={featureFlags.desktopAdapterEnabled}
+        cloudRelayEnabled={featureFlags.cloudRelayEnabled}
+        onToggleDesktopAdapter={(enabled) => void setFeatureFlag({ desktopAdapterEnabled: enabled })}
+        onToggleCloudRelay={(enabled) => void setFeatureFlag({ cloudRelayEnabled: enabled })}
         onAppendAudit={appendAudit}
       />
     )
