@@ -135,6 +135,8 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Burst-throttle route guard now blocks new risky routing under abuse/retry anomaly windows.
 - Delegated queue now enforces idempotency and exposes replay controls (retry all, safe replay, clear failed).
 - Mobile-origin delegated actions now replay safely when connectivity is restored.
+- Restart recovery now keeps privileged delegated actions in pending-approval state before rerun.
+- End-to-end mobile reliability tests now verify PWA install prerequisites, deterministic replay plans, retry-storm throttle behavior, and route determinism under timing variance.
 
 ## Advanced autonomy foundations
 - Advanced governance now includes policy-diff simulation, staged canary rollout planning, and anomaly-driven rollback recommendations.

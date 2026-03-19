@@ -65,7 +65,7 @@ Use this file to protect continuity and prevent missing work.
 - Delegated lifecycle telemetry tracks queued/executing/completed/failed transitions.
 - Audit anomaly detection emits threats for delegated remote abuse bursts.
 - Audit anomaly detection emits threats for retry-storm failure patterns.
-- Delegated queue restores executing items safely after restart as resumable approved state.
+- Delegated queue restores executing items safely after restart while keeping privileged items approval-gated.
 
 ## Device Expansion Closure Verification
 - Relay and bridge network calls use bounded retry budgets with backoff and jitter.
@@ -73,6 +73,8 @@ Use this file to protect continuity and prevent missing work.
 - Delegated queue enforces idempotency key guard against duplicate enqueues.
 - Mobile-origin delegated tasks auto-replay on reconnect for safe categories.
 - Operators can run retry-all, replay-safe-only, and clear-failed queue controls from Integrations panel.
+- Route decisions remain deterministic under variable network timing and packet-loss simulation.
+- PWA manifest + service worker install prerequisites and mobile session replay flow pass end-to-end reliability tests.
 
 ## Fresh machine recovery
 1. Clone repository.
@@ -109,3 +111,5 @@ Use this file to protect continuity and prevent missing work.
 - v0.21.3-device-expansion-m6-kickoff: multilingual voice pipeline with session language memory, STT/TTS routing, fallback language chain, and control-surface language visibility.
 - v0.21.4-device-expansion-m7-kickoff: reliability telemetry dashboard, remote abuse and retry-storm anomaly patterns, and crash-safe delegated workflow resume.
 - v0.21.5-device-expansion-closure-hardening: network backoff+budget controls, delegated idempotency and replay controls, burst-throttle guardrails, and reconnect replay resilience.
+- v0.21.6-deterministic-replay-and-approval-recovery: deterministic replay candidate ordering, restart-safe privileged reapproval, and core reliability test coverage.
+- v0.21.7-mobile-reliability-e2e-validation: PWA install prerequisites verification plus end-to-end mobile session recovery, replay determinism, and throttle-response tests.
