@@ -39,6 +39,13 @@ Use this file to protect continuity and prevent missing work.
 - Delegated privileged actions remain approval-gated and audit-linked.
 - PWA/mobile companion install and bridge lifecycle remain operational.
 
+## Device Expansion Verification (M2/M3 kickoff)
+- Mobile companion state recovery persists and restores key command/session state.
+- Device class and route mode are visible in mobile companion diagnostics.
+- Delegated queue lifecycle includes pending approval, execution, completion, and failure states.
+- Delegated queue events carry correlation IDs and are audit linked.
+- Delegated privileged actions enforce admin session and codeword approval before execution.
+
 ## Fresh machine recovery
 1. Clone repository.
 2. Install Node.js 20.18+ (or newer LTS).
@@ -69,3 +76,4 @@ Use this file to protect continuity and prevent missing work.
 - v0.19.0-safe-domain-expansion-bootstrap: jurisdiction-aware compliance engine integration into main policy flow, secure device control-plane APIs (register/list/revoke), autonomous learning v2 update+hypothesis endpoints, trading backtest and paper-order endpoints, medical safety/confidence review endpoint, media generation queue endpoint, and expanded node:test coverage for new engines.
 - v0.20.0-pivot-fgh-core: privileged-vs-normal execution pipeline split with timeout controls, feature-flag gated cloud relay and desktop adapter, relay local-policy ingress checks, per-channel memory normalization, searchable/exportable audit timeline, and anomaly-driven `threat_detected` audit signaling.
 - v0.21.0-device-expansion-kickoff: M1 routing core started with shared device profiles, action route mode decisions, mobile route visibility in UI, and M1-M7 execution tracker baseline.
+- v0.21.1-device-expansion-m2m3-kickoff: mobile/tablet session recovery baseline plus delegated desktop queue lifecycle with correlation IDs, approval gating, and audit-linked status transitions.

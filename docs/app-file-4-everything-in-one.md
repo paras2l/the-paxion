@@ -209,7 +209,9 @@ Cross-device parity rollout has started with a dedicated tracker:
 Current state:
 
 - M1 started in code: shared device profile derivation and action routing mode decisions.
-- M2-M7 staged: mobile/tablet hardening, secure delegation queue, call/channel parity, smart-glass mode, multilingual voice, observability.
+- M2 started in code: mobile companion session recovery snapshot + restore baseline.
+- M3 started in code: delegated desktop queue lifecycle with correlation IDs and audit-linked transitions.
+- M4-M7 staged: call/channel parity, smart-glass mode, multilingual voice, observability.
 
 Execution model for cross-device requests:
 

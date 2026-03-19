@@ -9,8 +9,8 @@ Enable one policy-safe assistant experience across desktop, mobile, tablet, and 
 ## Phase status
 
 - M1 Device profile and routing core: in progress (started)
-- M2 Mobile and tablet productization: planned
-- M3 Secure delegation pipeline: planned
+- M2 Mobile and tablet productization: in progress (started)
+- M3 Secure delegation pipeline: in progress (started)
 - M4 Messaging and call parity: planned
 - M5 Smart-glass voice mode: planned
 - M6 Multilingual voice stack: planned
@@ -29,11 +29,23 @@ Enable one policy-safe assistant experience across desktop, mobile, tablet, and 
 - Add tablet-adaptive control layout.
 - Improve compact approvals and quick action UX.
 
+Delivered in this slice:
+
+- Added mobile session recovery snapshot (assistant mode, action form state, queue state, decision state).
+- Added mobile companion route visibility including derived device class and recovery timestamp.
+
 ## M3 scope
 
 - Add explicit delegated task queue lifecycle.
 - Add correlation IDs linking decision, delegation, execution, and audit.
 - Enforce approval requirements for delegated privileged actions.
+
+Delivered in this slice:
+
+- Added delegated queue model with statuses: pending-approval, approved, executing, completed, failed.
+- Added correlation IDs for delegated requests.
+- Added audit linkage for delegated queue events and approval use.
+- Added operator controls for approve/run and fail transitions in control panel.
 
 ## M4 scope
 

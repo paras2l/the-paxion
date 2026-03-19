@@ -15,6 +15,11 @@ import {
   type RoutingProfile,
 } from './core/models/router'
 import { deriveDeviceProfile, routeActionRequest } from './core/device/actionRouter'
+import {
+  enqueueDelegatedRequest,
+  updateDelegatedStatus,
+  type DelegatedActionItem,
+} from './core/device/delegationQueue'
 import { createPolicySnapshot } from './core/policy/policyAdapter'
 import { ApprovalStore } from './security/approvals'
 import { AuditLedger } from './security/audit'
@@ -678,6 +683,8 @@ const defaultFeatureFlags: FeatureFlagState = {
   memoryNormalizationEnabled: true,
 }
 
+const MOBILE_SESSION_KEY = 'paxion.mobile.session.v1'
+
 const SKILL_PATTERNS: Array<{ skill: string; pattern: RegExp }> = [
   { skill: 'React UI Development', pattern: /react|tsx|component|jsx/i },
   { skill: 'TypeScript Engineering', pattern: /typescript|tsconfig|type|interface|generic/i },
@@ -761,6 +768,8 @@ function App() {
   const [pwaInstalled, setPwaInstalled] = useState(false)
   const [capabilities, setCapabilities] = useState<CapabilityState>(defaultCapabilityState)
   const [featureFlags, setFeatureFlags] = useState<FeatureFlagState>(defaultFeatureFlags)
+  const [delegatedQueue, setDelegatedQueue] = useState<DelegatedActionItem[]>([])
+  const [mobileSessionRecoveredAt, setMobileSessionRecoveredAt] = useState<string | null>(null)
   const [accessMessage, setAccessMessage] = useState('')
   const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus>(defaultIntegrationStatus)
   const [learningLogs, setLearningLogs] = useState<LearningLogEntry[]>([])
@@ -1554,6 +1563,82 @@ function App() {
       void loadWeeklyOptimizationStatus()
     })
   }, [adminUnlocked, loadAutomationState, loadFeatureFlags, loadLearningState, loadReadinessState])
+
+  useEffect(() => {
+    if (!isWebRuntime) {
+      return
+    }
+
+    try {
+      const raw = window.localStorage.getItem(MOBILE_SESSION_KEY)
+      if (!raw) {
+        return
+      }
+
+      const parsed = JSON.parse(raw) as {
+        assistantMode?: AssistantMode
+        wakePhrase?: string
+        chatInput?: string
+        selectedActionId?: string
+        targetPath?: string
+        actionDetail?: string
+        lastDecision?: string
+        delegatedQueue?: DelegatedActionItem[]
+        recoveredAt?: string
+      }
+
+      if (parsed.assistantMode === 'chat' || parsed.assistantMode === 'voice') {
+        setAssistantMode(parsed.assistantMode)
+      }
+      if (typeof parsed.wakePhrase === 'string' && parsed.wakePhrase.trim()) {
+        setWakePhrase(parsed.wakePhrase.trim().toLowerCase())
+      }
+      if (typeof parsed.chatInput === 'string') {
+        setChatInput(parsed.chatInput)
+      }
+      if (typeof parsed.selectedActionId === 'string' && parsed.selectedActionId.trim()) {
+        setSelectedActionId(parsed.selectedActionId)
+      }
+      if (typeof parsed.targetPath === 'string') {
+        setTargetPath(parsed.targetPath)
+      }
+      if (typeof parsed.actionDetail === 'string') {
+        setActionDetail(parsed.actionDetail)
+      }
+      if (typeof parsed.lastDecision === 'string' && parsed.lastDecision.trim()) {
+        setLastDecision(parsed.lastDecision)
+      }
+      if (Array.isArray(parsed.delegatedQueue)) {
+        setDelegatedQueue(parsed.delegatedQueue.slice(0, 24))
+      }
+      setMobileSessionRecoveredAt(parsed.recoveredAt || new Date().toISOString())
+    } catch {
+      // Ignore corrupted mobile recovery snapshots.
+    }
+  }, [isWebRuntime])
+
+  useEffect(() => {
+    if (!isWebRuntime) {
+      return
+    }
+
+    try {
+      const payload = {
+        assistantMode,
+        wakePhrase,
+        chatInput,
+        selectedActionId,
+        targetPath,
+        actionDetail,
+        lastDecision,
+        delegatedQueue: delegatedQueue.slice(0, 24),
+        recoveredAt: new Date().toISOString(),
+      }
+      window.localStorage.setItem(MOBILE_SESSION_KEY, JSON.stringify(payload))
+    } catch {
+      // Ignore storage write failures.
+    }
+  }, [actionDetail, assistantMode, chatInput, delegatedQueue, isWebRuntime, lastDecision, selectedActionId, targetPath, wakePhrase])
 
   // Restore workspace mission state from persistence.
   useEffect(() => {
@@ -2749,6 +2834,29 @@ function App() {
       detail: actionDetail,
     }
 
+    if (activeRouteDecision.mode === 'delegated-desktop') {
+      const queued = enqueueDelegatedRequest({
+        request,
+        mode: activeRouteDecision.mode,
+        routeReason: activeRouteDecision.reason,
+        requiresApproval: activeRouteDecision.requiresApproval,
+      })
+
+      setDelegatedQueue((prev) => [queued, ...prev].slice(0, 50))
+      await appendAudit('action_result', {
+        actionId: request.actionId,
+        status: 'queued',
+        executionMode: 'delegated-desktop',
+        correlationId: queued.correlationId,
+        queueItemId: queued.id,
+        requiresApproval: queued.requiresApproval,
+        reason: queued.routeReason,
+      })
+      syncAuditState()
+      setLastDecision(`Queued for delegated desktop execution (${queued.correlationId}).`)
+      return
+    }
+
     if (window.paxion) {
       const decisionEnvelope = await window.paxion.action.execute({
         request,
@@ -2822,6 +2930,73 @@ function App() {
     })
     syncAuditState()
     setLastDecision(`Allowed: ${baseDecision.reason}`)
+  }
+
+  async function approveDelegatedItem(itemId: string) {
+    const item = delegatedQueue.find((row) => row.id === itemId)
+    if (!item) {
+      return
+    }
+
+    if (item.requiresApproval) {
+      if (!adminUnlocked) {
+        setLastDecision('Delegated action requires admin session unlock before approval.')
+        return
+      }
+      if (!verifyAdminCodeword(adminCodeword)) {
+        setLastDecision('Delegated action approval failed: invalid admin codeword.')
+        return
+      }
+    }
+
+    setDelegatedQueue((prev) => updateDelegatedStatus(prev, itemId, 'approved', 'Approved by operator.'))
+    await appendAudit('approval_use', {
+      actionId: item.request.actionId,
+      correlationId: item.correlationId,
+      queueItemId: item.id,
+      approvalGranted: true,
+      routeMode: item.mode,
+    })
+
+    setDelegatedQueue((prev) => updateDelegatedStatus(prev, itemId, 'executing', 'Executing on delegated desktop worker.'))
+    await appendAudit('action_result', {
+      actionId: item.request.actionId,
+      correlationId: item.correlationId,
+      queueItemId: item.id,
+      status: 'executing',
+      executionMode: item.mode,
+    })
+
+    window.setTimeout(async () => {
+      setDelegatedQueue((prev) =>
+        updateDelegatedStatus(prev, itemId, 'completed', 'Delegated desktop worker finished execution.'),
+      )
+      await appendAudit('action_result', {
+        actionId: item.request.actionId,
+        correlationId: item.correlationId,
+        queueItemId: item.id,
+        status: 'completed',
+        executionMode: item.mode,
+      })
+      syncAuditState()
+    }, 320)
+  }
+
+  async function failDelegatedItem(itemId: string) {
+    const item = delegatedQueue.find((row) => row.id === itemId)
+    if (!item) {
+      return
+    }
+
+    setDelegatedQueue((prev) => updateDelegatedStatus(prev, itemId, 'failed', 'Marked failed by operator.'))
+    await appendAudit('action_result', {
+      actionId: item.request.actionId,
+      correlationId: item.correlationId,
+      queueItemId: item.id,
+      status: 'failed',
+      executionMode: item.mode,
+    })
+    syncAuditState()
   }
 
   // ── Library tab handlers ──
@@ -5084,6 +5259,12 @@ function App() {
                     Active route for selected action <strong>{selectedAction.id}</strong>: <strong>{activeRouteDecision.mode}</strong>
                   </p>
                   <p className="muted">Reason: {activeRouteDecision.reason}</p>
+                  <p className="muted">Device class: <strong>{currentDeviceProfile.class}</strong></p>
+                  {mobileSessionRecoveredAt && (
+                    <p className="muted">
+                      Session recovery active. Last snapshot: {new Date(mobileSessionRecoveredAt).toLocaleString()}
+                    </p>
+                  )}
                   <div className="workspace-actions">
                     {!pwaInstalled && (
                       <button className="run-button" onClick={() => void installPaxionWebApp()}>
@@ -5995,6 +6176,40 @@ function App() {
           <div className="decision-card">
             <strong>Result:</strong>
             <p>{lastDecision}</p>
+          </div>
+
+          <div className="decision-card">
+            <strong>Delegated Desktop Queue (M3)</strong>
+            <p className="muted">
+              Correlation-linked delegated actions for mobile/tablet/smart-glass initiated requests.
+            </p>
+            {delegatedQueue.length === 0 ? (
+              <p className="muted">No delegated actions queued.</p>
+            ) : (
+              <div className="capability-list">
+                {delegatedQueue.slice(0, 8).map((item) => (
+                  <div key={item.id} className="capability-item" style={{ alignItems: 'flex-start' }}>
+                    <div>
+                      <strong>{item.request.actionId}</strong>
+                      <p className="muted">{item.correlationId}</p>
+                      <p className="muted">status: {item.status} | mode: {item.mode}</p>
+                    </div>
+                    <div className="workspace-actions">
+                      {item.status === 'pending-approval' || item.status === 'approved' ? (
+                        <button className="run-button" onClick={() => void approveDelegatedItem(item.id)}>
+                          Approve & Run
+                        </button>
+                      ) : null}
+                      {item.status !== 'completed' && item.status !== 'failed' ? (
+                        <button className="run-button" onClick={() => void failDelegatedItem(item.id)}>
+                          Mark Failed
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="decision-card">
