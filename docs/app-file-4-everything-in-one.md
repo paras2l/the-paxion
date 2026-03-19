@@ -199,3 +199,21 @@ Update this file whenever one of the following changes:
 - release verification criteria
 
 This file should stay concise, accurate, and implementation-oriented so any future coding agent can immediately understand the system and continue safely.
+
+## 19) Device Expansion (M1-M7) Kickoff
+
+Cross-device parity rollout has started with a dedicated tracker:
+
+- docs/device-expansion-m1-m7.md
+
+Current state:
+
+- M1 started in code: shared device profile derivation and action routing mode decisions.
+- M2-M7 staged: mobile/tablet hardening, secure delegation queue, call/channel parity, smart-glass mode, multilingual voice, observability.
+
+Execution model for cross-device requests:
+
+- direct: action executes locally on current device.
+- delegated-desktop: action is routed to desktop worker runtime.
+- provider-backed: action uses configured provider or cloud path.
+- denied: blocked by capability/feature/policy constraints.

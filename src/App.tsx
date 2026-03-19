@@ -14,6 +14,7 @@ import {
   type ModelRouterConfig,
   type RoutingProfile,
 } from './core/models/router'
+import { deriveDeviceProfile, routeActionRequest } from './core/device/actionRouter'
 import { createPolicySnapshot } from './core/policy/policyAdapter'
 import { ApprovalStore } from './security/approvals'
 import { AuditLedger } from './security/audit'
@@ -1088,8 +1089,15 @@ function App() {
     [polyglotLanguage, polyglotRuntimes],
   )
   const isWebRuntime = typeof window !== 'undefined' && !window.paxion
-  const isMobileDevice =
-    typeof navigator !== 'undefined' && /android|iphone|ipad|mobile/i.test(navigator.userAgent)
+  const currentDeviceProfile = useMemo(
+    () =>
+      deriveDeviceProfile({
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+        isWebRuntime,
+      }),
+    [isWebRuntime],
+  )
+  const isMobileDevice = currentDeviceProfile.class === 'mobile' || currentDeviceProfile.class === 'tablet'
 
   const approvalStore = useMemo(() => new ApprovalStore(), [])
   const auditLedger = useMemo(() => new AuditLedger(), [])
@@ -2266,6 +2274,24 @@ function App() {
   const selectedAction = useMemo(
     () => actionPresets.find((preset) => preset.id === selectedActionId) ?? actionPresets[0],
     [selectedActionId],
+  )
+  const selectedActionRequest = useMemo<ActionRequest>(
+    () => ({
+      actionId: selectedAction.id,
+      category: selectedAction.category,
+      targetPath,
+      detail: actionDetail,
+    }),
+    [actionDetail, selectedAction.category, selectedAction.id, targetPath],
+  )
+  const activeRouteDecision = useMemo(
+    () =>
+      routeActionRequest(selectedActionRequest, currentDeviceProfile, {
+        cloudRelayEnabled: featureFlags.cloudRelayEnabled,
+        desktopAdapterEnabled: featureFlags.desktopAdapterEnabled,
+        emergencyCallRelayEnabled: capabilities.emergencyCallRelay,
+      }),
+    [capabilities.emergencyCallRelay, currentDeviceProfile, featureFlags.cloudRelayEnabled, featureFlags.desktopAdapterEnabled, selectedActionRequest],
   )
 
   // Auto-scroll chat to bottom whenever a message is added or loading state changes.
@@ -5054,6 +5080,10 @@ function App() {
                     Mobile companion mode active. Voice chat works in browser-supported engines; desktop-only actions
                     (tray runtime, native automation, direct dialer relay) require the Electron app or future cloud backend.
                   </p>
+                  <p className="muted">
+                    Active route for selected action <strong>{selectedAction.id}</strong>: <strong>{activeRouteDecision.mode}</strong>
+                  </p>
+                  <p className="muted">Reason: {activeRouteDecision.reason}</p>
                   <div className="workspace-actions">
                     {!pwaInstalled && (
                       <button className="run-button" onClick={() => void installPaxionWebApp()}>

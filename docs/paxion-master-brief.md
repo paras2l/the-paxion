@@ -96,6 +96,12 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Audit timeline now supports search/filter/pagination/export, and anomaly patterns emit threat-detected audit events.
 - Per-channel session memory now uses a normalized schema for consistent retrieval context.
 
+## Cross-device parity kickoff baseline
+- Device-aware routing core now classifies runtime as desktop, mobile, tablet, or smart-glass.
+- Action route planning now emits deterministic execution mode (direct, delegated-desktop, provider-backed, denied).
+- Mobile companion now surfaces active route mode visibility so operators can see when desktop delegation is required.
+- M2-M7 execution remains staged: tablet UX hardening, secure delegation lifecycle, channel/call parity, smart-glass voice mode, multilingual voice stack, and reliability telemetry.
+
 ## Advanced autonomy foundations
 - Advanced governance now includes policy-diff simulation, staged canary rollout planning, and anomaly-driven rollback recommendations.
 - Live broker module foundation now includes provider configuration, live-order preview, and gated broker order execution staging.
