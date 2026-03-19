@@ -11,7 +11,12 @@ node_modules
 dist
 dist-ssr
 release
+release-*/
 release-fixed
+**/win-unpacked/
+*.blockmap
+*.exe
+*.asar
 *.local
 
 # Editor directories and files
