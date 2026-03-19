@@ -211,7 +211,9 @@ Current state:
 - M1 started in code: shared device profile derivation and action routing mode decisions.
 - M2 started in code: mobile companion session recovery snapshot + restore baseline.
 - M3 started in code: delegated desktop queue lifecycle with correlation IDs and audit-linked transitions.
-- M4-M7 staged: call/channel parity, smart-glass mode, multilingual voice, observability.
+- M4 started in code: unified call/channel intent decisioning and fallback-chain previews.
+- M5 started in code: smart-glass voice-first mode toggle with concise confirmation gate for safety-gated actions.
+- M6-M7 staged: multilingual voice and observability/reliability telemetry.
 
 Execution model for cross-device requests:
 

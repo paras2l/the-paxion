@@ -43,6 +43,17 @@ interface NodesProps {
   cloudRelayEnabled?: boolean
   onToggleDesktopAdapter?: (enabled: boolean) => void
   onToggleCloudRelay?: (enabled: boolean) => void
+  m4RoutingPreview?: Array<{
+    kind: 'channel' | 'call'
+    primaryMode: string
+    fallbackChain: string[]
+  }>
+  smartglass?: {
+    enabled: boolean
+    voiceModeActive: boolean
+    confirmationRequired: boolean
+  }
+  onToggleSmartglass?: (enabled: boolean) => void
   children?: ReactNode
 }
 
@@ -63,6 +74,13 @@ export function Nodes(props: NodesProps) {
     cloudRelayEnabled = false,
     onToggleDesktopAdapter,
     onToggleCloudRelay,
+    m4RoutingPreview = [],
+    smartglass = {
+      enabled: false,
+      voiceModeActive: false,
+      confirmationRequired: false,
+    },
+    onToggleSmartglass,
   } = props
 
   const localNodes = nodes.filter((n) => n.type === 'local')
@@ -202,6 +220,43 @@ export function Nodes(props: NodesProps) {
               Cloud Relay: {cloudRelayEnabled ? 'Enabled' : 'Disabled'}
             </button>
           </div>
+        </div>
+
+        <div className="nova-card">
+          <h3>M4 Unified Call and Channel Routing</h3>
+          <p className="muted">
+            Messaging and call intents now share one routing layer with deterministic fallback modes.
+          </p>
+          {m4RoutingPreview.length === 0 ? (
+            <p className="muted">No intent routing preview available yet.</p>
+          ) : (
+            <div className="nova-grid-cards">
+              {m4RoutingPreview.map((route) => (
+                <article className="nova-node-card" key={route.kind}>
+                  <div className="nova-node-head">
+                    <strong>{route.kind === 'call' ? 'Voice Call' : 'Channel Message'}</strong>
+                  </div>
+                  <p className="muted">Primary: {route.primaryMode}</p>
+                  <p className="muted">Fallback: {route.fallbackChain.join(' -> ')}</p>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="nova-card">
+          <h3>M5 Smart-glass Voice Mode</h3>
+          <p className="muted">
+            Voice-first runtime with concise confirmation prompts for approval-gated actions.
+          </p>
+          <p className="muted">Mode: <strong>{smartglass.enabled ? 'enabled' : 'disabled'}</strong></p>
+          <p className="muted">Voice runtime: <strong>{smartglass.voiceModeActive ? 'active' : 'idle'}</strong></p>
+          <p className="muted">
+            Confirmation gate: <strong>{smartglass.confirmationRequired ? 'required' : 'not required'}</strong>
+          </p>
+          <button className="run-button" onClick={() => onToggleSmartglass?.(!smartglass.enabled)}>
+            {smartglass.enabled ? 'Disable Smart-glass Mode' : 'Enable Smart-glass Mode'}
+          </button>
         </div>
 
         <div className="nova-card">

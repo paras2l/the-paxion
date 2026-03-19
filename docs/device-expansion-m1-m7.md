@@ -11,8 +11,8 @@ Enable one policy-safe assistant experience across desktop, mobile, tablet, and 
 - M1 Device profile and routing core: in progress (started)
 - M2 Mobile and tablet productization: in progress (started)
 - M3 Secure delegation pipeline: in progress (started)
-- M4 Messaging and call parity: planned
-- M5 Smart-glass voice mode: planned
+- M4 Messaging and call parity: in progress (started)
+- M5 Smart-glass voice mode: in progress (started)
 - M6 Multilingual voice stack: planned
 - M7 Observability and reliability: planned
 
@@ -52,10 +52,22 @@ Delivered in this slice:
 - Unify call and channel intents into one device-aware routing layer.
 - Add fallback chain between direct, provider, and delegated execution.
 
+Delivered in this slice:
+
+- Added unified intent decision helper for call and channel intent classification.
+- Added deterministic fallback chain previews for channel and call flows.
+- Wired fallback-aware routing into selected action route resolution.
+
 ## M5 scope
 
 - Add smart-glass mode (voice-first + glance cards).
 - Add concise confirmation prompts for safety-gated actions.
+
+Delivered in this slice:
+
+- Added smart-glass mode state with persistence and voice-mode auto-arming.
+- Added concise confirmation gate before approval-sensitive execution in smart-glass mode.
+- Surfaced smart-glass and M4 routing status in control surfaces.
 
 ## M6 scope
 

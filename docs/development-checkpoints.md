@@ -46,6 +46,13 @@ Use this file to protect continuity and prevent missing work.
 - Delegated queue events carry correlation IDs and are audit linked.
 - Delegated privileged actions enforce admin session and codeword approval before execution.
 
+## Device Expansion Verification (M4/M5 kickoff)
+- Channel and call intents route through one unified decision layer.
+- Channel and call previews show deterministic fallback chains (direct, provider-backed, delegated, denied).
+- Smart-glass mode can be toggled in active control surfaces and persists across restarts.
+- Smart-glass execution requires concise confirmation before approval-sensitive actions run.
+- Smart-glass mode defaults assistant experience to voice-first when enabled.
+
 ## Fresh machine recovery
 1. Clone repository.
 2. Install Node.js 20.18+ (or newer LTS).
@@ -77,3 +84,4 @@ Use this file to protect continuity and prevent missing work.
 - v0.20.0-pivot-fgh-core: privileged-vs-normal execution pipeline split with timeout controls, feature-flag gated cloud relay and desktop adapter, relay local-policy ingress checks, per-channel memory normalization, searchable/exportable audit timeline, and anomaly-driven `threat_detected` audit signaling.
 - v0.21.0-device-expansion-kickoff: M1 routing core started with shared device profiles, action route mode decisions, mobile route visibility in UI, and M1-M7 execution tracker baseline.
 - v0.21.1-device-expansion-m2m3-kickoff: mobile/tablet session recovery baseline plus delegated desktop queue lifecycle with correlation IDs, approval gating, and audit-linked status transitions.
+- v0.21.2-device-expansion-m4m5-kickoff: unified call/channel intent routing with fallback-chain previews plus smart-glass voice-mode toggle and concise confirmation safety gate.

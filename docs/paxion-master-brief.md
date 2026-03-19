@@ -100,13 +100,21 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Device-aware routing core now classifies runtime as desktop, mobile, tablet, or smart-glass.
 - Action route planning now emits deterministic execution mode (direct, delegated-desktop, provider-backed, denied).
 - Mobile companion now surfaces active route mode visibility so operators can see when desktop delegation is required.
-- M2-M7 execution remains staged: tablet UX hardening, secure delegation lifecycle, channel/call parity, smart-glass voice mode, multilingual voice stack, and reliability telemetry.
+- M2-M3 baseline has been landed (session recovery plus delegated queue lifecycle).
+- M4-M5 baseline is now started (unified call/channel routing fallback chain and smart-glass voice-first safety confirmation gate).
+- M6-M7 execution remains staged: multilingual voice stack and reliability telemetry.
 
 ## Cross-device parity M2/M3 kickoff baseline
 - Mobile companion now has persisted session recovery for key assistant and action context state.
 - Delegated desktop execution queue now tracks lifecycle states with correlation IDs for traceability.
 - Delegated approval path now enforces admin session + codeword verification before running privileged queued actions.
 - Delegated queue transitions are audit-linked for later timeline analysis.
+
+## Cross-device parity M4/M5 kickoff baseline
+- Channel and call intents now route through a shared decision helper with deterministic fallback chain ordering.
+- Control surfaces now show routing previews for both channel and call intents.
+- Smart-glass mode now has persisted state and one-click enablement in integrations/device views.
+- Approval-sensitive actions now require concise smart-glass confirmation text before execution.
 
 ## Advanced autonomy foundations
 - Advanced governance now includes policy-diff simulation, staged canary rollout planning, and anomaly-driven rollback recommendations.

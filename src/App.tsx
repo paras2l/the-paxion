@@ -14,7 +14,8 @@ import {
   type ModelRouterConfig,
   type RoutingProfile,
 } from './core/models/router'
-import { deriveDeviceProfile, routeActionRequest } from './core/device/actionRouter'
+import { deriveDeviceProfile } from './core/device/actionRouter'
+import { buildUnifiedIntentDecision } from './core/device/unifiedIntents'
 import {
   enqueueDelegatedRequest,
   updateDelegatedStatus,
@@ -249,6 +250,18 @@ type IntegrationStatus = {
   googleReady: boolean
   gptReady: boolean
   requiresAdminApproval: boolean
+}
+
+type UnifiedRoutePreview = {
+  kind: 'channel' | 'call'
+  primaryMode: string
+  fallbackChain: string[]
+}
+
+type SmartglassPanelState = {
+  enabled: boolean
+  voiceModeActive: boolean
+  confirmationRequired: boolean
 }
 
 type VoiceRuntimeProfile = {
@@ -547,6 +560,20 @@ const actionPresets: ActionPreset[] = [
     category: 'codegen',
     targetPath: '/workspace/site/new-dashboard.tsx',
     detail: 'Create a new project component from prompt context.',
+  },
+  {
+    id: 'channels.sendMessage',
+    label: 'Send channel message broadcast',
+    category: 'chat',
+    targetPath: '/channels/ops-incident-room',
+    detail: 'Send an urgent status broadcast to active messaging channels.',
+  },
+  {
+    id: 'voice.call',
+    label: 'Place outbound support call',
+    category: 'system',
+    targetPath: '/voice/call',
+    detail: 'Call customer and summarize the result in session memory.',
   },
   {
     id: 'workspace.runToolCommand',
@@ -911,6 +938,8 @@ function App() {
   const [chatVoicePending, setChatVoicePending] = useState<'idle' | 'starting' | 'stopping'>('idle')
   const [chatVoiceEnabled, setChatVoiceEnabled] = useState(true)
   const [assistantMode, setAssistantMode] = useState<AssistantMode>('chat')
+  const [smartglassModeEnabled, setSmartglassModeEnabled] = useState(false)
+  const [smartglassConfirmationText, setSmartglassConfirmationText] = useState('')
   const [wakePhrase, setWakePhrase] = useState('paxion wakeup')
   const [closeToTrayEnabled, setCloseToTrayEnabled] = useState(true)
   const [voiceLoopEnabled, setVoiceLoopEnabled] = useState(false)
@@ -1098,7 +1127,7 @@ function App() {
     [polyglotLanguage, polyglotRuntimes],
   )
   const isWebRuntime = typeof window !== 'undefined' && !window.paxion
-  const currentDeviceProfile = useMemo(
+  const detectedDeviceProfile = useMemo(
     () =>
       deriveDeviceProfile({
         userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
@@ -1106,6 +1135,19 @@ function App() {
       }),
     [isWebRuntime],
   )
+  const currentDeviceProfile = useMemo(() => {
+    if (!smartglassModeEnabled) {
+      return detectedDeviceProfile
+    }
+
+    return {
+      ...detectedDeviceProfile,
+      class: 'smartglass' as const,
+      supportsNativeAutomation: false,
+      supportsBackgroundRuntime: false,
+      supportsVoiceIo: true,
+    }
+  }, [detectedDeviceProfile, smartglassModeEnabled])
   const isMobileDevice = currentDeviceProfile.class === 'mobile' || currentDeviceProfile.class === 'tablet'
 
   const approvalStore = useMemo(() => new ApprovalStore(), [])
@@ -1577,6 +1619,8 @@ function App() {
 
       const parsed = JSON.parse(raw) as {
         assistantMode?: AssistantMode
+        smartglassModeEnabled?: boolean
+        smartglassConfirmationText?: string
         wakePhrase?: string
         chatInput?: string
         selectedActionId?: string
@@ -1589,6 +1633,12 @@ function App() {
 
       if (parsed.assistantMode === 'chat' || parsed.assistantMode === 'voice') {
         setAssistantMode(parsed.assistantMode)
+      }
+      if (parsed.smartglassModeEnabled === true || parsed.smartglassModeEnabled === false) {
+        setSmartglassModeEnabled(parsed.smartglassModeEnabled)
+      }
+      if (typeof parsed.smartglassConfirmationText === 'string') {
+        setSmartglassConfirmationText(parsed.smartglassConfirmationText)
       }
       if (typeof parsed.wakePhrase === 'string' && parsed.wakePhrase.trim()) {
         setWakePhrase(parsed.wakePhrase.trim().toLowerCase())
@@ -1625,6 +1675,8 @@ function App() {
     try {
       const payload = {
         assistantMode,
+        smartglassModeEnabled,
+        smartglassConfirmationText,
         wakePhrase,
         chatInput,
         selectedActionId,
@@ -1638,7 +1690,7 @@ function App() {
     } catch {
       // Ignore storage write failures.
     }
-  }, [actionDetail, assistantMode, chatInput, delegatedQueue, isWebRuntime, lastDecision, selectedActionId, targetPath, wakePhrase])
+  }, [actionDetail, assistantMode, chatInput, delegatedQueue, isWebRuntime, lastDecision, selectedActionId, smartglassConfirmationText, smartglassModeEnabled, targetPath, wakePhrase])
 
   // Restore workspace mission state from persistence.
   useEffect(() => {
@@ -1651,6 +1703,11 @@ function App() {
     const storedMode = localStorage.getItem('paxion-assistant-mode')
     if (storedMode === 'voice' || storedMode === 'chat') {
       setAssistantMode(storedMode)
+    }
+    const storedSmartglass = localStorage.getItem('paxion-smartglass-mode')
+    if (storedSmartglass === '1') {
+      setSmartglassModeEnabled(true)
+      setAssistantMode('voice')
     }
     const storedWake = localStorage.getItem('paxion-wake-phrase')
     if (storedWake && storedWake.trim()) {
@@ -1715,6 +1772,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem('paxion-assistant-mode', assistantMode)
   }, [assistantMode])
+
+  useEffect(() => {
+    localStorage.setItem('paxion-smartglass-mode', smartglassModeEnabled ? '1' : '0')
+  }, [smartglassModeEnabled])
 
   useEffect(() => {
     localStorage.setItem('paxion-wake-phrase', wakePhrase)
@@ -2369,15 +2430,73 @@ function App() {
     }),
     [actionDetail, selectedAction.category, selectedAction.id, targetPath],
   )
-  const activeRouteDecision = useMemo(
-    () =>
-      routeActionRequest(selectedActionRequest, currentDeviceProfile, {
-        cloudRelayEnabled: featureFlags.cloudRelayEnabled,
-        desktopAdapterEnabled: featureFlags.desktopAdapterEnabled,
-        emergencyCallRelayEnabled: capabilities.emergencyCallRelay,
-      }),
-    [capabilities.emergencyCallRelay, currentDeviceProfile, featureFlags.cloudRelayEnabled, featureFlags.desktopAdapterEnabled, selectedActionRequest],
-  )
+  const activeRouteDecision = useMemo(() => {
+    const unifiedDecision = buildUnifiedIntentDecision(selectedActionRequest, currentDeviceProfile, {
+      cloudRelayEnabled: featureFlags.cloudRelayEnabled,
+      desktopAdapterEnabled: featureFlags.desktopAdapterEnabled,
+      emergencyCallRelayEnabled: capabilities.emergencyCallRelay,
+    })
+
+    if (unifiedDecision.primary.mode !== 'denied') {
+      return unifiedDecision.primary
+    }
+
+    const fallbackMode = unifiedDecision.fallbackChain.find((mode) => mode !== 'denied')
+    if (!fallbackMode) {
+      return unifiedDecision.primary
+    }
+
+    return {
+      mode: fallbackMode,
+      reason: `Primary route denied. Fallback selected: ${fallbackMode}. ${unifiedDecision.notes.join(' ')}`,
+      requiresApproval:
+        unifiedDecision.primary.requiresApproval ||
+        fallbackMode === 'delegated-desktop' ||
+        selectedActionRequest.category === 'system' ||
+        selectedActionRequest.category === 'filesystem',
+    }
+  }, [capabilities.emergencyCallRelay, currentDeviceProfile, featureFlags.cloudRelayEnabled, featureFlags.desktopAdapterEnabled, selectedActionRequest])
+  const m4RoutingPreview = useMemo<UnifiedRoutePreview[]>(() => {
+    const flags = {
+      cloudRelayEnabled: featureFlags.cloudRelayEnabled,
+      desktopAdapterEnabled: featureFlags.desktopAdapterEnabled,
+      emergencyCallRelayEnabled: capabilities.emergencyCallRelay,
+    }
+
+    const channelDecision = buildUnifiedIntentDecision(
+      {
+        actionId: 'channels.sendMessage',
+        category: 'chat',
+        targetPath: '/channels/general',
+        detail: 'Send channel update',
+      },
+      currentDeviceProfile,
+      flags,
+    )
+    const callDecision = buildUnifiedIntentDecision(
+      {
+        actionId: 'voice.call',
+        category: 'system',
+        targetPath: '/voice/call',
+        detail: 'Call contact for update',
+      },
+      currentDeviceProfile,
+      flags,
+    )
+
+    return [
+      {
+        kind: 'channel',
+        primaryMode: channelDecision.primary.mode,
+        fallbackChain: channelDecision.fallbackChain,
+      },
+      {
+        kind: 'call',
+        primaryMode: callDecision.primary.mode,
+        fallbackChain: callDecision.fallbackChain,
+      },
+    ]
+  }, [capabilities.emergencyCallRelay, currentDeviceProfile, featureFlags.cloudRelayEnabled, featureFlags.desktopAdapterEnabled])
 
   // Auto-scroll chat to bottom whenever a message is added or loading state changes.
   useEffect(() => {
@@ -2832,6 +2951,22 @@ function App() {
       category: selectedAction.category,
       targetPath,
       detail: actionDetail,
+    }
+
+    if (currentDeviceProfile.class === 'smartglass' && activeRouteDecision.requiresApproval) {
+      const normalizedConfirmation = smartglassConfirmationText.trim().toLowerCase()
+      if (normalizedConfirmation !== 'confirm' && normalizedConfirmation !== 'confirm action') {
+        await appendAudit('action_result', {
+          actionId: request.actionId,
+          status: 'awaiting_confirmation',
+          executionMode: activeRouteDecision.mode,
+          reason: 'Smart-glass safety confirmation is required before running this action.',
+        })
+        syncAuditState()
+        setLastDecision('Smart-glass mode requires concise confirmation. Type "confirm action" first.')
+        return
+      }
+      setSmartglassConfirmationText('')
     }
 
     if (activeRouteDecision.mode === 'delegated-desktop') {
@@ -5259,7 +5394,14 @@ function App() {
                     Active route for selected action <strong>{selectedAction.id}</strong>: <strong>{activeRouteDecision.mode}</strong>
                   </p>
                   <p className="muted">Reason: {activeRouteDecision.reason}</p>
+                  <p className="muted">
+                    Fallback chain:{' '}
+                    {m4RoutingPreview
+                      .map((item) => `${item.kind}=[${item.fallbackChain.join(' -> ')}]`)
+                      .join(' | ')}
+                  </p>
                   <p className="muted">Device class: <strong>{currentDeviceProfile.class}</strong></p>
+                  <p className="muted">Smart-glass mode: <strong>{smartglassModeEnabled ? 'Enabled' : 'Disabled'}</strong></p>
                   {mobileSessionRecoveredAt && (
                     <p className="muted">
                       Session recovery active. Last snapshot: {new Date(mobileSessionRecoveredAt).toLocaleString()}
@@ -6167,6 +6309,36 @@ function App() {
               onChange={(event) => setAdminCodeword(event.target.value)}
               placeholder="Enter codeword when required"
             />
+          </div>
+
+          <div className="decision-card">
+            <strong>M5 Smart-glass Safety</strong>
+            <p className="muted">Voice-first mode asks for concise confirmation on approval-gated actions.</p>
+            <div className="workspace-actions">
+              <button
+                className="run-button"
+                onClick={() => {
+                  setSmartglassModeEnabled((prev) => {
+                    const next = !prev
+                    if (next) {
+                      setAssistantMode('voice')
+                    }
+                    return next
+                  })
+                }}
+              >
+                Smart-glass mode: {smartglassModeEnabled ? 'Enabled' : 'Disabled'}
+              </button>
+            </div>
+            <div className="control-group">
+              <label htmlFor="smartglass-confirm">Confirmation phrase</label>
+              <input
+                id="smartglass-confirm"
+                value={smartglassConfirmationText}
+                onChange={(event) => setSmartglassConfirmationText(event.target.value)}
+                placeholder='Type "confirm action" before execution'
+              />
+            </div>
           </div>
 
           <button className="run-button" onClick={runPolicyEvaluation}>
@@ -8069,6 +8241,20 @@ function App() {
         cloudRelayEnabled={featureFlags.cloudRelayEnabled}
         onToggleDesktopAdapter={(enabled) => void setFeatureFlag({ desktopAdapterEnabled: enabled })}
         onToggleCloudRelay={(enabled) => void setFeatureFlag({ cloudRelayEnabled: enabled })}
+        m4RoutingPreview={m4RoutingPreview}
+        smartglass={
+          {
+            enabled: smartglassModeEnabled,
+            voiceModeActive: assistantMode === 'voice',
+            confirmationRequired: activeRouteDecision.requiresApproval,
+          } satisfies SmartglassPanelState
+        }
+        onToggleSmartglass={(enabled) => {
+          setSmartglassModeEnabled(enabled)
+          if (enabled) {
+            setAssistantMode('voice')
+          }
+        }}
         onAppendAudit={appendAudit}
       />
     )

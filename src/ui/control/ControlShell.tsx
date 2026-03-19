@@ -100,6 +100,17 @@ type ControlShellProps = {
   cloudRelayEnabled?: boolean
   onToggleDesktopAdapter?: (enabled: boolean) => void
   onToggleCloudRelay?: (enabled: boolean) => void
+  m4RoutingPreview?: Array<{
+    kind: 'channel' | 'call'
+    primaryMode: string
+    fallbackChain: string[]
+  }>
+  smartglass?: {
+    enabled: boolean
+    voiceModeActive: boolean
+    confirmationRequired: boolean
+  }
+  onToggleSmartglass?: (enabled: boolean) => void
   onAppendAudit?: (type: AuditEventType, payload: Record<string, unknown>) => Promise<void> | void
 }
 
@@ -191,6 +202,13 @@ export default function ControlShell({
   cloudRelayEnabled = false,
   onToggleDesktopAdapter,
   onToggleCloudRelay,
+  m4RoutingPreview = [],
+  smartglass = {
+    enabled: false,
+    voiceModeActive: false,
+    confirmationRequired: false,
+  },
+  onToggleSmartglass,
   onAppendAudit,
 }: ControlShellProps) {
   const [activeTab, setActiveTab] = useState<TabId>('chat')
@@ -1095,6 +1113,9 @@ export default function ControlShell({
                 cloudRelayEnabled={cloudRelayEnabled}
                 onToggleDesktopAdapter={onToggleDesktopAdapter}
                 onToggleCloudRelay={onToggleCloudRelay}
+                m4RoutingPreview={m4RoutingPreview}
+                smartglass={smartglass}
+                onToggleSmartglass={onToggleSmartglass}
                 onPairNew={() => setLastQueueMessage('New device pairing started.')}
                 onRotateSecret={(nodeId) => setLastQueueMessage(`Requested secret rotation for ${nodeId}.`)}
                 onRefreshRelay={onRefreshRelay}
