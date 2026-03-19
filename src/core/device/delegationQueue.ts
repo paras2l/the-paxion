@@ -60,6 +60,41 @@ export function findQueuedByIdempotency(
   )
 }
 
+function compareReplayOrder(a: DelegatedActionItem, b: DelegatedActionItem): number {
+  const timeDiff = String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
+  if (timeDiff !== 0) {
+    return timeDiff
+  }
+  return String(a.id || '').localeCompare(String(b.id || ''))
+}
+
+export function selectReplayCandidates(
+  items: DelegatedActionItem[],
+  options?: {
+    safeOnly?: boolean
+    sourceDeviceClass?: DeviceClass
+    statuses?: DelegationStatus[]
+    limit?: number
+  },
+): DelegatedActionItem[] {
+  const allowedStatuses = new Set(options?.statuses || ['approved', 'failed'])
+  const safeOnly = options?.safeOnly ?? false
+  const sourceClass = options?.sourceDeviceClass
+  const limit = Math.max(1, Number(options?.limit || 12))
+
+  return items
+    .filter((item) => allowedStatuses.has(item.status))
+    .filter((item) => (sourceClass ? item.sourceDeviceClass === sourceClass : true))
+    .filter((item) => {
+      if (!safeOnly) {
+        return true
+      }
+      return item.request.category !== 'filesystem' && item.request.category !== 'system'
+    })
+    .sort(compareReplayOrder)
+    .slice(0, limit)
+}
+
 export function enqueueDelegatedRequest(input: {
   request: ActionRequest
   sourceDeviceClass: DeviceClass
@@ -118,15 +153,18 @@ export function recoverDelegatedQueue(items: DelegatedActionItem[]): {
   const recovered = items.map((item) => {
     if (item.status === 'executing') {
       resumedCount += 1
+      const nextStatus: DelegationStatus = item.requiresApproval ? 'pending-approval' : 'approved'
       return {
         ...item,
         sourceDeviceClass: item.sourceDeviceClass || 'mobile',
         idempotencyKey: item.idempotencyKey || makeDelegatedIdempotencyKey(item.request),
-        status: 'approved' as const,
+        status: nextStatus,
         updatedAt: nowIso(),
         lastAttemptAt: nowIso(),
         replayCount: Number(item.replayCount || 0) + 1,
-        note: 'Recovered after restart. Ready for delegated re-run.',
+        note: item.requiresApproval
+          ? 'Recovered after restart. Approval is required before delegated re-run.'
+          : 'Recovered after restart. Ready for delegated re-run.',
       }
     }
 

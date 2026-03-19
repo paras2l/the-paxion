@@ -27,6 +27,7 @@ import {
   findQueuedByIdempotency,
   makeDelegatedIdempotencyKey,
   recoverDelegatedQueue,
+  selectReplayCandidates,
   updateDelegatedStatus,
   type DelegatedActionItem,
 } from './core/device/delegationQueue'
@@ -1975,13 +1976,12 @@ function App() {
       return
     }
 
-    const replayCandidates = delegatedQueue.filter(
-      (item) =>
-        item.sourceDeviceClass === 'mobile'
-        && (item.status === 'approved' || item.status === 'failed')
-        && item.request.category !== 'filesystem'
-        && item.request.category !== 'system',
-    )
+    const replayCandidates = selectReplayCandidates(delegatedQueue, {
+      safeOnly: true,
+      sourceDeviceClass: 'mobile',
+      statuses: ['approved', 'failed'],
+      limit: 12,
+    })
 
     if (replayCandidates.length === 0) {
       return
@@ -3580,36 +3580,36 @@ function App() {
   }
 
   async function retryAllDelegatedItems() {
-    const retriable = delegatedQueue.filter(
-      (item) => item.status === 'failed' || item.status === 'approved',
-    )
+    const retriable = selectReplayCandidates(delegatedQueue, {
+      statuses: ['approved', 'failed'],
+      limit: 12,
+    })
     if (retriable.length === 0) {
       setLastDecision('No delegated items are eligible for retry.')
       return
     }
 
-    for (const item of retriable.slice(0, 12)) {
+    for (const item of retriable) {
       await approveDelegatedItem(item.id)
     }
-    setLastDecision(`Replay triggered for ${Math.min(retriable.length, 12)} delegated item(s).`)
+    setLastDecision(`Replay triggered for ${retriable.length} delegated item(s).`)
   }
 
   async function replaySafeDelegatedItems() {
-    const safe = delegatedQueue.filter((item) => {
-      const category = String(item.request.category || '')
-      return (item.status === 'failed' || item.status === 'approved')
-        && category !== 'filesystem'
-        && category !== 'system'
+    const safe = selectReplayCandidates(delegatedQueue, {
+      safeOnly: true,
+      statuses: ['approved', 'failed'],
+      limit: 12,
     })
     if (safe.length === 0) {
       setLastDecision('No safe delegated items available for replay.')
       return
     }
 
-    for (const item of safe.slice(0, 12)) {
+    for (const item of safe) {
       await approveDelegatedItem(item.id)
     }
-    setLastDecision(`Safe replay triggered for ${Math.min(safe.length, 12)} delegated item(s).`)
+    setLastDecision(`Safe replay triggered for ${safe.length} delegated item(s).`)
   }
 
   function clearFailedDelegatedItems() {
