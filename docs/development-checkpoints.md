@@ -60,6 +60,13 @@ Use this file to protect continuity and prevent missing work.
 - Response generation path receives session language hint for multilingual replies.
 - Active control surface shows language route, fallback chain, and runtime note.
 
+## Device Expansion Verification (M7 kickoff)
+- Per-device telemetry tracks route-decision distribution by desktop/mobile/tablet/smart-glass.
+- Delegated lifecycle telemetry tracks queued/executing/completed/failed transitions.
+- Audit anomaly detection emits threats for delegated remote abuse bursts.
+- Audit anomaly detection emits threats for retry-storm failure patterns.
+- Delegated queue restores executing items safely after restart as resumable approved state.
+
 ## Fresh machine recovery
 1. Clone repository.
 2. Install Node.js 20.18+ (or newer LTS).
@@ -93,3 +100,4 @@ Use this file to protect continuity and prevent missing work.
 - v0.21.1-device-expansion-m2m3-kickoff: mobile/tablet session recovery baseline plus delegated desktop queue lifecycle with correlation IDs, approval gating, and audit-linked status transitions.
 - v0.21.2-device-expansion-m4m5-kickoff: unified call/channel intent routing with fallback-chain previews plus smart-glass voice-mode toggle and concise confirmation safety gate.
 - v0.21.3-device-expansion-m6-kickoff: multilingual voice pipeline with session language memory, STT/TTS routing, fallback language chain, and control-surface language visibility.
+- v0.21.4-device-expansion-m7-kickoff: reliability telemetry dashboard, remote abuse and retry-storm anomaly patterns, and crash-safe delegated workflow resume.

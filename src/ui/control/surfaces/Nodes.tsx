@@ -64,6 +64,27 @@ interface NodesProps {
   }
   m6LanguageOptions?: Array<{ code: string; label: string }>
   onSelectM6Language?: (code: string) => void
+  m7Reliability?: {
+    telemetry: {
+      totalRouteDecisions: number
+      byDeviceClass: Record<'desktop' | 'mobile' | 'tablet' | 'smartglass', number>
+      delegatedQueued: number
+      delegatedExecuting: number
+      delegatedCompleted: number
+      delegatedFailed: number
+      failedActions: number
+      resumedWorkflows: number
+      anomalyRemoteAbuse: number
+      anomalyRetryStorm: number
+      recentSignals: Array<{
+        id: string
+        type: 'remote-abuse' | 'retry-storm' | 'resume-recovery'
+        detail: string
+        timestamp: string
+      }>
+      lastUpdatedAt: string
+    }
+  }
   children?: ReactNode
 }
 
@@ -101,6 +122,27 @@ export function Nodes(props: NodesProps) {
     },
     m6LanguageOptions = [],
     onSelectM6Language,
+    m7Reliability = {
+      telemetry: {
+        totalRouteDecisions: 0,
+        byDeviceClass: {
+          desktop: 0,
+          mobile: 0,
+          tablet: 0,
+          smartglass: 0,
+        },
+        delegatedQueued: 0,
+        delegatedExecuting: 0,
+        delegatedCompleted: 0,
+        delegatedFailed: 0,
+        failedActions: 0,
+        resumedWorkflows: 0,
+        anomalyRemoteAbuse: 0,
+        anomalyRetryStorm: 0,
+        recentSignals: [],
+        lastUpdatedAt: new Date().toISOString(),
+      },
+    },
   } = props
 
   const localNodes = nodes.filter((n) => n.type === 'local')
@@ -302,6 +344,48 @@ export function Nodes(props: NodesProps) {
           <p className="muted">TTS preferred: <strong>{m6Language.ttsLanguage}</strong></p>
           <p className="muted">Fallback chain: <strong>{m6Language.fallbackChain.join(' -> ')}</strong></p>
           {m6Language.runtimeNote && <p className="muted">Runtime: {m6Language.runtimeNote}</p>}
+        </div>
+
+        <div className="nova-card">
+          <h3>M7 Reliability and Observability</h3>
+          <p className="muted">
+            Per-device telemetry, anomaly signaling, and delegated workflow crash-recovery metrics.
+          </p>
+          <p className="muted">Last update: <strong>{new Date(m7Reliability.telemetry.lastUpdatedAt).toLocaleString()}</strong></p>
+          <div className="nova-grid-cards">
+            <article className="nova-node-card">
+              <strong>Route decisions</strong>
+              <p className="muted">Total: {m7Reliability.telemetry.totalRouteDecisions}</p>
+              <p className="muted">
+                desktop={m7Reliability.telemetry.byDeviceClass.desktop} | mobile={m7Reliability.telemetry.byDeviceClass.mobile} | tablet={m7Reliability.telemetry.byDeviceClass.tablet} | smartglass={m7Reliability.telemetry.byDeviceClass.smartglass}
+              </p>
+            </article>
+            <article className="nova-node-card">
+              <strong>Delegated lifecycle</strong>
+              <p className="muted">queued={m7Reliability.telemetry.delegatedQueued}</p>
+              <p className="muted">executing={m7Reliability.telemetry.delegatedExecuting}</p>
+              <p className="muted">completed={m7Reliability.telemetry.delegatedCompleted}</p>
+              <p className="muted">failed={m7Reliability.telemetry.delegatedFailed}</p>
+            </article>
+            <article className="nova-node-card">
+              <strong>Anomaly counters</strong>
+              <p className="muted">remote abuse={m7Reliability.telemetry.anomalyRemoteAbuse}</p>
+              <p className="muted">retry storm={m7Reliability.telemetry.anomalyRetryStorm}</p>
+              <p className="muted">failed actions={m7Reliability.telemetry.failedActions}</p>
+              <p className="muted">resumed workflows={m7Reliability.telemetry.resumedWorkflows}</p>
+            </article>
+          </div>
+          {m7Reliability.telemetry.recentSignals.length > 0 && (
+            <div className="nova-grid-cards" style={{ marginTop: '10px' }}>
+              {m7Reliability.telemetry.recentSignals.slice(-4).map((signal) => (
+                <article className="nova-node-card" key={signal.id}>
+                  <strong>{signal.type}</strong>
+                  <p className="muted">{signal.detail}</p>
+                  <p className="muted">{new Date(signal.timestamp).toLocaleTimeString()}</p>
+                </article>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="nova-card">

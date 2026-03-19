@@ -14,7 +14,7 @@ Enable one policy-safe assistant experience across desktop, mobile, tablet, and 
 - M4 Messaging and call parity: in progress (started)
 - M5 Smart-glass voice mode: in progress (started)
 - M6 Multilingual voice stack: in progress (started)
-- M7 Observability and reliability: planned
+- M7 Observability and reliability: in progress (started)
 
 ## M1 scope (started now)
 
@@ -85,6 +85,13 @@ Delivered in this slice:
 - Add per-device telemetry and reliability metrics.
 - Add anomaly patterns for remote command abuse and retry storms.
 - Add crash-safe resume for delegated workflows.
+
+Delivered in this slice:
+
+- Added reliability telemetry model for per-device route counts and delegated lifecycle counters.
+- Added audit anomaly detection for delegated remote abuse bursts and retry-storm patterns.
+- Added crash-safe delegated queue snapshot and resume recovery handling after restart.
+- Surfaced reliability counters and recent reliability signals in active control surfaces.
 
 ## Acceptance criteria
 

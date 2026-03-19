@@ -214,7 +214,7 @@ Current state:
 - M4 started in code: unified call/channel intent decisioning and fallback-chain previews.
 - M5 started in code: smart-glass voice-first mode toggle with concise confirmation gate for safety-gated actions.
 - M6 started in code: multilingual STT/response/TTS pipeline with session language memory and fallback routing.
-- M7 staged: observability/reliability telemetry.
+- M7 started in code: reliability telemetry metrics, anomaly enrichment, and crash-safe delegated workflow resume.
 
 Execution model for cross-device requests:
 

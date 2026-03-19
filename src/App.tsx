@@ -24,9 +24,16 @@ import {
 } from './core/device/languagePipeline'
 import {
   enqueueDelegatedRequest,
+  recoverDelegatedQueue,
   updateDelegatedStatus,
   type DelegatedActionItem,
 } from './core/device/delegationQueue'
+import {
+  applyReliabilityTelemetryEvent,
+  createDefaultReliabilityTelemetry,
+  normalizeReliabilityTelemetry,
+  type ReliabilityTelemetry,
+} from './core/device/reliabilityTelemetry'
 import { createPolicySnapshot } from './core/policy/policyAdapter'
 import { ApprovalStore } from './security/approvals'
 import { AuditLedger } from './security/audit'
@@ -277,6 +284,10 @@ type M6LanguagePanelState = {
   ttsLanguage: string
   fallbackChain: string[]
   runtimeNote: string
+}
+
+type M7ReliabilityPanelState = {
+  telemetry: ReliabilityTelemetry
 }
 
 type VoiceRuntimeProfile = {
@@ -727,6 +738,8 @@ const defaultFeatureFlags: FeatureFlagState = {
 
 const MOBILE_SESSION_KEY = 'paxion.mobile.session.v1'
 const VOICE_LANGUAGE_KEY = 'paxion.voice.language.v1'
+const RELIABILITY_TELEMETRY_KEY = 'paxion.reliability.telemetry.v1'
+const DELEGATED_QUEUE_RECOVERY_KEY = 'paxion.delegated.queue.recovery.v1'
 
 const SKILL_PATTERNS: Array<{ skill: string; pattern: RegExp }> = [
   { skill: 'React UI Development', pattern: /react|tsx|component|jsx/i },
@@ -812,6 +825,17 @@ function App() {
   const [capabilities, setCapabilities] = useState<CapabilityState>(defaultCapabilityState)
   const [featureFlags, setFeatureFlags] = useState<FeatureFlagState>(defaultFeatureFlags)
   const [delegatedQueue, setDelegatedQueue] = useState<DelegatedActionItem[]>([])
+  const [m7Telemetry, setM7Telemetry] = useState<ReliabilityTelemetry>(() => {
+    const raw = localStorage.getItem(RELIABILITY_TELEMETRY_KEY)
+    if (!raw) {
+      return createDefaultReliabilityTelemetry()
+    }
+    try {
+      return normalizeReliabilityTelemetry(JSON.parse(raw))
+    } catch {
+      return createDefaultReliabilityTelemetry()
+    }
+  })
   const [mobileSessionRecoveredAt, setMobileSessionRecoveredAt] = useState<string | null>(null)
   const [accessMessage, setAccessMessage] = useState('')
   const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus>(defaultIntegrationStatus)
@@ -1025,6 +1049,8 @@ function App() {
   const [showThought, setShowThought] = useState<string | null>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null)
+  const processedThreatIdRef = useRef<string | null>(null)
+  const delegatedRecoveryLoadedRef = useRef(false)
   const perceptionVideoRef = useRef<HTMLVideoElement | null>(null)
   const perceptionStreamRef = useRef<MediaStream | null>(null)
   const perceptionIntervalRef = useRef<number | null>(null)
@@ -1682,7 +1708,17 @@ function App() {
         setLastDecision(parsed.lastDecision)
       }
       if (Array.isArray(parsed.delegatedQueue)) {
-        setDelegatedQueue(parsed.delegatedQueue.slice(0, 24))
+        const recovered = recoverDelegatedQueue(parsed.delegatedQueue.slice(0, 24))
+        setDelegatedQueue(recovered.recovered)
+        if (recovered.resumedCount > 0) {
+          setM7Telemetry((prev) =>
+            applyReliabilityTelemetryEvent(prev, {
+              type: 'workflow-resumed',
+              resumedCount: recovered.resumedCount,
+              detail: `Recovered ${recovered.resumedCount} delegated workflow(s) after restart.`,
+            }),
+          )
+        }
       }
       setMobileSessionRecoveredAt(parsed.recoveredAt || new Date().toISOString())
     } catch {
@@ -1715,6 +1751,52 @@ function App() {
       // Ignore storage write failures.
     }
   }, [actionDetail, assistantMode, chatInput, delegatedQueue, isWebRuntime, lastDecision, selectedActionId, smartglassConfirmationText, smartglassModeEnabled, targetPath, voiceSessionLanguage, wakePhrase])
+
+  useEffect(() => {
+    if (delegatedRecoveryLoadedRef.current) {
+      return
+    }
+    delegatedRecoveryLoadedRef.current = true
+
+    try {
+      const raw = localStorage.getItem(DELEGATED_QUEUE_RECOVERY_KEY)
+      if (!raw) {
+        return
+      }
+
+      const parsed = JSON.parse(raw) as DelegatedActionItem[]
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        return
+      }
+
+      const recovered = recoverDelegatedQueue(parsed.slice(0, 50))
+      if (recovered.recovered.length > 0) {
+        setDelegatedQueue((prev) => (prev.length > 0 ? prev : recovered.recovered))
+      }
+      if (recovered.resumedCount > 0) {
+        setM7Telemetry((prev) =>
+          applyReliabilityTelemetryEvent(prev, {
+            type: 'workflow-resumed',
+            resumedCount: recovered.resumedCount,
+            detail: `Recovered ${recovered.resumedCount} delegated workflow(s) from crash-safe snapshot.`,
+          }),
+        )
+      }
+    } catch {
+      // Ignore malformed recovery snapshots.
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        DELEGATED_QUEUE_RECOVERY_KEY,
+        JSON.stringify(delegatedQueue.slice(0, 50)),
+      )
+    } catch {
+      // Ignore storage failures for recovery snapshot.
+    }
+  }, [delegatedQueue])
 
   // Restore workspace mission state from persistence.
   useEffect(() => {
@@ -1800,6 +1882,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem('paxion-assistant-mode', assistantMode)
   }, [assistantMode])
+
+  useEffect(() => {
+    localStorage.setItem(RELIABILITY_TELEMETRY_KEY, JSON.stringify(m7Telemetry))
+  }, [m7Telemetry])
 
   useEffect(() => {
     localStorage.setItem(VOICE_LANGUAGE_KEY, voiceSessionLanguage)
@@ -2540,6 +2626,10 @@ function App() {
       runtimeNote: voiceLanguageRuntimeNote,
     }
   }, [voiceLanguageRuntimeNote, voiceSessionLanguage])
+  const m7ReliabilityPanel = useMemo<M7ReliabilityPanelState>(
+    () => ({ telemetry: m7Telemetry }),
+    [m7Telemetry],
+  )
 
   // Auto-scroll chat to bottom whenever a message is added or loading state changes.
   useEffect(() => {
@@ -2976,6 +3066,45 @@ function App() {
     setAuditEntries(auditLedger.getAll())
   }
 
+  function recordM7Event(event: Parameters<typeof applyReliabilityTelemetryEvent>[1]) {
+    setM7Telemetry((prev) => applyReliabilityTelemetryEvent(prev, event))
+  }
+
+  useEffect(() => {
+    const recentThreat = [...auditEntries]
+      .reverse()
+      .find((entry) => entry.type === 'threat_detected')
+    if (!recentThreat) {
+      return
+    }
+
+    if (processedThreatIdRef.current === recentThreat.id) {
+      return
+    }
+
+    processedThreatIdRef.current = recentThreat.id
+
+    const signal = String(recentThreat.payload.signal || '')
+    if (!signal) {
+      return
+    }
+
+    if (/remote command abuse|delegated queue bursts/i.test(signal)) {
+      recordM7Event({
+        type: 'anomaly-remote-abuse',
+        detail: signal,
+      })
+      return
+    }
+
+    if (/retry storm|failures/i.test(signal)) {
+      recordM7Event({
+        type: 'anomaly-retry-storm',
+        detail: signal,
+      })
+    }
+  }, [auditEntries])
+
   async function unlockAdminSession() {
     if (!window.paxion) return
     const result = await window.paxion.admin.unlock(adminCodeword).catch(() => null)
@@ -3015,6 +3144,11 @@ function App() {
       detail: actionDetail,
     }
 
+    recordM7Event({
+      type: 'route-decision',
+      deviceClass: currentDeviceProfile.class,
+    })
+
     if (currentDeviceProfile.class === 'smartglass' && activeRouteDecision.requiresApproval) {
       const normalizedConfirmation = smartglassConfirmationText.trim().toLowerCase()
       if (normalizedConfirmation !== 'confirm' && normalizedConfirmation !== 'confirm action') {
@@ -3040,6 +3174,7 @@ function App() {
       })
 
       setDelegatedQueue((prev) => [queued, ...prev].slice(0, 50))
+      recordM7Event({ type: 'delegated-status', status: 'queued' })
       await appendAudit('action_result', {
         actionId: request.actionId,
         status: 'queued',
@@ -3072,6 +3207,7 @@ function App() {
     await appendAudit('policy_check', { request, decision: baseDecision })
 
     if (!baseDecision.allowed && !baseDecision.requiresApproval) {
+      recordM7Event({ type: 'failed-action' })
       await appendAudit('action_result', {
         actionId: request.actionId,
         status: 'denied',
@@ -3116,6 +3252,9 @@ function App() {
       })
 
       syncAuditState()
+      if (!finalDecision.allowed) {
+        recordM7Event({ type: 'failed-action' })
+      }
       setLastDecision(`${finalDecision.allowed ? 'Allowed' : 'Denied'}: ${finalDecision.reason}`)
       return
     }
@@ -3156,6 +3295,7 @@ function App() {
     })
 
     setDelegatedQueue((prev) => updateDelegatedStatus(prev, itemId, 'executing', 'Executing on delegated desktop worker.'))
+    recordM7Event({ type: 'delegated-status', status: 'executing' })
     await appendAudit('action_result', {
       actionId: item.request.actionId,
       correlationId: item.correlationId,
@@ -3168,6 +3308,7 @@ function App() {
       setDelegatedQueue((prev) =>
         updateDelegatedStatus(prev, itemId, 'completed', 'Delegated desktop worker finished execution.'),
       )
+      recordM7Event({ type: 'delegated-status', status: 'completed' })
       await appendAudit('action_result', {
         actionId: item.request.actionId,
         correlationId: item.correlationId,
@@ -3186,6 +3327,8 @@ function App() {
     }
 
     setDelegatedQueue((prev) => updateDelegatedStatus(prev, itemId, 'failed', 'Marked failed by operator.'))
+    recordM7Event({ type: 'delegated-status', status: 'failed' })
+    recordM7Event({ type: 'failed-action' })
     await appendAudit('action_result', {
       actionId: item.request.actionId,
       correlationId: item.correlationId,
@@ -8331,6 +8474,7 @@ function App() {
           const resolved = resolveLanguagePipeline(code)
           setVoiceSessionLanguage(resolved.code)
         }}
+        m7Reliability={m7ReliabilityPanel}
         onAppendAudit={appendAudit}
       />
     )

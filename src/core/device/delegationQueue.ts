@@ -67,3 +67,28 @@ export function updateDelegatedStatus(
       : item,
   )
 }
+
+export function recoverDelegatedQueue(items: DelegatedActionItem[]): {
+  recovered: DelegatedActionItem[]
+  resumedCount: number
+} {
+  let resumedCount = 0
+  const recovered = items.map((item) => {
+    if (item.status === 'executing') {
+      resumedCount += 1
+      return {
+        ...item,
+        status: 'approved' as const,
+        updatedAt: nowIso(),
+        note: 'Recovered after restart. Ready for delegated re-run.',
+      }
+    }
+
+    return item
+  })
+
+  return {
+    recovered,
+    resumedCount,
+  }
+}

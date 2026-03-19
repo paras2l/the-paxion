@@ -121,6 +121,27 @@ type ControlShellProps = {
   }
   m6LanguageOptions?: Array<{ code: string; label: string }>
   onSelectM6Language?: (code: string) => void
+  m7Reliability?: {
+    telemetry: {
+      totalRouteDecisions: number
+      byDeviceClass: Record<'desktop' | 'mobile' | 'tablet' | 'smartglass', number>
+      delegatedQueued: number
+      delegatedExecuting: number
+      delegatedCompleted: number
+      delegatedFailed: number
+      failedActions: number
+      resumedWorkflows: number
+      anomalyRemoteAbuse: number
+      anomalyRetryStorm: number
+      recentSignals: Array<{
+        id: string
+        type: 'remote-abuse' | 'retry-storm' | 'resume-recovery'
+        detail: string
+        timestamp: string
+      }>
+      lastUpdatedAt: string
+    }
+  }
   onAppendAudit?: (type: AuditEventType, payload: Record<string, unknown>) => Promise<void> | void
 }
 
@@ -229,6 +250,27 @@ export default function ControlShell({
   },
   m6LanguageOptions = [],
   onSelectM6Language,
+  m7Reliability = {
+    telemetry: {
+      totalRouteDecisions: 0,
+      byDeviceClass: {
+        desktop: 0,
+        mobile: 0,
+        tablet: 0,
+        smartglass: 0,
+      },
+      delegatedQueued: 0,
+      delegatedExecuting: 0,
+      delegatedCompleted: 0,
+      delegatedFailed: 0,
+      failedActions: 0,
+      resumedWorkflows: 0,
+      anomalyRemoteAbuse: 0,
+      anomalyRetryStorm: 0,
+      recentSignals: [],
+      lastUpdatedAt: new Date().toISOString(),
+    },
+  },
   onAppendAudit,
 }: ControlShellProps) {
   const [activeTab, setActiveTab] = useState<TabId>('chat')
@@ -1139,6 +1181,7 @@ export default function ControlShell({
                 m6Language={m6Language}
                 m6LanguageOptions={m6LanguageOptions}
                 onSelectM6Language={onSelectM6Language}
+                m7Reliability={m7Reliability}
                 onPairNew={() => setLastQueueMessage('New device pairing started.')}
                 onRotateSecret={(nodeId) => setLastQueueMessage(`Requested secret rotation for ${nodeId}.`)}
                 onRefreshRelay={onRefreshRelay}

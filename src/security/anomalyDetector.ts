@@ -44,6 +44,45 @@ export function detectAuditAnomaly(entries: AuditEntry[], latest: AuditEntry): A
     }
   }
 
+  const remoteQueueBursts = recent.filter((entry) => {
+    if (entry.type !== 'action_result') return false
+    const payload = asRecord(entry.payload)
+    const status = String(payload.status || '').toLowerCase()
+    const executionMode = String(payload.executionMode || '').toLowerCase()
+    return status === 'queued' && executionMode === 'delegated-desktop'
+  }).length
+
+  if (remoteQueueBursts >= 4) {
+    return {
+      detected: true,
+      score: 83,
+      reason: `Potential remote command abuse: ${remoteQueueBursts} delegated queue bursts detected.`,
+    }
+  }
+
+  const failedByAction = new Map<string, number>()
+  for (const entry of recent) {
+    if (entry.type !== 'action_result') {
+      continue
+    }
+    const payload = asRecord(entry.payload)
+    const status = String(payload.status || '').toLowerCase()
+    if (status !== 'failed') {
+      continue
+    }
+    const actionId = String(payload.actionId || 'unknown-action')
+    failedByAction.set(actionId, (failedByAction.get(actionId) || 0) + 1)
+  }
+
+  const retryStorm = [...failedByAction.entries()].find(([, count]) => count >= 3)
+  if (retryStorm) {
+    return {
+      detected: true,
+      score: 79,
+      reason: `Retry storm detected for ${retryStorm[0]} (${retryStorm[1]} failures).`,
+    }
+  }
+
   return {
     detected: false,
     score: 0,

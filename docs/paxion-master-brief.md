@@ -103,7 +103,7 @@ This file is the single source of truth for what The Paxion is and what it is be
 - M2-M3 baseline has been landed (session recovery plus delegated queue lifecycle).
 - M4-M5 baseline is now started (unified call/channel routing fallback chain and smart-glass voice-first safety confirmation gate).
 - M6 baseline is now started (language-aware STT/response/TTS routing with fallback chains and session language memory).
-- M7 execution remains staged: reliability telemetry.
+- M7 baseline is now started (reliability telemetry, anomaly enrichment, and crash-safe delegated resume).
 
 ## Cross-device parity M2/M3 kickoff baseline
 - Mobile companion now has persisted session recovery for key assistant and action context state.
@@ -122,6 +122,12 @@ This file is the single source of truth for what The Paxion is and what it is be
 - STT route now follows session language pipeline settings.
 - TTS route now applies locale fallback chain based on available voices.
 - Response generation now receives session language hints for multilingual interaction continuity.
+
+## Cross-device parity M7 kickoff baseline
+- Per-device route decision telemetry is tracked and surfaced in control surfaces.
+- Delegated queue lifecycle metrics now track queued/executing/completed/failed counters.
+- Audit anomaly detection now catches delegated remote abuse bursts and retry-storm patterns.
+- Delegated workflows now restore from crash-safe snapshots in resumable state after restart.
 
 ## Advanced autonomy foundations
 - Advanced governance now includes policy-diff simulation, staged canary rollout planning, and anomaly-driven rollback recommendations.
