@@ -142,6 +142,19 @@ type ControlShellProps = {
       lastUpdatedAt: string
     }
   }
+  m7AdvancedNetwork?: {
+    isOnline: boolean
+    degradedMode: boolean
+    burstThrottleActive: boolean
+    bridgeRetryBudget: number
+    relayRetryBudget: number
+    lastError: string
+    banner: string
+  }
+  onRetryAllDelegated?: () => void
+  onReplaySafeDelegated?: () => void
+  onClearFailedDelegated?: () => void
+  onResetBurstThrottle?: () => void
   onAppendAudit?: (type: AuditEventType, payload: Record<string, unknown>) => Promise<void> | void
 }
 
@@ -271,6 +284,19 @@ export default function ControlShell({
       lastUpdatedAt: new Date().toISOString(),
     },
   },
+  m7AdvancedNetwork = {
+    isOnline: true,
+    degradedMode: false,
+    burstThrottleActive: false,
+    bridgeRetryBudget: 8,
+    relayRetryBudget: 8,
+    lastError: '',
+    banner: '',
+  },
+  onRetryAllDelegated,
+  onReplaySafeDelegated,
+  onClearFailedDelegated,
+  onResetBurstThrottle,
   onAppendAudit,
 }: ControlShellProps) {
   const [activeTab, setActiveTab] = useState<TabId>('chat')
@@ -1182,6 +1208,11 @@ export default function ControlShell({
                 m6LanguageOptions={m6LanguageOptions}
                 onSelectM6Language={onSelectM6Language}
                 m7Reliability={m7Reliability}
+                m7AdvancedNetwork={m7AdvancedNetwork}
+                onRetryAllDelegated={onRetryAllDelegated}
+                onReplaySafeDelegated={onReplaySafeDelegated}
+                onClearFailedDelegated={onClearFailedDelegated}
+                onResetBurstThrottle={onResetBurstThrottle}
                 onPairNew={() => setLastQueueMessage('New device pairing started.')}
                 onRotateSecret={(nodeId) => setLastQueueMessage(`Requested secret rotation for ${nodeId}.`)}
                 onRefreshRelay={onRefreshRelay}

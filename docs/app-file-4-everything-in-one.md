@@ -215,6 +215,7 @@ Current state:
 - M5 started in code: smart-glass voice-first mode toggle with concise confirmation gate for safety-gated actions.
 - M6 started in code: multilingual STT/response/TTS pipeline with session language memory and fallback routing.
 - M7 started in code: reliability telemetry metrics, anomaly enrichment, and crash-safe delegated workflow resume.
+- Closure hardening landed: relay/bridge backoff+jitter budgets, delegated idempotency and reconnect replay controls, and burst-throttle guardrail/reset flow.
 
 Execution model for cross-device requests:
 

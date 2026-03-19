@@ -85,6 +85,19 @@ interface NodesProps {
       lastUpdatedAt: string
     }
   }
+  m7AdvancedNetwork?: {
+    isOnline: boolean
+    degradedMode: boolean
+    burstThrottleActive: boolean
+    bridgeRetryBudget: number
+    relayRetryBudget: number
+    lastError: string
+    banner: string
+  }
+  onRetryAllDelegated?: () => void
+  onReplaySafeDelegated?: () => void
+  onClearFailedDelegated?: () => void
+  onResetBurstThrottle?: () => void
   children?: ReactNode
 }
 
@@ -143,6 +156,19 @@ export function Nodes(props: NodesProps) {
         lastUpdatedAt: new Date().toISOString(),
       },
     },
+    m7AdvancedNetwork = {
+      isOnline: true,
+      degradedMode: false,
+      burstThrottleActive: false,
+      bridgeRetryBudget: 8,
+      relayRetryBudget: 8,
+      lastError: '',
+      banner: '',
+    },
+    onRetryAllDelegated,
+    onReplaySafeDelegated,
+    onClearFailedDelegated,
+    onResetBurstThrottle,
   } = props
 
   const localNodes = nodes.filter((n) => n.type === 'local')
@@ -386,6 +412,33 @@ export function Nodes(props: NodesProps) {
               ))}
             </div>
           )}
+
+          <div style={{ marginTop: '12px', padding: '10px', borderRadius: '8px', border: '1px solid var(--edge)' }}>
+            <p className="muted">
+              Network state: <strong>{m7AdvancedNetwork.isOnline ? 'online' : 'offline'}</strong>
+              {' '}| Mode: <strong>{m7AdvancedNetwork.degradedMode ? 'degraded' : 'normal'}</strong>
+              {' '}| Throttle: <strong>{m7AdvancedNetwork.burstThrottleActive ? 'active' : 'inactive'}</strong>
+            </p>
+            <p className="muted">
+              Retry budget: bridge={m7AdvancedNetwork.bridgeRetryBudget} | relay={m7AdvancedNetwork.relayRetryBudget}
+            </p>
+            {m7AdvancedNetwork.banner && <p className="muted">{m7AdvancedNetwork.banner}</p>}
+            {m7AdvancedNetwork.lastError && <p className="muted">Last error: {m7AdvancedNetwork.lastError}</p>}
+            <div style={{ display: 'grid', gap: '8px', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+              <button className="run-button" onClick={onRetryAllDelegated}>
+                Retry All Delegated
+              </button>
+              <button className="run-button" onClick={onReplaySafeDelegated}>
+                Replay Safe Only
+              </button>
+              <button className="run-button" onClick={onClearFailedDelegated}>
+                Clear Failed
+              </button>
+              <button className="run-button" onClick={onResetBurstThrottle}>
+                Reset Throttle
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="nova-card">

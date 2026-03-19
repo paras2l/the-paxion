@@ -8,13 +8,13 @@ Enable one policy-safe assistant experience across desktop, mobile, tablet, and 
 
 ## Phase status
 
-- M1 Device profile and routing core: in progress (started)
-- M2 Mobile and tablet productization: in progress (started)
-- M3 Secure delegation pipeline: in progress (started)
-- M4 Messaging and call parity: in progress (started)
-- M5 Smart-glass voice mode: in progress (started)
-- M6 Multilingual voice stack: in progress (started)
-- M7 Observability and reliability: in progress (started)
+- M1 Device profile and routing core: complete
+- M2 Mobile and tablet productization: complete
+- M3 Secure delegation pipeline: complete
+- M4 Messaging and call parity: complete
+- M5 Smart-glass voice mode: complete
+- M6 Multilingual voice stack: complete
+- M7 Observability and reliability: complete
 
 ## M1 scope (started now)
 
@@ -92,6 +92,9 @@ Delivered in this slice:
 - Added audit anomaly detection for delegated remote abuse bursts and retry-storm patterns.
 - Added crash-safe delegated queue snapshot and resume recovery handling after restart.
 - Surfaced reliability counters and recent reliability signals in active control surfaces.
+- Added retry budgets with backoff and jitter for relay/bridge network operations.
+- Added burst-throttle routing guard plus operator reset controls.
+- Added reconnect replay controls (retry all, replay safe-only, clear failed) for delegated workflows.
 
 ## Acceptance criteria
 
@@ -100,3 +103,4 @@ Delivered in this slice:
 - Delegated privileged actions require approval and write audit trails.
 - Mobile and tablet keep responsive interaction quality under network variance.
 - Smart-glass can complete voice command and confirmation cycles.
+- Mobile-origin delegated actions survive disconnect and replay safely on reconnect.

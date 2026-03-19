@@ -24,6 +24,8 @@ import {
 } from './core/device/languagePipeline'
 import {
   enqueueDelegatedRequest,
+  findQueuedByIdempotency,
+  makeDelegatedIdempotencyKey,
   recoverDelegatedQueue,
   updateDelegatedStatus,
   type DelegatedActionItem,
@@ -288,6 +290,15 @@ type M6LanguagePanelState = {
 
 type M7ReliabilityPanelState = {
   telemetry: ReliabilityTelemetry
+}
+
+type M7AdvancedNetworkState = {
+  isOnline: boolean
+  degradedMode: boolean
+  burstThrottleActive: boolean
+  bridgeRetryBudget: number
+  relayRetryBudget: number
+  lastError: string
 }
 
 type VoiceRuntimeProfile = {
@@ -740,6 +751,7 @@ const MOBILE_SESSION_KEY = 'paxion.mobile.session.v1'
 const VOICE_LANGUAGE_KEY = 'paxion.voice.language.v1'
 const RELIABILITY_TELEMETRY_KEY = 'paxion.reliability.telemetry.v1'
 const DELEGATED_QUEUE_RECOVERY_KEY = 'paxion.delegated.queue.recovery.v1'
+const NETWORK_STATE_KEY = 'paxion.network.state.v1'
 
 const SKILL_PATTERNS: Array<{ skill: string; pattern: RegExp }> = [
   { skill: 'React UI Development', pattern: /react|tsx|component|jsx/i },
@@ -1037,6 +1049,32 @@ function App() {
   const [cloudRelayRequests, setCloudRelayRequests] = useState<Array<Record<string, unknown>>>([])
   const [cloudRelayMessage, setCloudRelayMessage] = useState('')
   const [cloudRelayLastSyncAt, setCloudRelayLastSyncAt] = useState<string | null>(null)
+  const [networkState, setNetworkState] = useState<M7AdvancedNetworkState>(() => {
+    const defaultState: M7AdvancedNetworkState = {
+      isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+      degradedMode: false,
+      burstThrottleActive: false,
+      bridgeRetryBudget: 8,
+      relayRetryBudget: 8,
+      lastError: '',
+    }
+
+    try {
+      const raw = localStorage.getItem(NETWORK_STATE_KEY)
+      if (!raw) {
+        return defaultState
+      }
+      const parsed = JSON.parse(raw) as Partial<M7AdvancedNetworkState>
+      return {
+        ...defaultState,
+        ...parsed,
+        isOnline: typeof navigator !== 'undefined' ? navigator.onLine : Boolean(parsed.isOnline),
+      }
+    } catch {
+      return defaultState
+    }
+  })
+  const [connectionBanner, setConnectionBanner] = useState('')
   const [perceptionEnabled, setPerceptionEnabled] = useState(false)
   const [perceptionLabelHints, setPerceptionLabelHints] = useState('person, screen')
   const [perceptionFrames, setPerceptionFrames] = useState<Array<Record<string, unknown>>>([])
@@ -1051,6 +1089,7 @@ function App() {
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const processedThreatIdRef = useRef<string | null>(null)
   const delegatedRecoveryLoadedRef = useRef(false)
+  const reconnectReplayNonceRef = useRef<string>('')
   const perceptionVideoRef = useRef<HTMLVideoElement | null>(null)
   const perceptionStreamRef = useRef<MediaStream | null>(null)
   const perceptionIntervalRef = useRef<number | null>(null)
@@ -1900,6 +1939,65 @@ function App() {
   }, [wakePhrase])
 
   useEffect(() => {
+    localStorage.setItem(NETWORK_STATE_KEY, JSON.stringify(networkState))
+  }, [networkState])
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setNetworkState((prev) => ({
+        ...prev,
+        isOnline: true,
+        degradedMode: true,
+      }))
+      setConnectionBanner('Connection restored. Replay and sync are available.')
+    }
+
+    const handleOffline = () => {
+      setNetworkState((prev) => ({
+        ...prev,
+        isOnline: false,
+        degradedMode: true,
+      }))
+      setConnectionBanner('Offline mode active. Actions will be queued for replay.')
+    }
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!networkState.isOnline || !networkState.degradedMode) {
+      return
+    }
+
+    const replayCandidates = delegatedQueue.filter(
+      (item) =>
+        item.sourceDeviceClass === 'mobile'
+        && (item.status === 'approved' || item.status === 'failed')
+        && item.request.category !== 'filesystem'
+        && item.request.category !== 'system',
+    )
+
+    if (replayCandidates.length === 0) {
+      return
+    }
+
+    const nonce = replayCandidates.map((item) => item.id).join('|')
+    if (reconnectReplayNonceRef.current === nonce) {
+      return
+    }
+    reconnectReplayNonceRef.current = nonce
+
+    void replaySafeDelegatedItems()
+    setConnectionBanner(`Recovered connection. Auto replay started for ${replayCandidates.length} safe mobile task(s).`)
+  }, [delegatedQueue, networkState.degradedMode, networkState.isOnline])
+
+  useEffect(() => {
     if (!capabilities.voiceInput) {
       voiceLoopEnabledRef.current = false
       setVoiceLoopEnabled(false)
@@ -2066,17 +2164,32 @@ function App() {
     if (!window.paxion?.bridge?.status) {
       return
     }
-    const result = await window.paxion.bridge.status().catch(() => null)
-    if (!result?.ok) {
-      setBridgeMessage(result?.reason || 'Failed to load bridge status.')
-      return
-    }
-    setBridgeEnabled(Boolean(result.enabled))
-    setBridgeHost(String(result.host || '0.0.0.0'))
-    setBridgePort(String(result.port || 8731))
-    setBridgePendingRequests(Array.isArray(result.pendingRequests) ? result.pendingRequests : [])
-    if (result.hasSecret && !bridgeSecret) {
-      setBridgeSecret('********')
+    const ok = await runWithBackoff('bridge', async () => {
+      const result = await window.paxion?.bridge?.status?.().catch(() => null)
+      if (!result?.ok) {
+        setBridgeMessage(result?.reason || 'Failed to load bridge status.')
+        setNetworkState((prev) => ({
+          ...prev,
+          degradedMode: true,
+          lastError: result?.reason || 'bridge-status-failed',
+        }))
+        return false
+      }
+      setBridgeEnabled(Boolean(result.enabled))
+      setBridgeHost(String(result.host || '0.0.0.0'))
+      setBridgePort(String(result.port || 8731))
+      setBridgePendingRequests(Array.isArray(result.pendingRequests) ? result.pendingRequests : [])
+      if (result.hasSecret && !bridgeSecret) {
+        setBridgeSecret('********')
+      }
+      return true
+    })
+
+    if (ok) {
+      setNetworkState((prev) => ({
+        ...prev,
+        degradedMode: false,
+      }))
     }
   }
 
@@ -2255,13 +2368,34 @@ function App() {
       setCloudRelayMessage('Cloud relay sync is unavailable in this runtime.')
       return
     }
-    const result = await window.paxion.relay.sync().catch(() => null)
-    if (!result?.ok) {
-      setCloudRelayMessage(result?.reason || 'Failed to sync cloud relay queue.')
+    if (!networkState.isOnline) {
+      setCloudRelayMessage('Offline. Cloud relay sync deferred.')
       return
     }
-    setCloudRelayMessage('Cloud relay queue synced.')
-    await loadRelayStatus()
+
+    const ok = await runWithBackoff('relay', async () => {
+      const result = await window.paxion?.relay?.sync?.().catch(() => null)
+      if (!result?.ok) {
+        setCloudRelayMessage(result?.reason || 'Failed to sync cloud relay queue.')
+        setNetworkState((prev) => ({
+          ...prev,
+          degradedMode: true,
+          lastError: result?.reason || 'relay-sync-failed',
+        }))
+        return false
+      }
+      setCloudRelayMessage('Cloud relay queue synced.')
+      await loadRelayStatus()
+      return true
+    })
+
+    if (ok) {
+      setNetworkState((prev) => ({
+        ...prev,
+        degradedMode: false,
+        burstThrottleActive: false,
+      }))
+    }
   }
 
   async function submitCloudRelayPing() {
@@ -2553,6 +2687,7 @@ function App() {
       cloudRelayEnabled: featureFlags.cloudRelayEnabled,
       desktopAdapterEnabled: featureFlags.desktopAdapterEnabled,
       emergencyCallRelayEnabled: capabilities.emergencyCallRelay,
+      burstThrottleActive: networkState.burstThrottleActive,
     })
 
     if (unifiedDecision.primary.mode !== 'denied') {
@@ -2573,12 +2708,13 @@ function App() {
         selectedActionRequest.category === 'system' ||
         selectedActionRequest.category === 'filesystem',
     }
-  }, [capabilities.emergencyCallRelay, currentDeviceProfile, featureFlags.cloudRelayEnabled, featureFlags.desktopAdapterEnabled, selectedActionRequest])
+  }, [capabilities.emergencyCallRelay, currentDeviceProfile, featureFlags.cloudRelayEnabled, featureFlags.desktopAdapterEnabled, networkState.burstThrottleActive, selectedActionRequest])
   const m4RoutingPreview = useMemo<UnifiedRoutePreview[]>(() => {
     const flags = {
       cloudRelayEnabled: featureFlags.cloudRelayEnabled,
       desktopAdapterEnabled: featureFlags.desktopAdapterEnabled,
       emergencyCallRelayEnabled: capabilities.emergencyCallRelay,
+      burstThrottleActive: networkState.burstThrottleActive,
     }
 
     const channelDecision = buildUnifiedIntentDecision(
@@ -2614,7 +2750,7 @@ function App() {
         fallbackChain: callDecision.fallbackChain,
       },
     ]
-  }, [capabilities.emergencyCallRelay, currentDeviceProfile, featureFlags.cloudRelayEnabled, featureFlags.desktopAdapterEnabled])
+  }, [capabilities.emergencyCallRelay, currentDeviceProfile, featureFlags.cloudRelayEnabled, featureFlags.desktopAdapterEnabled, networkState.burstThrottleActive])
   const m6LanguagePanel = useMemo<M6LanguagePanelState>(() => {
     const pipeline = resolveLanguagePipeline(voiceSessionLanguage)
     return {
@@ -2629,6 +2765,18 @@ function App() {
   const m7ReliabilityPanel = useMemo<M7ReliabilityPanelState>(
     () => ({ telemetry: m7Telemetry }),
     [m7Telemetry],
+  )
+  const m7AdvancedNetworkPanel = useMemo(
+    () => ({
+      isOnline: networkState.isOnline,
+      degradedMode: networkState.degradedMode,
+      burstThrottleActive: networkState.burstThrottleActive,
+      bridgeRetryBudget: networkState.bridgeRetryBudget,
+      relayRetryBudget: networkState.relayRetryBudget,
+      lastError: networkState.lastError,
+      banner: connectionBanner,
+    }),
+    [connectionBanner, networkState],
   )
 
   // Auto-scroll chat to bottom whenever a message is added or loading state changes.
@@ -3070,6 +3218,78 @@ function App() {
     setM7Telemetry((prev) => applyReliabilityTelemetryEvent(prev, event))
   }
 
+  function consumeRetryBudget(kind: 'bridge' | 'relay'): boolean {
+    let allowed = false
+    setNetworkState((prev) => {
+      if (kind === 'bridge') {
+        allowed = prev.bridgeRetryBudget > 0
+        return {
+          ...prev,
+          bridgeRetryBudget: Math.max(0, prev.bridgeRetryBudget - 1),
+        }
+      }
+
+      allowed = prev.relayRetryBudget > 0
+      return {
+        ...prev,
+        relayRetryBudget: Math.max(0, prev.relayRetryBudget - 1),
+      }
+    })
+    return allowed
+  }
+
+  function restoreRetryBudget(kind: 'bridge' | 'relay', amount = 1) {
+    setNetworkState((prev) => {
+      if (kind === 'bridge') {
+        return {
+          ...prev,
+          bridgeRetryBudget: Math.min(12, prev.bridgeRetryBudget + amount),
+        }
+      }
+
+      return {
+        ...prev,
+        relayRetryBudget: Math.min(12, prev.relayRetryBudget + amount),
+      }
+    })
+  }
+
+  async function runWithBackoff(
+    kind: 'bridge' | 'relay',
+    operation: () => Promise<boolean>,
+  ): Promise<boolean> {
+    const maxAttempts = 3
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const ok = await operation()
+      if (ok) {
+        restoreRetryBudget(kind, 2)
+        return true
+      }
+
+      if (!consumeRetryBudget(kind)) {
+        setNetworkState((prev) => ({
+          ...prev,
+          degradedMode: true,
+          burstThrottleActive: true,
+          lastError: `${kind} retry budget exhausted`,
+        }))
+        if (kind === 'relay') {
+          recordM7Event({
+            type: 'anomaly-retry-storm',
+            detail: 'Relay retry budget exhausted. Burst throttle activated.',
+          })
+        }
+        return false
+      }
+
+      const jitter = Math.floor(Math.random() * 120)
+      const delayMs = 240 * attempt + jitter
+      await sleep(delayMs)
+    }
+
+    return false
+  }
+
   useEffect(() => {
     const recentThreat = [...auditEntries]
       .reverse()
@@ -3089,7 +3309,13 @@ function App() {
       return
     }
 
-    if (/remote command abuse|delegated queue bursts/i.test(signal)) {
+    if (/remote command abuse|delegated queue bursts|burst throttle candidate/i.test(signal)) {
+      setNetworkState((prev) => ({
+        ...prev,
+        degradedMode: true,
+        burstThrottleActive: true,
+        lastError: signal,
+      }))
       recordM7Event({
         type: 'anomaly-remote-abuse',
         detail: signal,
@@ -3098,6 +3324,12 @@ function App() {
     }
 
     if (/retry storm|failures/i.test(signal)) {
+      setNetworkState((prev) => ({
+        ...prev,
+        degradedMode: true,
+        burstThrottleActive: true,
+        lastError: signal,
+      }))
       recordM7Event({
         type: 'anomaly-retry-storm',
         detail: signal,
@@ -3166,8 +3398,16 @@ function App() {
     }
 
     if (activeRouteDecision.mode === 'delegated-desktop') {
+      const idempotencyKey = makeDelegatedIdempotencyKey(request)
+      const existing = findQueuedByIdempotency(delegatedQueue, idempotencyKey)
+      if (existing) {
+        setLastDecision(`Already queued as ${existing.correlationId}. Duplicate request skipped by idempotency guard.`)
+        return
+      }
+
       const queued = enqueueDelegatedRequest({
         request,
+        sourceDeviceClass: currentDeviceProfile.class,
         mode: activeRouteDecision.mode,
         routeReason: activeRouteDecision.reason,
         requiresApproval: activeRouteDecision.requiresApproval,
@@ -3337,6 +3577,49 @@ function App() {
       executionMode: item.mode,
     })
     syncAuditState()
+  }
+
+  async function retryAllDelegatedItems() {
+    const retriable = delegatedQueue.filter(
+      (item) => item.status === 'failed' || item.status === 'approved',
+    )
+    if (retriable.length === 0) {
+      setLastDecision('No delegated items are eligible for retry.')
+      return
+    }
+
+    for (const item of retriable.slice(0, 12)) {
+      await approveDelegatedItem(item.id)
+    }
+    setLastDecision(`Replay triggered for ${Math.min(retriable.length, 12)} delegated item(s).`)
+  }
+
+  async function replaySafeDelegatedItems() {
+    const safe = delegatedQueue.filter((item) => {
+      const category = String(item.request.category || '')
+      return (item.status === 'failed' || item.status === 'approved')
+        && category !== 'filesystem'
+        && category !== 'system'
+    })
+    if (safe.length === 0) {
+      setLastDecision('No safe delegated items available for replay.')
+      return
+    }
+
+    for (const item of safe.slice(0, 12)) {
+      await approveDelegatedItem(item.id)
+    }
+    setLastDecision(`Safe replay triggered for ${Math.min(safe.length, 12)} delegated item(s).`)
+  }
+
+  function clearFailedDelegatedItems() {
+    const failedCount = delegatedQueue.filter((item) => item.status === 'failed').length
+    if (failedCount === 0) {
+      setLastDecision('No failed delegated items to clear.')
+      return
+    }
+    setDelegatedQueue((prev) => prev.filter((item) => item.status !== 'failed'))
+    setLastDecision(`Cleared ${failedCount} failed delegated item(s).`)
   }
 
   // ── Library tab handlers ──
@@ -8475,6 +8758,20 @@ function App() {
           setVoiceSessionLanguage(resolved.code)
         }}
         m7Reliability={m7ReliabilityPanel}
+        m7AdvancedNetwork={m7AdvancedNetworkPanel}
+        onRetryAllDelegated={() => void retryAllDelegatedItems()}
+        onReplaySafeDelegated={() => void replaySafeDelegatedItems()}
+        onClearFailedDelegated={clearFailedDelegatedItems}
+        onResetBurstThrottle={() =>
+          setNetworkState((prev) => ({
+            ...prev,
+            burstThrottleActive: false,
+            degradedMode: false,
+            bridgeRetryBudget: 8,
+            relayRetryBudget: 8,
+            lastError: '',
+          }))
+        }
         onAppendAudit={appendAudit}
       />
     )

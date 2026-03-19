@@ -15,6 +15,7 @@ export type DeviceRoutingFlags = {
   cloudRelayEnabled: boolean
   desktopAdapterEnabled: boolean
   emergencyCallRelayEnabled: boolean
+  burstThrottleActive?: boolean
 }
 
 export type ActionRoutingDecision = {
@@ -100,6 +101,14 @@ export function routeActionRequest(
   flags: DeviceRoutingFlags,
 ): ActionRoutingDecision {
   const requiresApproval = request.category === 'filesystem' || request.category === 'system'
+
+  if (flags.burstThrottleActive) {
+    return {
+      mode: 'denied',
+      reason: 'Burst throttle is active due to reliability guardrails. Retry after cooldown.',
+      requiresApproval,
+    }
+  }
 
   if (isDesktopOnlyAction(request)) {
     if (profile.class === 'desktop' && profile.supportsNativeAutomation) {

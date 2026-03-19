@@ -60,6 +60,29 @@ export function detectAuditAnomaly(entries: AuditEntry[], latest: AuditEntry): A
     }
   }
 
+  const queuedByAction = new Map<string, number>()
+  for (const entry of recent) {
+    if (entry.type !== 'action_result') {
+      continue
+    }
+    const payload = asRecord(entry.payload)
+    const status = String(payload.status || '').toLowerCase()
+    if (status !== 'queued') {
+      continue
+    }
+    const key = `${String(payload.actionId || 'unknown')}::${String(payload.executionMode || 'unknown')}`
+    queuedByAction.set(key, (queuedByAction.get(key) || 0) + 1)
+  }
+
+  const burstKey = [...queuedByAction.entries()].find(([, count]) => count >= 3)
+  if (burstKey) {
+    return {
+      detected: true,
+      score: 81,
+      reason: `Burst throttle candidate detected for ${burstKey[0]} (${burstKey[1]} queued attempts).`,
+    }
+  }
+
   const failedByAction = new Map<string, number>()
   for (const entry of recent) {
     if (entry.type !== 'action_result') {

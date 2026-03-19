@@ -104,6 +104,7 @@ This file is the single source of truth for what The Paxion is and what it is be
 - M4-M5 baseline is now started (unified call/channel routing fallback chain and smart-glass voice-first safety confirmation gate).
 - M6 baseline is now started (language-aware STT/response/TTS routing with fallback chains and session language memory).
 - M7 baseline is now started (reliability telemetry, anomaly enrichment, and crash-safe delegated resume).
+- Closure hardening is now landed (network backoff budgets, delegated idempotency/replay controls, and burst-throttle route guard).
 
 ## Cross-device parity M2/M3 kickoff baseline
 - Mobile companion now has persisted session recovery for key assistant and action context state.
@@ -128,6 +129,12 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Delegated queue lifecycle metrics now track queued/executing/completed/failed counters.
 - Audit anomaly detection now catches delegated remote abuse bursts and retry-storm patterns.
 - Delegated workflows now restore from crash-safe snapshots in resumable state after restart.
+
+## Cross-device parity closure hardening
+- Relay and bridge paths now use retry budgets with backoff and jitter under variance.
+- Burst-throttle route guard now blocks new risky routing under abuse/retry anomaly windows.
+- Delegated queue now enforces idempotency and exposes replay controls (retry all, safe replay, clear failed).
+- Mobile-origin delegated actions now replay safely when connectivity is restored.
 
 ## Advanced autonomy foundations
 - Advanced governance now includes policy-diff simulation, staged canary rollout planning, and anomaly-driven rollback recommendations.

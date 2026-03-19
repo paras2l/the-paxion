@@ -67,6 +67,13 @@ Use this file to protect continuity and prevent missing work.
 - Audit anomaly detection emits threats for retry-storm failure patterns.
 - Delegated queue restores executing items safely after restart as resumable approved state.
 
+## Device Expansion Closure Verification
+- Relay and bridge network calls use bounded retry budgets with backoff and jitter.
+- Burst-throttle routing engages when abuse/retry anomalies fire and can be operator-reset.
+- Delegated queue enforces idempotency key guard against duplicate enqueues.
+- Mobile-origin delegated tasks auto-replay on reconnect for safe categories.
+- Operators can run retry-all, replay-safe-only, and clear-failed queue controls from Integrations panel.
+
 ## Fresh machine recovery
 1. Clone repository.
 2. Install Node.js 20.18+ (or newer LTS).
@@ -101,3 +108,4 @@ Use this file to protect continuity and prevent missing work.
 - v0.21.2-device-expansion-m4m5-kickoff: unified call/channel intent routing with fallback-chain previews plus smart-glass voice-mode toggle and concise confirmation safety gate.
 - v0.21.3-device-expansion-m6-kickoff: multilingual voice pipeline with session language memory, STT/TTS routing, fallback language chain, and control-surface language visibility.
 - v0.21.4-device-expansion-m7-kickoff: reliability telemetry dashboard, remote abuse and retry-storm anomaly patterns, and crash-safe delegated workflow resume.
+- v0.21.5-device-expansion-closure-hardening: network backoff+budget controls, delegated idempotency and replay controls, burst-throttle guardrails, and reconnect replay resilience.
