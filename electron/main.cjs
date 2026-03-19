@@ -3,10 +3,31 @@ const path = require('path')
 const { registerIpcHandlers } = require('./ipc-handlers.cjs')
 
 const devServerUrl = process.env.PAXION_DEV_SERVER_URL
+const debugWindow = process.env.PAXION_DEBUG_WINDOW === '1'
+const disableGpu = process.env.PAXION_DISABLE_GPU === '1'
+const forceGpu = process.env.PAXION_ENABLE_GPU === '1'
+const disableGpuByDefault = process.platform === 'win32'
+const shouldDisableGpu = (disableGpuByDefault || disableGpu) && !forceGpu
+
+if (shouldDisableGpu) {
+  app.disableHardwareAcceleration()
+  app.commandLine.appendSwitch('disable-gpu-compositing')
+}
 let tray = null
 let mainWindowRef = null
 let closeToTrayEnabled = true
 let forceQuit = false
+
+function logWindowDebug(message, details) {
+  if (!debugWindow) {
+    return
+  }
+  if (details === undefined) {
+    console.log(`[paxion-window] ${message}`)
+    return
+  }
+  console.log(`[paxion-window] ${message}`, details)
+}
 
 function createTray() {
   if (tray) {
@@ -109,6 +130,53 @@ function createWindow() {
   mainWindowRef = mainWindow
   registerIpcHandlers(mainWindow)
 
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    logWindowDebug('did-fail-load', { errorCode, errorDescription, validatedURL })
+  })
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    logWindowDebug('render-process-gone', details)
+  })
+
+  mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
+    logWindowDebug('preload-error', {
+      preloadPath,
+      message: error?.message,
+      stack: error?.stack,
+    })
+  })
+
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    if (!debugWindow) {
+      return
+    }
+    const levels = ['verbose', 'info', 'warning', 'error']
+    const label = levels[level] ?? `level-${level}`
+    console.log(`[paxion-renderer:${label}] ${sourceId}:${line} ${message}`)
+  })
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    logWindowDebug('did-finish-load', mainWindow.webContents.getURL())
+    if (!debugWindow) {
+      return
+    }
+    void mainWindow.webContents
+      .executeJavaScript(
+        `(() => {
+          const root = document.getElementById('root');
+          const children = root ? root.childElementCount : -1;
+          const textSize = root ? (root.textContent || '').trim().length : -1;
+          return { children, textSize };
+        })();`,
+      )
+      .then((snapshot) => {
+        logWindowDebug('root-snapshot', snapshot)
+      })
+      .catch((error) => {
+        logWindowDebug('root-snapshot-error', error?.message || String(error))
+      })
+  })
+
   mainWindow.on('close', (event) => {
     if (forceQuit) {
       return
@@ -120,12 +188,15 @@ function createWindow() {
   })
 
   if (devServerUrl) {
+    logWindowDebug('loadURL', devServerUrl)
     mainWindow.loadURL(devServerUrl)
     mainWindow.webContents.openDevTools({ mode: 'detach' })
     return
   }
 
-  mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+  const indexPath = path.join(__dirname, '..', 'dist', 'index.html')
+  logWindowDebug('loadFile', indexPath)
+  mainWindow.loadFile(indexPath)
 }
 
 app.whenReady().then(() => {

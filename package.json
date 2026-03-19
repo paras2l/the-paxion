@@ -8,12 +8,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:renderer": "vite --host 127.0.0.1 --port 5173",
     "build": "tsc -b && vite build",
     "desktop": "npm run build && electron .",
+    "desktop:dev": "set \"PAXION_DEV_SERVER_URL=http://127.0.0.1:5173\" && electron .",
+    "desktop:debug": "set \"PAXION_DEBUG_WINDOW=1\" && npm run build && electron .",
+    "desktop:safe": "set \"PAXION_DISABLE_GPU=1\" && npm run build && electron .",
     "icon:win": "node scripts/generate-app-icon.mjs",
     "dist:win": "npm run icon:win && npm run build && electron-builder --win nsis",
     "lint": "eslint .",
-    "test": "node --test electron/readiness-utils.test.cjs electron/readiness-integration.test.cjs electron/compliance-engine.test.cjs electron/domain-engines.test.cjs electron/advanced-systems.test.cjs",
+    "test": "node --test electron/readiness-utils.test.cjs electron/readiness-integration.test.cjs electron/compliance-engine.test.cjs electron/domain-engines.test.cjs electron/advanced-systems.test.cjs electron/policy-boundary-regression.test.cjs electron/secure-relay-service.test.cjs electron/relay-client.test.cjs",
     "preview": "vite preview"
   },
   "build": {
@@ -26,6 +30,7 @@
       "dist/**/*",
       "electron/**/*",
       "boundary/**/*",
+      "polyglot-core/**/*",
       "package.json"
     ],
     "win": {
@@ -44,7 +49,8 @@
     "pdf-parse": "^2.4.5",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "^7.0.0",
+    "youtube-transcript": "^1.3.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

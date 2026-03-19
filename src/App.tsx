@@ -1,12 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { PaxionBrain } from './brain/engine'
+import { FOUNDATION_KNOWLEDGE_PACKS } from './brain/foundationKnowledge'
 import { rankFromDocs } from './brain/knowledge'
 import type { ChatMessage } from './chat/types'
 import { LibraryStore } from './library/libraryStore'
 import type { LibraryDocument } from './library/types'
+import {
+  deriveProviderHealth,
+  loadModelRouterConfig,
+  saveModelRouterConfig,
+  type ModelProviderId,
+  type ModelRouterConfig,
+  type RoutingProfile,
+} from './core/models/router'
+import { createPolicySnapshot } from './core/policy/policyAdapter'
 import { ApprovalStore } from './security/approvals'
 import { AuditLedger } from './security/audit'
+import ControlShell from './ui/control/ControlShell'
 import {
   evaluateActionPolicy,
   finalizePolicyDecision,
@@ -43,11 +54,60 @@ const tabs: Tab[] = [
   },
 ]
 
-const policyLines = [
-  'Legal-safe operations only; dangerous and illegal actions are blocked.',
-  'Sensitive actions require admin verification and explicit approval.',
-  'The app cannot self-grant permissions or hide actions from logs.',
+const KNOWLEDGE_BOOTSTRAP_SOURCES: Array<{ name: string; url: string; type: 'google-web' | 'github' }> = [
+  {
+    name: 'AI Basics (Wikipedia)',
+    url: 'https://en.wikipedia.org/wiki/Artificial_intelligence',
+    type: 'google-web',
+  },
+  {
+    name: 'Machine Learning Basics (Wikipedia)',
+    url: 'https://en.wikipedia.org/wiki/Machine_learning',
+    type: 'google-web',
+  },
+  {
+    name: 'Software Engineering (Wikipedia)',
+    url: 'https://en.wikipedia.org/wiki/Software_engineering',
+    type: 'google-web',
+  },
+  {
+    name: 'Computer Security (Wikipedia)',
+    url: 'https://en.wikipedia.org/wiki/Computer_security',
+    type: 'google-web',
+  },
+  {
+    name: 'Data Structures (Wikipedia)',
+    url: 'https://en.wikipedia.org/wiki/Data_structure',
+    type: 'google-web',
+  },
+  {
+    name: 'JavaScript Guide (MDN)',
+    url: 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide',
+    type: 'google-web',
+  },
+  {
+    name: 'Python Tutorial Index (Python Docs)',
+    url: 'https://docs.python.org/3/tutorial/index.html',
+    type: 'google-web',
+  },
+  {
+    name: 'JavaScript Algorithms (GitHub README)',
+    url: 'https://raw.githubusercontent.com/trekhleb/javascript-algorithms/master/README.md',
+    type: 'github',
+  },
+  {
+    name: 'OSSU Computer Science (GitHub README)',
+    url: 'https://raw.githubusercontent.com/ossu/computer-science/master/README.md',
+    type: 'github',
+  },
+  {
+    name: 'Developer Roadmap (GitHub README)',
+    url: 'https://raw.githubusercontent.com/kamranahmedse/developer-roadmap/master/README.md',
+    type: 'github',
+  },
 ]
+
+const BRAIN_PROFILE_DOC_NAME = '[Brain Memory] Unified Knowledge Profile'
 
 const profileVariablePattern = /{{\s*([a-zA-Z0-9_-]+)\s*}}/g
 
@@ -121,8 +181,56 @@ type BeforeInstallPromptEventLike = Event & {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
 }
 
-type ChatMode = 'local' | 'desktop-relay'
 type AssistantMode = 'chat' | 'voice'
+type UiTheme = 'night' | 'day'
+type WorkspaceTopicTab = 'overview' | 'polyglot' | 'youtube' | 'automation'
+
+type PolyglotLanguage = 'python' | 'c' | 'cpp' | 'java' | 'julia' | 'r' | 'javascript'
+
+type PolyglotRuntimeStatus = {
+  language: string
+  available: boolean
+  command: string | null
+  detail: string
+}
+
+type PolyglotRunResult = {
+  ok: boolean
+  reason: string
+  language: string
+  stage: 'setup' | 'compile' | 'run'
+  stdout: string
+  stderr: string
+  exitCode: number | null
+  timedOut: boolean
+  commands: string[]
+  artifactPath: string | null
+  skills?: string[]
+  updatedAt?: string | null
+}
+
+type PolyglotBrainMeshItem = {
+  language: string
+  ok: boolean
+  reason: string
+  detail?: Record<string, unknown> | null
+  stdout?: string
+  stderr?: string
+  commands: string[]
+  timedOut?: boolean
+  artifactPath?: string | null
+}
+
+type PolyglotBrainMeshResult = {
+  ok: boolean
+  objective: string
+  results: PolyglotBrainMeshItem[]
+  summary: string
+  completedCount: number
+  attemptedCount: number
+  skills?: string[]
+  updatedAt?: string | null
+}
 
 type IntegrationStatus = {
   desktopRelay: boolean
@@ -181,6 +289,22 @@ type VideoLearningPlan = {
   parallelSlots: number
   createdAt: string
   segments: VideoLearningSegment[]
+}
+
+type SttToolStatus = {
+  available: boolean
+  command: string | null
+  detail: string
+}
+
+type VideoSttStatus = {
+  ready: boolean
+  tools: {
+    ytDlp: SttToolStatus
+    ffmpeg: SttToolStatus
+    whisper: SttToolStatus
+  }
+  updatedAt: string | null
 }
 
 type AutomationTemplate = {
@@ -472,6 +596,50 @@ const actionPresets: ActionPreset[] = [
 
 const immutableSummary = getImmutablePolicySummary()
 
+const POLYGLOT_LANGUAGE_LABELS: Record<PolyglotLanguage, string> = {
+  python: 'Python',
+  c: 'C',
+  cpp: 'C++',
+  java: 'Java',
+  julia: 'Julia',
+  r: 'R',
+  javascript: 'JavaScript',
+}
+
+const POLYGLOT_TEMPLATES: Record<PolyglotLanguage, string> = {
+  python: ['name = "Paxion"', 'print(f"Hello from Python, {name}.")'].join('\n'),
+  c: [
+    '#include <stdio.h>',
+    '',
+    'int main(void) {',
+    '  printf("Hello from C.\\n");',
+    '  return 0;',
+    '}',
+  ].join('\n'),
+  cpp: [
+    '#include <iostream>',
+    '',
+    'int main() {',
+    '  std::cout << "Hello from C++" << std::endl;',
+    '  return 0;',
+    '}',
+  ].join('\n'),
+  java: [
+    'public class Main {',
+    '  public static void main(String[] args) {',
+    '    System.out.println("Hello from Java");',
+    '  }',
+    '}',
+  ].join('\n'),
+  julia: ['name = "Paxion"', 'println("Hello from Julia, $name.")'].join('\n'),
+  r: ['name <- "Paxion"', 'cat(sprintf("Hello from R, %s\\n", name))'].join('\n'),
+  javascript: ['const name = "Paxion"', 'console.log(`Hello from JavaScript, ${name}.`)'].join('\n'),
+}
+
+function parseCliArgsText(text: string): string[] {
+  return (text.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((part) => part.replace(/^['"]|['"]$/g, ''))
+}
+
 const defaultCapabilityState: CapabilityState = {
   workspaceExecution: true,
   workspaceFileWrite: true,
@@ -483,7 +651,7 @@ const defaultCapabilityState: CapabilityState = {
   selfEvolution: false,
   videoLearning: false,
   libraryIngestLocal: true,
-  libraryIngestWeb: false,
+  libraryIngestWeb: true,
   chatExternalModel: false,
   voiceInput: true,
   voiceOutput: true,
@@ -565,6 +733,7 @@ function buildWorkspacePlan(goal: string): WorkspaceStep[] {
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabId>('chat')
+  const [routerConfig, setRouterConfig] = useState<ModelRouterConfig>(() => loadModelRouterConfig())
   const [selectedActionId, setSelectedActionId] = useState(actionPresets[0].id)
   const [targetPath, setTargetPath] = useState(actionPresets[0].targetPath)
   const [actionDetail, setActionDetail] = useState(actionPresets[0].detail)
@@ -591,6 +760,8 @@ function App() {
   const [videoParallelSlots, setVideoParallelSlots] = useState('3')
   const [videoPermission, setVideoPermission] = useState(false)
   const [videoMessage, setVideoMessage] = useState('')
+  const [videoSttStatus, setVideoSttStatus] = useState<VideoSttStatus | null>(null)
+  const [videoSttLoading, setVideoSttLoading] = useState(false)
   const [videoTargetPlanId, setVideoTargetPlanId] = useState('')
   const [videoTargetSegmentId, setVideoTargetSegmentId] = useState('')
   const [videoSegmentSummary, setVideoSegmentSummary] = useState('')
@@ -685,21 +856,36 @@ function App() {
   const [libPasteName, setLibPasteName] = useState('')
   const [libPasteText, setLibPasteText] = useState('')
   const [libAddError, setLibAddError] = useState('')
+  const [foundationKnowledgeMessage, setFoundationKnowledgeMessage] = useState('')
   const [libraryUpdatedAt, setLibraryUpdatedAt] = useState<string | null>(null)
   const [webSearchQuery, setWebSearchQuery] = useState('')
   const [webSearchLoading, setWebSearchLoading] = useState(false)
   const [webSearchMessage, setWebSearchMessage] = useState('')
+  const [webIngestUrl, setWebIngestUrl] = useState('')
+  const [webIngestLoading, setWebIngestLoading] = useState(false)
+  const [webIngestMessage, setWebIngestMessage] = useState('')
+  const [knowledgeBootstrapLoading, setKnowledgeBootstrapLoading] = useState(false)
+  const [knowledgeBootstrapMessage, setKnowledgeBootstrapMessage] = useState('')
+  const [youtubeIngestUrl, setYoutubeIngestUrl] = useState('')
+  const [youtubeIngestLoading, setYoutubeIngestLoading] = useState(false)
+  const [youtubeIngestMessage, setYoutubeIngestMessage] = useState('')
+  const [uiTheme, setUiTheme] = useState<UiTheme>(() => {
+    const saved = localStorage.getItem('paxion-ui-theme')
+    return saved === 'day' ? 'day' : 'night'
+  })
   const libraryLoadedRef = useRef(false)
 
   // Chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
-  const [chatMode, setChatMode] = useState<ChatMode>('local')
   const [chatNotice, setChatNotice] = useState('')
+  const [chatUserName, setChatUserName] = useState('')
+  const [chatFriendlyTone, setChatFriendlyTone] = useState(false)
   const [relayCaptureTitle, setRelayCaptureTitle] = useState('')
   const [relayCaptureText, setRelayCaptureText] = useState('')
   const [chatVoiceListening, setChatVoiceListening] = useState(false)
+  const [chatVoicePending, setChatVoicePending] = useState<'idle' | 'starting' | 'stopping'>('idle')
   const [chatVoiceEnabled, setChatVoiceEnabled] = useState(true)
   const [assistantMode, setAssistantMode] = useState<AssistantMode>('chat')
   const [wakePhrase, setWakePhrase] = useState('paxion wakeup')
@@ -776,6 +962,12 @@ function App() {
   const voiceLoopEnabledRef = useRef(false)
   const wakeArmedRef = useRef(true)
   const voiceCommandInFlightRef = useRef(false)
+  const suppressVoiceAutoRestartRef = useRef(false)
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', uiTheme)
+    localStorage.setItem('paxion-ui-theme', uiTheme)
+  }, [uiTheme])
 
   // Workspace mission executor state
   const [workspaceGoal, setWorkspaceGoal] = useState('')
@@ -784,7 +976,21 @@ function App() {
   const [workspaceMessage, setWorkspaceMessage] = useState('')
   const [workspaceQueuePaused, setWorkspaceQueuePaused] = useState(false)
   const [workspaceQueueStopped, setWorkspaceQueueStopped] = useState(false)
+  const [workspaceTopicTab, setWorkspaceTopicTab] = useState<WorkspaceTopicTab>('overview')
   const [workspaceUpdatedAt, setWorkspaceUpdatedAt] = useState<string | null>(null)
+  const [polyglotLanguage, setPolyglotLanguage] = useState<PolyglotLanguage>('python')
+  const [polyglotCode, setPolyglotCode] = useState(POLYGLOT_TEMPLATES.python)
+  const [polyglotArgsText, setPolyglotArgsText] = useState('')
+  const [polyglotStdin, setPolyglotStdin] = useState('')
+  const [polyglotTimeoutMs, setPolyglotTimeoutMs] = useState('20000')
+  const [polyglotRuntimes, setPolyglotRuntimes] = useState<PolyglotRuntimeStatus[]>([])
+  const [polyglotStatusUpdatedAt, setPolyglotStatusUpdatedAt] = useState<string | null>(null)
+  const [polyglotRunning, setPolyglotRunning] = useState(false)
+  const [polyglotMessage, setPolyglotMessage] = useState('')
+  const [polyglotResult, setPolyglotResult] = useState<PolyglotRunResult | null>(null)
+  const [polyglotBrainObjective, setPolyglotBrainObjective] = useState('Strengthen Paxion architecture with the best role for each language.')
+  const [polyglotBrainRunning, setPolyglotBrainRunning] = useState(false)
+  const [polyglotBrainResult, setPolyglotBrainResult] = useState<PolyglotBrainMeshResult | null>(null)
   const workspaceLoadedRef = useRef(false)
   const workspaceQueuePausedRef = useRef(false)
   const workspaceQueueStoppedRef = useRef(false)
@@ -793,6 +999,81 @@ function App() {
     () => tabs.find((tab) => tab.id === activeTab) ?? tabs[0],
     [activeTab],
   )
+  const policySnapshot = useMemo(() => createPolicySnapshot(), [])
+  const providerHealth = useMemo(
+    () => deriveProviderHealth(routerConfig.providers),
+    [routerConfig.providers],
+  )
+  const gatewayChannels = useMemo(
+    () => [
+      {
+        id: 'webchat',
+        label: 'WebChat',
+        status: 'connected' as const,
+        detail: 'Browser control UI is active in this runtime.',
+      },
+      {
+        id: 'telegram',
+        label: 'Telegram',
+        status: capabilities.chatExternalModel ? ('pending' as const) : ('disabled' as const),
+        detail: capabilities.chatExternalModel
+          ? 'Adapter staged for MVP wiring.'
+          : 'Enable chatExternalModel in Access to start setup.',
+      },
+      {
+        id: 'discord',
+        label: 'Discord',
+        status: capabilities.chatExternalModel ? ('pending' as const) : ('disabled' as const),
+        detail: capabilities.chatExternalModel
+          ? 'Channel contract prepared for gateway integration.'
+          : 'Adapter disabled by capability toggle.',
+      },
+      {
+        id: 'whatsapp',
+        label: 'WhatsApp',
+        status: capabilities.chatExternalModel ? ('pending' as const) : ('disabled' as const),
+        detail: capabilities.chatExternalModel
+          ? 'Pairing and allowlist setup queued in next phase.'
+          : 'Adapter disabled by capability toggle.',
+      },
+    ],
+    [capabilities.chatExternalModel],
+  )
+  const controlWorkspaceMissions = useMemo(
+    () =>
+      crossAppMissions.slice(0, 20).map((mission) => {
+        const normalizedStatus: 'planning' | 'ready' | 'executing' | 'completed' | 'failed' =
+          mission.status === 'ready' ||
+          mission.status === 'executing' ||
+          mission.status === 'completed' ||
+          mission.status === 'failed'
+            ? mission.status
+            : 'planning'
+
+        return {
+          id: mission.id,
+          title: mission.goal,
+          description: `Surfaces: ${mission.surfaces.join(', ') || 'unspecified'}`,
+          status: normalizedStatus,
+          steps: mission.phases.length,
+          createdAt: mission.createdAt,
+          updatedAt: mission.createdAt,
+        }
+      }),
+    [crossAppMissions],
+  )
+  const controlTotalWords = useMemo(
+    () =>
+      libDocs.reduce((sum, doc) => {
+        const words = doc.content.trim().split(/\s+/).filter(Boolean).length
+        return sum + words
+      }, 0),
+    [libDocs],
+  )
+  const selectedPolyglotRuntime = useMemo(
+    () => polyglotRuntimes.find((runtime) => runtime.language === polyglotLanguage) ?? null,
+    [polyglotLanguage, polyglotRuntimes],
+  )
   const isWebRuntime = typeof window !== 'undefined' && !window.paxion
   const isMobileDevice =
     typeof navigator !== 'undefined' && /android|iphone|ipad|mobile/i.test(navigator.userAgent)
@@ -800,6 +1081,32 @@ function App() {
   const approvalStore = useMemo(() => new ApprovalStore(), [])
   const auditLedger = useMemo(() => new AuditLedger(), [])
   const brain = useMemo(() => new PaxionBrain(), [])
+
+  useEffect(() => {
+    saveModelRouterConfig(routerConfig)
+  }, [routerConfig])
+
+  const updateRoutingProfile = useCallback((profile: RoutingProfile) => {
+    setRouterConfig((prev) => ({ ...prev, defaultProfile: profile }))
+  }, [])
+
+  const updateProviderEnabled = useCallback((id: ModelProviderId, enabled: boolean) => {
+    setRouterConfig((prev) => ({
+      ...prev,
+      providers: prev.providers.map((provider) =>
+        provider.id === id ? { ...provider, enabled } : provider,
+      ),
+    }))
+  }, [])
+
+  const updateProviderKey = useCallback((id: ModelProviderId, apiKey: string) => {
+    setRouterConfig((prev) => ({
+      ...prev,
+      providers: prev.providers.map((provider) =>
+        provider.id === id ? { ...provider, apiKey } : provider,
+      ),
+    }))
+  }, [])
 
 
   const refreshAdminStatus = useCallback(async () => {
@@ -907,6 +1214,30 @@ function App() {
       setAutomationTemplateId(result.templates[0].id)
     }
   }, [automationTemplateId])
+
+  const refreshPolyglotStatus = useCallback(async () => {
+    if (!window.paxion) {
+      setPolyglotMessage('Polyglot runtime detection is available only in desktop mode.')
+      setPolyglotRuntimes([])
+      return
+    }
+
+    const result = await window.paxion.polyglot.status().catch(() => null)
+    if (!result?.ok) {
+      setPolyglotMessage('Failed to detect local runtimes.')
+      return
+    }
+
+    setPolyglotRuntimes(result.runtimes)
+    setPolyglotStatusUpdatedAt(result.updatedAt)
+    setPolyglotMessage('Local runtime scan complete.')
+  }, [])
+
+  useEffect(() => {
+    if (activeTab === 'workspace' && workspaceTopicTab === 'polyglot' && polyglotRuntimes.length === 0) {
+      void refreshPolyglotStatus()
+    }
+  }, [activeTab, workspaceTopicTab, polyglotRuntimes.length, refreshPolyglotStatus])
 
   const loadReadinessState = useCallback(async () => {
     if (!window.paxion) {
@@ -1179,6 +1510,14 @@ function App() {
     const storedWake = localStorage.getItem('paxion-wake-phrase')
     if (storedWake && storedWake.trim()) {
       setWakePhrase(storedWake.trim().toLowerCase())
+    }
+    const storedName = localStorage.getItem('paxion-chat-user-name')
+    if (storedName && storedName.trim()) {
+      setChatUserName(storedName.trim())
+    }
+    const storedTone = localStorage.getItem('paxion-chat-friendly-tone')
+    if (storedTone === '1') {
+      setChatFriendlyTone(true)
     }
 
     if (window.paxion?.assistant) {
@@ -2195,6 +2534,10 @@ function App() {
   }
 
   function startVoiceInput(commandLoop = false) {
+    if (chatVoicePending === 'starting' || chatVoiceListening) {
+      return
+    }
+
     if (!capabilities.voiceInput) {
       setChatNotice('Voice input is disabled in Access tab.')
       return
@@ -2227,6 +2570,11 @@ function App() {
 
       recognition.onend = () => {
         setChatVoiceListening(false)
+        setChatVoicePending('idle')
+        if (suppressVoiceAutoRestartRef.current) {
+          suppressVoiceAutoRestartRef.current = false
+          return
+        }
         if (voiceLoopEnabledRef.current) {
           window.setTimeout(() => {
             if (voiceLoopEnabledRef.current) {
@@ -2238,6 +2586,11 @@ function App() {
 
       recognition.onerror = () => {
         setChatVoiceListening(false)
+        setChatVoicePending('idle')
+        if (suppressVoiceAutoRestartRef.current) {
+          suppressVoiceAutoRestartRef.current = false
+          return
+        }
         if (voiceLoopEnabledRef.current) {
           window.setTimeout(() => {
             if (voiceLoopEnabledRef.current) {
@@ -2252,18 +2605,27 @@ function App() {
 
     speechRecognitionRef.current.continuous = commandLoop
     try {
+      setChatVoicePending('starting')
       speechRecognitionRef.current.start()
       setChatVoiceListening(true)
+      setChatVoicePending('idle')
       setChatNotice(commandLoop ? 'Voice mode active. Say wake phrase and command.' : 'Listening...')
     } catch {
+      setChatVoicePending('idle')
       // Ignore duplicate start attempts from rapid onend/onerror restarts.
     }
   }
 
   function stopVoiceInput() {
     if (!speechRecognitionRef.current) return
+    suppressVoiceAutoRestartRef.current = true
+    voiceLoopEnabledRef.current = false
+    setVoiceLoopEnabled(false)
+    setChatVoicePending('stopping')
     speechRecognitionRef.current.stop()
     setChatVoiceListening(false)
+    setChatVoicePending('idle')
+    setChatNotice('Voice input stopped.')
   }
 
   function syncAuditState() {
@@ -2386,6 +2748,240 @@ function App() {
 
   // ── Library tab handlers ──
 
+  function buildConceptDistillation(title: string, content: string): string | null {
+    const normalized = content.replace(/\s+/g, ' ').trim()
+    if (normalized.length < 320) {
+      return null
+    }
+
+    const stop = new Set([
+      'the', 'and', 'for', 'that', 'with', 'this', 'from', 'have', 'were', 'what', 'when', 'where',
+      'which', 'their', 'there', 'about', 'into', 'would', 'could', 'should', 'also', 'than',
+      'your', 'they', 'them', 'then', 'been', 'being', 'will', 'just', 'some', 'more', 'very',
+      'much', 'only', 'because', 'while', 'after', 'before', 'under', 'over', 'each', 'same',
+    ])
+
+    const words = normalized
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length > 3 && !stop.has(w))
+
+    const frequency = new Map<string, number>()
+    for (const word of words) {
+      frequency.set(word, (frequency.get(word) ?? 0) + 1)
+    }
+
+    const topKeywords = [...frequency.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([w]) => w)
+
+    const sentences = normalized
+      .split(/(?<=[.!?])\s+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 50)
+
+    const scored = sentences
+      .map((sentence) => {
+        const low = sentence.toLowerCase()
+        const score = topKeywords.reduce((acc, kw) => acc + (low.includes(kw) ? 1 : 0), 0)
+        return { sentence, score }
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5)
+
+    if (scored.length === 0) {
+      return null
+    }
+
+    const highlights = scored
+      .map((item) => `- ${item.sentence.replace(/\s+/g, ' ').slice(0, 220)}${item.sentence.length > 220 ? '...' : ''}`)
+      .join('\n')
+
+    const concepts = topKeywords.slice(0, 6).map((k) => `- ${k}`).join('\n')
+
+    return [
+      `Concept Distillation: ${title}`,
+      '',
+      'Primary concepts:',
+      concepts,
+      '',
+      'Core understanding (concept-level):',
+      highlights,
+      '',
+      'Answering policy:',
+      '- Explain concepts first in simple language.',
+      '- Use raw evidence only when user asks for trace/citation.',
+      '- If confidence is low, ask for more targeted source material.',
+    ].join('\n')
+  }
+
+  function buildBrainKnowledgeProfile(): string | null {
+    const docs = libraryStore.getAll().filter((doc) => doc.name !== BRAIN_PROFILE_DOC_NAME)
+    if (docs.length === 0) {
+      return null
+    }
+
+    const totalWordCount = docs.reduce((acc, doc) => acc + doc.wordCount, 0)
+    const sourceCounts = docs.reduce(
+      (acc, doc) => {
+        if (doc.source === 'file') {
+          acc.file += 1
+        } else {
+          acc.paste += 1
+        }
+        return acc
+      },
+      { file: 0, paste: 0 },
+    )
+
+    const stopWords = new Set([
+      'the', 'and', 'for', 'that', 'with', 'this', 'from', 'have', 'were', 'what', 'when', 'where',
+      'which', 'their', 'there', 'about', 'into', 'would', 'could', 'should', 'also', 'than',
+      'your', 'they', 'them', 'then', 'been', 'being', 'will', 'just', 'some', 'more', 'very',
+      'much', 'only', 'because', 'while', 'after', 'before', 'under', 'over', 'each', 'same',
+      'using', 'used', 'make', 'made', 'into', 'across', 'between', 'other', 'these', 'those',
+      'such', 'through', 'within', 'without', 'need', 'needs', 'like', 'than',
+    ])
+
+    const frequencies = new Map<string, number>()
+    for (const doc of docs) {
+      const words = doc.content
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter((word) => word.length > 3 && !stopWords.has(word))
+      for (const word of words) {
+        frequencies.set(word, (frequencies.get(word) ?? 0) + 1)
+      }
+    }
+
+    const topConcepts = [...frequencies.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20)
+      .map(([word, count]) => `- ${word}: ${count}`)
+      .join('\n')
+
+    const newestDocs = docs
+      .slice()
+      .sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime())
+      .slice(0, 12)
+      .map((doc) => `- ${doc.name} (${doc.wordCount.toLocaleString()} words)`)
+      .join('\n')
+
+    return [
+      'Brain Memory Profile',
+      `Updated: ${new Date().toISOString()}`,
+      '',
+      'Knowledge growth:',
+      `- Source documents consumed: ${docs.length}`,
+      `- Total words absorbed: ${totalWordCount.toLocaleString()}`,
+      `- Added from files: ${sourceCounts.file}`,
+      `- Added from web/paste pipelines: ${sourceCounts.paste}`,
+      '',
+      'Top learned concepts:',
+      topConcepts || '- (insufficient data yet)',
+      '',
+      'Most recent absorbed documents:',
+      newestDocs || '- (none)',
+      '',
+      'Runtime behavior:',
+      '- Treat this profile as rolling memory and update it whenever new knowledge is ingested or removed.',
+      '- Prioritize concept-level synthesis with confidence calibration from source evidence.',
+    ].join('\n')
+  }
+
+  function syncBrainKnowledgeProfile(options?: { updateState?: boolean }) {
+    const profile = buildBrainKnowledgeProfile()
+    const existing = libraryStore.getAll().find((doc) => doc.name === BRAIN_PROFILE_DOC_NAME)
+
+    if (!profile) {
+      if (existing) {
+        libraryStore.remove(existing.id)
+      }
+      if (options?.updateState !== false) {
+        setLibDocs(libraryStore.getAll())
+      }
+      return
+    }
+
+    if (existing) {
+      libraryStore.remove(existing.id)
+    }
+    libraryStore.add(BRAIN_PROFILE_DOC_NAME, profile, 'paste')
+
+    if (options?.updateState !== false) {
+      setLibDocs(libraryStore.getAll())
+    }
+  }
+
+  function ingestLibraryKnowledge(
+    name: string,
+    content: string,
+    source: LibraryDocument['source'],
+    options?: { distill?: boolean; updateState?: boolean; syncBrain?: boolean },
+  ) {
+    libraryStore.add(name, content, source)
+
+    const isBrainProfileDoc = name.trim().toLowerCase() === BRAIN_PROFILE_DOC_NAME.toLowerCase()
+    const shouldDistill = options?.distill !== false && !isBrainProfileDoc
+    if (shouldDistill) {
+      const distilled = buildConceptDistillation(name, content)
+      if (distilled) {
+        const conceptName = `[Concept] ${name}`
+        const exists = libraryStore
+          .getAll()
+          .some((doc) => doc.name.toLowerCase() === conceptName.toLowerCase())
+        if (!exists) {
+          libraryStore.add(conceptName, distilled, 'paste')
+        }
+      }
+    }
+
+    if (options?.syncBrain !== false) {
+      syncBrainKnowledgeProfile({ updateState: false })
+    }
+
+    if (options?.updateState !== false) {
+      setLibDocs(libraryStore.getAll())
+    }
+  }
+
+  async function integrateAllKnowledgePacks() {
+    const existingNames = new Set(libraryStore.getAll().map((doc) => doc.name.toLowerCase()))
+    let imported = 0
+
+    for (const pack of FOUNDATION_KNOWLEDGE_PACKS) {
+      const normalizedName = pack.name.toLowerCase()
+      if (existingNames.has(normalizedName)) {
+        continue
+      }
+
+      ingestLibraryKnowledge(pack.name, pack.content, 'paste', { updateState: false, syncBrain: false })
+      existingNames.add(normalizedName)
+      imported += 1
+    }
+
+    syncBrainKnowledgeProfile({ updateState: false })
+    setLibDocs(libraryStore.getAll())
+
+    if (imported === 0) {
+      setFoundationKnowledgeMessage('All built-in knowledge packs are already integrated.')
+      return
+    }
+
+    await recordLearning({
+      title: 'All built-in knowledge packs integrated',
+      detail: `Integrated ${imported} built-in knowledge packs for stronger baseline reasoning.`,
+      source: 'foundation-knowledge',
+      newSkills: ['General Reasoning', 'Cross-Domain Knowledge', 'Broad Baseline Context'],
+    })
+
+    setFoundationKnowledgeMessage(`Integrated ${imported} built-in knowledge packs into Library.`)
+  }
+
   async function handleAddByFile() {
     if (!window.paxion) return
     setLibAddError('')
@@ -2395,8 +2991,7 @@ function App() {
       setLibAddError(result.error)
       return
     }
-    libraryStore.add(result.name, result.content, 'file')
-    setLibDocs(libraryStore.getAll())
+    ingestLibraryKnowledge(result.name, result.content, 'file')
     setLibAddMode(false)
 
     const newSkills = inferSkills(`${result.name}\n${result.content}`)
@@ -2446,12 +3041,159 @@ function App() {
     })
   }
 
+  async function handleIngestFromWebUrl() {
+    if (!window.paxion) {
+      setWebIngestMessage('Website ingestion is available only in desktop mode.')
+      return
+    }
+
+    if (!webIngestUrl.trim()) {
+      setWebIngestMessage('Enter a website URL first.')
+      return
+    }
+
+    setWebIngestLoading(true)
+    setWebIngestMessage('Fetching and extracting website text...')
+
+    const result = await window.paxion.library
+      .ingestWebUrl({ url: webIngestUrl.trim() })
+      .catch(() => null)
+
+    if (!result?.ok || !result.content || !result.name) {
+      setWebIngestLoading(false)
+      setWebIngestMessage(result?.reason ?? 'Website ingestion failed.')
+      return
+    }
+
+    ingestLibraryKnowledge(result.name, result.content, 'paste')
+    setWebIngestLoading(false)
+    setWebIngestUrl('')
+    setWebIngestMessage(`Imported: ${result.name}`)
+
+    const newSkills = inferSkills(`${result.name}\n${result.content}`)
+    await recordLearning({
+      title: `Knowledge ingested from web: ${result.name}`,
+      detail:
+        newSkills.length > 0
+          ? `Acquired ${newSkills.length} skill signal(s) from website ingestion.`
+          : 'Ingested website content into local knowledge library.',
+      source: 'library-web',
+      newSkills,
+    })
+  }
+
+  async function handleAutoKnowledgeBootstrap() {
+    if (!window.paxion) {
+      setKnowledgeBootstrapMessage('Auto bootstrap is available only in desktop mode.')
+      return
+    }
+
+    setKnowledgeBootstrapLoading(true)
+    setKnowledgeBootstrapMessage('Ingesting Google + GitHub knowledge packs...')
+
+    const existingNames = new Set(libraryStore.getAll().map((doc) => doc.name.toLowerCase()))
+    let imported = 0
+    let skipped = 0
+    let failed = 0
+
+    for (const source of KNOWLEDGE_BOOTSTRAP_SOURCES) {
+      const result = await window.paxion.library.ingestWebUrl({ url: source.url }).catch(() => null)
+      if (!result?.ok || !result.content) {
+        failed += 1
+        continue
+      }
+
+      const bootstrapName = `[Bootstrap:${source.type}] ${source.name}`
+      const normalizedName = bootstrapName.toLowerCase()
+      if (existingNames.has(normalizedName)) {
+        skipped += 1
+        continue
+      }
+
+      ingestLibraryKnowledge(bootstrapName, result.content, 'paste', { updateState: false, syncBrain: false })
+      existingNames.add(normalizedName)
+      imported += 1
+      await sleep(60)
+    }
+
+    syncBrainKnowledgeProfile({ updateState: false })
+    setLibDocs(libraryStore.getAll())
+    setKnowledgeBootstrapLoading(false)
+    setKnowledgeBootstrapMessage(`Bootstrap complete. Imported ${imported}, skipped ${skipped}, failed ${failed}.`)
+
+    if (imported > 0) {
+      await recordLearning({
+        title: 'Google + GitHub knowledge bootstrap integrated',
+        detail: `Imported ${imported} curated packs from web and GitHub sources for broader baseline understanding.`,
+        source: 'knowledge-bootstrap',
+        newSkills: ['Broad Web Grounding', 'GitHub Knowledge Grounding', 'General Baseline Knowledge'],
+      })
+    }
+  }
+
+  async function handleIngestFromYoutube() {
+    if (!window.paxion) {
+      setYoutubeIngestMessage('YouTube ingestion is available only in desktop mode.')
+      return
+    }
+
+    if (!youtubeIngestUrl.trim()) {
+      setYoutubeIngestMessage('Enter a YouTube URL first.')
+      return
+    }
+
+    setYoutubeIngestLoading(true)
+    setYoutubeIngestMessage('Fetching YouTube transcript...')
+
+    const result = await window.paxion.library
+      .ingestYoutube({ url: youtubeIngestUrl.trim() })
+      .catch(() => null)
+
+    if (!result?.ok || !result.content || !result.name) {
+      setYoutubeIngestLoading(false)
+      setYoutubeIngestMessage(result?.reason ?? 'YouTube transcript ingestion failed.')
+      return
+    }
+
+    ingestLibraryKnowledge(result.name, result.content, 'paste')
+    if (Array.isArray(result.segments) && result.segments.length > 0) {
+      result.segments.forEach((segment) => {
+        ingestLibraryKnowledge(segment.name, segment.content, 'paste', {
+          distill: false,
+          updateState: false,
+          syncBrain: false,
+        })
+      })
+      syncBrainKnowledgeProfile({ updateState: false })
+      setLibDocs(libraryStore.getAll())
+    }
+    setYoutubeIngestLoading(false)
+    setYoutubeIngestUrl('')
+    setYoutubeIngestMessage(
+      result.segments && result.segments.length > 0
+        ? `Imported transcript and ${result.segments.length} learning segments.`
+        : result.segmentCount
+          ? `Imported transcript (${result.segmentCount} line segment${result.segmentCount === 1 ? '' : 's'}).`
+          : `Imported: ${result.name}`,
+    )
+
+    const newSkills = inferSkills(`${result.name}\n${result.content}`)
+    await recordLearning({
+      title: `Knowledge ingested from YouTube: ${result.name}`,
+      detail:
+        newSkills.length > 0
+          ? `Acquired ${newSkills.length} skill signal(s) from YouTube transcript.`
+          : 'Stored YouTube transcript into local knowledge library.',
+      source: 'library-youtube',
+      newSkills,
+    })
+  }
+
   function handleAddByPaste() {
     if (!libPasteText.trim()) return
     setLibAddError('')
     const title = libPasteName || 'Pasted document'
-    libraryStore.add(title, libPasteText, 'paste')
-    setLibDocs(libraryStore.getAll())
+    ingestLibraryKnowledge(title, libPasteText, 'paste')
     setLibAddMode(false)
     setLibPasteName('')
     setLibPasteText('')
@@ -2470,6 +3212,7 @@ function App() {
 
   function handleRemoveDoc(id: string) {
     libraryStore.remove(id)
+    syncBrainKnowledgeProfile({ updateState: false })
     if (libSelectedId === id) setLibSelectedId(null)
     setLibDocs(libraryStore.getAll())
   }
@@ -2734,6 +3477,29 @@ function App() {
     setVideoPermission(false)
   }
 
+  async function refreshYoutubeSttStatus() {
+    if (!window.paxion) {
+      setVideoMessage('STT readiness check is available only in desktop mode.')
+      return
+    }
+
+    setVideoSttLoading(true)
+    const result = await window.paxion.learning.sttStatus().catch(() => null)
+    setVideoSttLoading(false)
+
+    if (!result?.ok) {
+      setVideoMessage('Failed to detect STT tool readiness.')
+      return
+    }
+
+    setVideoSttStatus({
+      ready: result.ready,
+      tools: result.tools,
+      updatedAt: result.updatedAt,
+    })
+    setVideoMessage(result.ready ? 'STT fallback is ready.' : 'STT fallback is missing one or more tools.')
+  }
+
   async function openYoutubeSegment(planId: string, segmentId: string) {
     if (!window.paxion) return
     const result = await window.paxion.learning
@@ -2768,6 +3534,64 @@ function App() {
     }
 
     setVideoMessage(`Opened ${batch.length} segment(s) in parallel batch.`)
+  }
+
+  async function autoLearnYoutubeSegment(planId: string, segmentId: string) {
+    if (!window.paxion) return
+    const result = await window.paxion.learning
+      .youtubeSegmentAutoLearn({
+        planId,
+        segmentId,
+      })
+      .catch(() => null)
+
+    if (!result?.ok) {
+      setVideoMessage(result?.reason ?? 'Failed to auto-learn this segment.')
+      return
+    }
+
+    ingestLibraryKnowledge(result.docName, result.content, 'paste')
+    setVideoPlans(result.videoPlans)
+    setLearnedSkills(result.skills)
+    setLearningUpdatedAt(result.updatedAt)
+    setVideoMessage(`AI consumed segment: ${result.segmentLabel}. Knowledge stored in Library + Brain.`)
+  }
+
+  async function autoLearnYoutubeBatch(planId: string) {
+    const plan = videoPlans.find((entry) => entry.id === planId)
+    if (!plan) return
+
+    const pending = plan.segments.filter((segment) => segment.status !== 'learned')
+    const batch = pending.slice(0, Math.max(1, plan.parallelSlots))
+    if (batch.length === 0) {
+      setVideoMessage('No pending segments left in this plan.')
+      return
+    }
+
+    let completed = 0
+    for (const segment of batch) {
+      const result = await window.paxion?.learning
+        .youtubeSegmentAutoLearn({
+          planId,
+          segmentId: segment.id,
+        })
+        .catch(() => null)
+      if (!result?.ok) {
+        continue
+      }
+      ingestLibraryKnowledge(result.docName, result.content, 'paste')
+      setVideoPlans(result.videoPlans)
+      setLearnedSkills(result.skills)
+      setLearningUpdatedAt(result.updatedAt)
+      completed += 1
+    }
+
+    if (completed === 0) {
+      setVideoMessage('AI could not auto-learn this batch (likely missing public transcript).')
+      return
+    }
+
+    setVideoMessage(`AI auto-learned ${completed} segment(s) in this batch and stored knowledge.`)
   }
 
   async function completeYoutubeSegmentLearning() {
@@ -2831,6 +3655,73 @@ function App() {
     })
   }
 
+  const automationFlowPreview = useMemo(() => {
+    const parsedSteps = parseAutomationSteps(automationStepsText)
+    const trimmedIntent = automationIntent.trim()
+    const target = automationTargetUrl.trim()
+    const safeSteps = parsedSteps.slice(0, 10)
+    const actionSummary = safeSteps.reduce(
+      (acc, step) => {
+        acc[step.action] = (acc[step.action] ?? 0) + 1
+        return acc
+      },
+      {} as Record<string, number>,
+    )
+
+    const nodes = [
+      {
+        id: 'node-trigger',
+        kind: 'trigger',
+        title: 'Manual Trigger',
+        detail: 'Run Adapter in workspace',
+      },
+      {
+        id: 'node-intent',
+        kind: 'intent',
+        title: 'Mission Intent',
+        detail: trimmedIntent || 'Define what outcome this flow should produce.',
+      },
+      ...safeSteps.map((step, index) => {
+        const stepTitle = `Step ${index + 1}: ${step.action}`
+        const stepDetail =
+          step.action === 'wait'
+            ? `Pause for ${Math.max(0, Number(step.waitMs ?? 500))}ms`
+            : `${step.selector || '(selector missing)'}${step.value ? ` -> ${step.value}` : ''}`
+
+        return {
+          id: `node-step-${index + 1}`,
+          kind: 'step',
+          title: stepTitle,
+          detail: stepDetail,
+        }
+      }),
+      {
+        id: 'node-verify',
+        kind: 'verify',
+        title: 'Verification Gate',
+        detail: 'Execution records + suggested capabilities',
+      },
+    ]
+
+    const connectors = nodes.slice(0, -1).map((node, idx) => `${node.id}:${nodes[idx + 1].id}`)
+    const hasIntent = trimmedIntent.length > 0
+    const hasTarget = /^https?:\/\//i.test(target)
+    const hasStepCount = parsedSteps.length > 0
+    const readiness = [hasIntent, hasTarget, hasStepCount].filter(Boolean).length
+
+    return {
+      parsedSteps,
+      nodes,
+      connectors,
+      actionSummary,
+      readiness,
+      target,
+      hasIntent,
+      hasTarget,
+      hasStepCount,
+    }
+  }, [automationIntent, automationStepsText, automationTargetUrl])
+
   async function runAutomationAdapter() {
     if (!window.paxion) return
 
@@ -2888,6 +3779,88 @@ function App() {
     setAutomationMessage(
       `Template ${result.template.name} executed with ${result.records.length} observation record(s).`,
     )
+  }
+
+  async function loadPolyglotStarter(language: PolyglotLanguage) {
+    setPolyglotLanguage(language)
+    setPolyglotResult(null)
+
+    if (!window.paxion) {
+      setPolyglotCode(POLYGLOT_TEMPLATES[language])
+      setPolyglotMessage(`Loaded fallback ${POLYGLOT_LANGUAGE_LABELS[language]} starter template.`)
+      return
+    }
+
+    const result = await window.paxion.polyglot.starter({ language }).catch(() => null)
+    if (!result?.ok || !result.content) {
+      setPolyglotCode(POLYGLOT_TEMPLATES[language])
+      setPolyglotMessage(
+        result?.reason ?? `Loaded fallback ${POLYGLOT_LANGUAGE_LABELS[language]} starter template.`,
+      )
+      return
+    }
+
+    setPolyglotCode(result.content)
+    setPolyglotMessage(`Loaded repo starter: ${result.name}`)
+  }
+
+  async function runPolyglotLab() {
+    if (!window.paxion) {
+      setPolyglotMessage('Polyglot runtime execution is available only in desktop mode.')
+      return
+    }
+
+    setPolyglotRunning(true)
+    setPolyglotMessage(`Running ${POLYGLOT_LANGUAGE_LABELS[polyglotLanguage]} code...`)
+
+    const result = await window.paxion.polyglot
+      .run({
+        language: polyglotLanguage,
+        code: polyglotCode,
+        stdin: polyglotStdin,
+        args: parseCliArgsText(polyglotArgsText),
+        timeoutMs: Number(polyglotTimeoutMs || 20000),
+      })
+      .catch(() => null)
+
+    if (!result) {
+      setPolyglotRunning(false)
+      setPolyglotMessage('Polyglot execution failed before a result returned.')
+      return
+    }
+
+    setPolyglotResult(result)
+    setPolyglotRunning(false)
+    setPolyglotMessage(result.reason)
+    await loadLearningState()
+  }
+
+  async function runPolyglotBrainMesh() {
+    if (!window.paxion) {
+      setPolyglotMessage('Polyglot brain mesh is available only in desktop mode.')
+      return
+    }
+
+    setPolyglotBrainRunning(true)
+    setPolyglotMessage('Running polyglot brain mesh...')
+
+    const result = await window.paxion.polyglot
+      .brainMesh({
+        objective: polyglotBrainObjective,
+        languages: ['python', 'c', 'cpp', 'java', 'julia', 'r', 'javascript'],
+      })
+      .catch(() => null)
+
+    if (!result) {
+      setPolyglotBrainRunning(false)
+      setPolyglotMessage('Polyglot brain mesh failed before a result returned.')
+      return
+    }
+
+    setPolyglotBrainResult(result)
+    setPolyglotBrainRunning(false)
+    setPolyglotMessage(result.summary)
+    await loadLearningState()
   }
 
   function applyAutomationProfile(profileId: string) {
@@ -3550,7 +4523,7 @@ function App() {
       return false
     }
 
-    setChatNotice('ChatGPT opened in browser. Submit your prompt there and paste response back here.')
+    setChatNotice('ChatGPT opened in browser. Ask there directly, then paste the answer here if you want me to save it.')
     await recordLearning({
       title: 'Desktop ChatGPT relay opened',
       detail: 'Opened ChatGPT in browser using explicit capability and admin session.',
@@ -3560,9 +4533,60 @@ function App() {
     return true
   }
 
+  function extractDeclaredName(text: string): string | null {
+    const match = text.match(/(?:my name is|call me)\s+([a-z][a-z\s'-]{1,30})(?:[,.!]|\s|$)/i)
+    if (!match?.[1]) {
+      return null
+    }
+
+    const normalized = match[1]
+      .trim()
+      .replace(/\s+/g, ' ')
+      .replace(/\b(friend|bro|chief|sir|boss)\b/gi, '')
+      .trim()
+
+    if (!normalized) {
+      return null
+    }
+
+    return normalized
+      .split(' ')
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+      .join(' ')
+  }
+
+  function personalizeReply(reply: string): string {
+    if (!chatUserName && !chatFriendlyTone) {
+      return reply
+    }
+    let nextReply = reply
+
+    if (chatUserName) {
+      nextReply = nextReply
+        .replace(/Paro the Chief/gi, chatUserName)
+        .replace(/\bChief\b/gi, chatUserName)
+        .replace(/\bParo\b/gi, chatUserName)
+    }
+
+    if (chatFriendlyTone) {
+      nextReply = nextReply
+        .replace(/System online\.?\s*/gi, '')
+        .replace(/Access granted\.?\s*/gi, '')
+    }
+
+    return nextReply
+  }
+
   async function sendChatMessage(overrideText?: string) {
     const text = typeof overrideText === 'string' ? overrideText.trim() : chatInput.trim()
     if (!text || chatLoading) return
+
+    const declaredName = extractDeclaredName(text)
+    if (declaredName) {
+      setChatUserName(declaredName)
+      localStorage.setItem('paxion-chat-user-name', declaredName)
+    }
 
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}-u`,
@@ -3578,32 +4602,115 @@ function App() {
     }
     setChatLoading(true)
 
+    const asksForStoredName = /\b(what is my name|what's my name|who am i|tell me my name|remember my name|do you know my name|you know my name|u know my name|know my name)\b/i.test(text)
+    const wantsChatGptRelay = /\b(chatgpt|chat gpt)\b/i.test(text) && /\b(chat|ask|talk|open|use|connect|relay)\b/i.test(text)
+    const asksFriendlyTone = /\b(no need to be formal|be casual|talk casually|be my friend|talk like a friend)\b/i.test(text)
+
+    if (wantsChatGptRelay) {
+      const opened = await openDesktopChatRelay(text)
+      window.setTimeout(() => {
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: `msg-${Date.now()}-a`,
+            role: 'assistant',
+            content: opened
+              ? 'ChatGPT is open in your browser now. Ask there directly, and if you want, paste the answer back so I can learn it.'
+              : 'I could not open ChatGPT relay right now. Check desktop mode and relay settings, then try again.',
+            timestamp: new Date().toISOString(),
+            contextDocs: [],
+            reasoningSteps: ['Detected direct ChatGPT command and routed immediately to desktop relay (bypassed library search).'],
+            confidence: opened ? 'high' : 'low',
+          },
+        ])
+        setChatLoading(false)
+      }, 120)
+      return
+    }
+
+    if (asksFriendlyTone) {
+      setChatFriendlyTone(true)
+      localStorage.setItem('paxion-chat-friendly-tone', '1')
+      window.setTimeout(() => {
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: `msg-${Date.now()}-a`,
+            role: 'assistant',
+            content: chatUserName
+              ? `Done, ${chatUserName}. I will keep it friendly and casual from now on.`
+              : 'Done. I will keep it friendly and casual from now on.',
+            timestamp: new Date().toISOString(),
+            contextDocs: [],
+            reasoningSteps: ['Detected tone preference and persisted friendly mode in local settings.'],
+            confidence: 'high',
+          },
+        ])
+        setChatLoading(false)
+      }, 140)
+      return
+    }
+
+    if (asksForStoredName) {
+      const rememberedName = declaredName || chatUserName
+      const reply = rememberedName
+        ? `Your name is ${rememberedName}. I have it saved and I will address you by that name.`
+        : 'You have not told me your name yet. Say: "My name is ..." and I will remember it.'
+
+      window.setTimeout(() => {
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: `msg-${Date.now()}-a`,
+            role: 'assistant',
+            content: reply,
+            timestamp: new Date().toISOString(),
+            contextDocs: [],
+            reasoningSteps: ['Profile memory check executed from local conversation memory.'],
+            confidence: rememberedName ? 'high' : 'medium',
+          },
+        ])
+        setChatLoading(false)
+      }, 160)
+      return
+    }
+
+    if (declaredName) {
+      window.setTimeout(() => {
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: `msg-${Date.now()}-a`,
+            role: 'assistant',
+            content: `Perfect, ${declaredName}. I will call you ${declaredName} from now on.`,
+            timestamp: new Date().toISOString(),
+            contextDocs: [],
+            reasoningSteps: ['Detected explicit self-identification and persisted profile name in local storage.'],
+            confidence: 'high',
+          },
+        ])
+        setChatLoading(false)
+      }, 160)
+      return
+    }
+
     const localResponse = brain.think(text, libDocs)
-    let finalReply = localResponse.reply
+    let finalReply = personalizeReply(localResponse.reply)
     const finalContextDocs = localResponse.contextDocs
     let finalReasoning = localResponse.reasoningSteps
-    const finalConfidence = localResponse.confidence
+    let finalConfidence = localResponse.confidence
 
-    if (chatMode === 'desktop-relay') {
-      if (!capabilities.chatExternalModel) {
-        setChatNotice('Desktop ChatGPT relay is disabled in Access tab. Using local mode.')
-      } else {
-        const opened = await openDesktopChatRelay(text)
-        if (opened) {
-          finalReply = [
-            'Desktop ChatGPT relay launched.',
-            'I opened ChatGPT in your browser using your permission.',
-            'Submit the same prompt there and paste the answer here if you want me to store/summarize it.',
-            '',
-            'Local quick answer while you relay:',
-            localResponse.reply,
-          ].join('\n')
-          finalReasoning = [
-            ...localResponse.reasoningSteps,
-            'Desktop relay mode used: no API call, browser opened for manual human-style interaction.',
-          ]
-        }
-      }
+    if (libDocs.length === 0 && localResponse.confidence === 'none') {
+      finalReply = [
+        chatUserName ? `I hear you, ${chatUserName}.` : 'I hear you.',
+        'I can still chat with you right now.',
+        'For accurate factual answers, add docs in Library so I can cite your own data.',
+      ].join(' ')
+      finalReasoning = [
+        ...localResponse.reasoningSteps,
+        'Library is empty, switched to conversational fallback instead of hard rejection.',
+      ]
+      finalConfidence = 'medium'
     }
 
     const thinkMs = 250 + Math.random() * 350
@@ -3632,8 +4739,7 @@ function App() {
     }
 
     const title = relayCaptureTitle.trim() || 'Relay capture'
-    libraryStore.add(`Relay: ${title}`, text, 'paste')
-    setLibDocs(libraryStore.getAll())
+    ingestLibraryKnowledge(`Relay: ${title}`, text, 'paste')
 
     const newSkills = inferSkills(`${title}\n${text}`)
     await recordLearning({
@@ -3672,235 +4778,241 @@ function App() {
             </span>
             <span className={`chat-rank chat-rank-${lastConf ?? 'none'}`}>{rank}</span>
           </div>
+          <div className="chat-layout">
+            <aside className="chat-left-column">
+              <div className="decision-card">
+                <strong>Brain Status</strong>
+                <p className="muted">Voice loop: {voiceLoopEnabled ? 'Active' : 'Idle'}</p>
+                <p className="muted">Wake phrase: {wakePhrase || 'paxion wakeup'}</p>
+                {chatUserName && <p className="muted">Friend profile: {chatUserName}</p>}
+                {chatFriendlyTone && <p className="muted">Tone mode: Friendly</p>}
+                {chatNotice && <p className="muted">{chatNotice}</p>}
+              </div>
 
-          <div className="chat-voice-row">
-            <select
-              className="chat-mode-select"
-              value={chatMode}
-              onChange={(event) => setChatMode(event.target.value as ChatMode)}
-            >
-              <option value="local">Local Brain</option>
-              <option value="desktop-relay">Desktop ChatGPT Relay (No API)</option>
-            </select>
-            <button
-              className="run-button"
-              onClick={() => setAssistantMode((prev) => (prev === 'chat' ? 'voice' : 'chat'))}
-            >
-              Assistant Mode: {assistantMode === 'voice' ? 'Voice' : 'Chat'}
-            </button>
-            <button className="run-button" onClick={toggleChatVoiceOutput}>
-              Voice Output: {chatVoiceEnabled && capabilities.voiceOutput ? 'ON' : 'OFF'}
-            </button>
-            <button
-              className="run-button"
-              onClick={() => {
-                void setCloseToTrayMode(!closeToTrayEnabled)
-              }}
-            >
-              Close To Tray: {closeToTrayEnabled ? 'ON' : 'OFF'}
-            </button>
-            {!chatVoiceListening ? (
-              <button className="run-button" onClick={() => startVoiceInput(assistantMode === 'voice')}>
-                Start Voice Input
-              </button>
-            ) : (
-              <button className="run-button" onClick={stopVoiceInput}>
-                Stop Voice Input
-              </button>
-            )}
-          </div>
-          <div className="chat-voice-row">
-            <input
-              className="input"
-              value={wakePhrase}
-              onChange={(event) => setWakePhrase(event.target.value.toLowerCase())}
-              placeholder="Wake phrase (example: paxion wakeup)"
-            />
-            <select
-              className="chat-mode-select"
-              value={callProvider}
-              onChange={(event) => {
-                const provider = event.target.value as 'desktop-relay' | 'twilio' | 'sip'
-                setCallProvider(provider)
-                if (window.paxion?.voice?.setProvider) {
-                  void window.paxion.voice.setProvider({
-                    provider,
-                    fromNumber: callFromNumber,
-                  })
-                }
-              }}
-            >
-              <option value="desktop-relay">Call Provider: Desktop Relay</option>
-              <option value="twilio">Call Provider: Twilio</option>
-              <option value="sip">Call Provider: SIP</option>
-            </select>
-            <input
-              className="input"
-              value={callFromNumber}
-              onChange={(event) => setCallFromNumber(event.target.value)}
-              placeholder="Provider from number (for Twilio)"
-            />
-            <button
-              className="run-button"
-              onClick={() => {
-                const phrase = wakePhrase.trim().toLowerCase()
-                if (!phrase) {
-                  setWakePhrase('paxion wakeup')
-                }
-                if (window.paxion?.voice?.setProvider) {
-                  void window.paxion.voice.setProvider({
-                    provider: callProvider,
-                    fromNumber: callFromNumber,
-                  })
-                }
-                setChatNotice(`Wake phrase set to "${(phrase || 'paxion wakeup')}".`)
-              }}
-            >
-              Save Wake Phrase
-            </button>
-            <button
-              className="run-button"
-              onClick={() => {
-                if (window.paxion?.assistant) {
-                  void window.paxion.assistant.showWindow()
-                }
-                setActiveTab('chat')
-                setAssistantMode('voice')
-                setChatNotice('Voice assistant ready. Say wake phrase then command.')
-              }}
-            >
-              Arm Wake Runtime
-            </button>
-          </div>
-          <p className="muted">
-            Voice loop: {voiceLoopEnabled ? 'Active' : 'Idle'} | Say "{wakePhrase || 'paxion wakeup'}" then your command.
-            Example: "{wakePhrase || 'paxion wakeup'} call emergency".
-          </p>
-          {chatNotice && <p className="muted">{chatNotice}</p>}
-          {isWebRuntime && isMobileDevice && (
-            <div className="decision-card">
-              <p className="muted">
-                Mobile companion mode active. Voice chat works in browser-supported engines; desktop-only actions
-                (tray runtime, native automation, direct dialer relay) require the Electron app or future cloud backend.
-              </p>
-              <div className="workspace-actions">
-                {!pwaInstalled && (
-                  <button className="run-button" onClick={() => void installPaxionWebApp()}>
-                    Install On Phone
+              <div className="lib-add-panel">
+                <div className="control-group">
+                  <label>Relay capture title</label>
+                  <input
+                    value={relayCaptureTitle}
+                    onChange={(event) => setRelayCaptureTitle(event.target.value)}
+                    placeholder="Example: ChatGPT solution for workspace task"
+                  />
+                </div>
+                <div className="control-group">
+                  <label>Paste ChatGPT/Google output</label>
+                  <textarea
+                    className="lib-paste-area"
+                    value={relayCaptureText}
+                    onChange={(event) => setRelayCaptureText(event.target.value)}
+                    rows={5}
+                    placeholder="Paste approved output here, then store as knowledge"
+                  />
+                </div>
+                <button className="run-button" onClick={() => void ingestRelayCapture()}>
+                  Save Relay Knowledge
+                </button>
+              </div>
+            </aside>
+
+            <section className="chat-main-column">
+              <div className="chat-messages" ref={chatScrollRef}>
+                {chatMessages.length === 0 ? (
+                  <p className="muted chat-empty">
+                    Paxion is online. You can chat immediately.
+                    Add Library documents to improve factual depth and source-cited answers.
+                  </p>
+                ) : (
+                  chatMessages.map((msg) => (
+                    <div key={msg.id} className={`chat-bubble chat-${msg.role}`}>
+                      <p>{msg.content}</p>
+                      {msg.role === 'assistant' && msg.confidence && (
+                        <span className={`chat-confidence conf-${msg.confidence}`}>
+                          {msg.confidence} confidence
+                        </span>
+                      )}
+                      {msg.role === 'assistant' && msg.contextDocs && msg.contextDocs.length > 0 && (
+                        <p className="chat-citations">Source: {msg.contextDocs.join(', ')}</p>
+                      )}
+                      {msg.role === 'assistant' &&
+                        msg.reasoningSteps &&
+                        msg.reasoningSteps.length > 0 && (
+                          <>
+                            <button
+                              className="chat-toggle-thought"
+                              onClick={() =>
+                                setShowThought((prev) => (prev === msg.id ? null : msg.id))
+                              }
+                            >
+                              {showThought === msg.id ? '▲ hide trace' : '▼ show trace'}
+                            </button>
+                            {showThought === msg.id && (
+                              <div className="chat-thought">
+                                {msg.reasoningSteps.map((step, i) => (
+                                  <p key={i}>&gt; {step}</p>
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        )}
+                    </div>
+                  ))
+                )}
+                {chatLoading && (
+                  <div className="chat-bubble chat-assistant chat-loading-bubble">
+                    <span className="chat-dot" />
+                    <span className="chat-dot" />
+                    <span className="chat-dot" />
+                  </div>
+                )}
+              </div>
+
+              <div className="chat-input-row">
+                <textarea
+                  className="chat-input"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      void sendChatMessage()
+                    }
+                  }}
+                  placeholder="Ask Paxion anything… (Enter to send, Shift+Enter newline)"
+                  rows={2}
+                  disabled={chatLoading}
+                />
+                <div className="chat-input-actions">
+                  <button
+                    className="run-button"
+                    onClick={() => {
+                      void sendChatMessage()
+                    }}
+                    disabled={chatLoading || !chatInput.trim()}
+                  >
+                    Send
+                  </button>
+                  {chatMessages.length > 0 && (
+                    <button className="run-button" onClick={() => setChatMessages([])}>
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            <aside className="chat-right-column">
+              <div className="chat-voice-row">
+                <button
+                  className="run-button"
+                  onClick={() => setAssistantMode((prev) => (prev === 'chat' ? 'voice' : 'chat'))}
+                >
+                  Assistant Mode: {assistantMode === 'voice' ? 'Voice' : 'Chat'}
+                </button>
+                <button className="run-button" onClick={toggleChatVoiceOutput}>
+                  Voice Output: {chatVoiceEnabled && capabilities.voiceOutput ? 'ON' : 'OFF'}
+                </button>
+                <button
+                  className="run-button"
+                  onClick={() => {
+                    void setCloseToTrayMode(!closeToTrayEnabled)
+                  }}
+                >
+                  Close To Tray: {closeToTrayEnabled ? 'ON' : 'OFF'}
+                </button>
+                {!chatVoiceListening ? (
+                  <button
+                    className="run-button"
+                    onClick={() => startVoiceInput(assistantMode === 'voice')}
+                    disabled={chatVoicePending !== 'idle'}
+                  >
+                    {chatVoicePending === 'starting' ? 'Starting Voice...' : 'Start Voice Input'}
+                  </button>
+                ) : (
+                  <button className="run-button" onClick={stopVoiceInput} disabled={chatVoicePending !== 'idle'}>
+                    {chatVoicePending === 'stopping' ? 'Stopping Voice...' : 'Stop Voice Input'}
                   </button>
                 )}
               </div>
-              {pwaInstallMessage && <p className="muted">{pwaInstallMessage}</p>}
-            </div>
-          )}
-
-          {/* Messages */}
-          <div className="chat-messages" ref={chatScrollRef}>
-            {chatMessages.length === 0 ? (
-              <p className="muted chat-empty">
-                Paxion is online. No external API needed — all responses come from your Library.
-                Add documents to improve intelligence.
-              </p>
-            ) : (
-              chatMessages.map((msg) => (
-                <div key={msg.id} className={`chat-bubble chat-${msg.role}`}>
-                  <p>{msg.content}</p>
-                  {msg.role === 'assistant' && msg.confidence && (
-                    <span className={`chat-confidence conf-${msg.confidence}`}>
-                      {msg.confidence} confidence
-                    </span>
-                  )}
-                  {msg.role === 'assistant' && msg.contextDocs && msg.contextDocs.length > 0 && (
-                    <p className="chat-citations">Source: {msg.contextDocs.join(', ')}</p>
-                  )}
-                  {msg.role === 'assistant' &&
-                    msg.reasoningSteps &&
-                    msg.reasoningSteps.length > 0 && (
-                      <>
-                        <button
-                          className="chat-toggle-thought"
-                          onClick={() =>
-                            setShowThought((prev) => (prev === msg.id ? null : msg.id))
-                          }
-                        >
-                          {showThought === msg.id ? '▲ hide trace' : '▼ show trace'}
-                        </button>
-                        {showThought === msg.id && (
-                          <div className="chat-thought">
-                            {msg.reasoningSteps.map((step, i) => (
-                              <p key={i}>&gt; {step}</p>
-                            ))}
-                          </div>
-                        )}
-                      </>
-                    )}
-                </div>
-              ))
-            )}
-            {chatLoading && (
-              <div className="chat-bubble chat-assistant chat-loading-bubble">
-                <span className="chat-dot" />
-                <span className="chat-dot" />
-                <span className="chat-dot" />
-              </div>
-            )}
-          </div>
-
-          <div className="chat-input-row">
-            <textarea
-              className="chat-input"
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  void sendChatMessage()
-                }
-              }}
-              placeholder="Ask Paxion anything… (Enter to send, Shift+Enter newline)"
-              rows={2}
-              disabled={chatLoading}
-            />
-            <div className="chat-input-actions">
-              <button
-                className="run-button"
-                onClick={() => {
-                  void sendChatMessage()
-                }}
-                disabled={chatLoading || !chatInput.trim()}
-              >
-                Send
-              </button>
-              {chatMessages.length > 0 && (
-                <button className="run-button" onClick={() => setChatMessages([])}>
-                  Clear
+              <div className="chat-voice-row">
+                <input
+                  className="input"
+                  value={wakePhrase}
+                  onChange={(event) => setWakePhrase(event.target.value.toLowerCase())}
+                  placeholder="Wake phrase (example: paxion wakeup)"
+                />
+                <select
+                  className="chat-mode-select"
+                  value={callProvider}
+                  onChange={(event) => {
+                    const provider = event.target.value as 'desktop-relay' | 'twilio' | 'sip'
+                    setCallProvider(provider)
+                    if (window.paxion?.voice?.setProvider) {
+                      void window.paxion.voice.setProvider({
+                        provider,
+                        fromNumber: callFromNumber,
+                      })
+                    }
+                  }}
+                >
+                  <option value="desktop-relay">Call Provider: Desktop Relay</option>
+                  <option value="twilio">Call Provider: Twilio</option>
+                  <option value="sip">Call Provider: SIP</option>
+                </select>
+                <input
+                  className="input"
+                  value={callFromNumber}
+                  onChange={(event) => setCallFromNumber(event.target.value)}
+                  placeholder="Provider from number (for Twilio)"
+                />
+                <button
+                  className="run-button"
+                  onClick={() => {
+                    const phrase = wakePhrase.trim().toLowerCase()
+                    if (!phrase) {
+                      setWakePhrase('paxion wakeup')
+                    }
+                    if (window.paxion?.voice?.setProvider) {
+                      void window.paxion.voice.setProvider({
+                        provider: callProvider,
+                        fromNumber: callFromNumber,
+                      })
+                    }
+                    setChatNotice(`Wake phrase set to "${(phrase || 'paxion wakeup')}".`)
+                  }}
+                >
+                  Save Wake Phrase
                 </button>
+                <button
+                  className="run-button"
+                  onClick={() => {
+                    if (window.paxion?.assistant) {
+                      void window.paxion.assistant.showWindow()
+                    }
+                    setActiveTab('chat')
+                    setAssistantMode('voice')
+                    setChatNotice('Voice assistant ready. Say wake phrase then command.')
+                  }}
+                >
+                  Arm Wake Runtime
+                </button>
+              </div>
+              {isWebRuntime && isMobileDevice && (
+                <div className="decision-card">
+                  <p className="muted">
+                    Mobile companion mode active. Voice chat works in browser-supported engines; desktop-only actions
+                    (tray runtime, native automation, direct dialer relay) require the Electron app or future cloud backend.
+                  </p>
+                  <div className="workspace-actions">
+                    {!pwaInstalled && (
+                      <button className="run-button" onClick={() => void installPaxionWebApp()}>
+                        Install On Phone
+                      </button>
+                    )}
+                  </div>
+                  {pwaInstallMessage && <p className="muted">{pwaInstallMessage}</p>}
+                </div>
               )}
-            </div>
-          </div>
-
-          <div className="lib-add-panel">
-            <div className="control-group">
-              <label>Relay capture title</label>
-              <input
-                value={relayCaptureTitle}
-                onChange={(event) => setRelayCaptureTitle(event.target.value)}
-                placeholder="Example: ChatGPT solution for workspace task"
-              />
-            </div>
-            <div className="control-group">
-              <label>Paste ChatGPT/Google output</label>
-              <textarea
-                className="lib-paste-area"
-                value={relayCaptureText}
-                onChange={(event) => setRelayCaptureText(event.target.value)}
-                rows={5}
-                placeholder="Paste approved output here, then store as knowledge"
-              />
-            </div>
-            <button className="run-button" onClick={() => void ingestRelayCapture()}>
-              Save Relay Knowledge
-            </button>
+            </aside>
           </div>
         </div>
       )
@@ -3932,6 +5044,12 @@ function App() {
                 ? `Last sync: ${libraryUpdatedAt}`
                 : 'No persistence snapshot yet.'}
             </p>
+            <div className="workspace-actions">
+              <button className="run-button" onClick={() => void integrateAllKnowledgePacks()}>
+                Integrate All Knowledge Packs
+              </button>
+            </div>
+            {foundationKnowledgeMessage && <p className="muted">{foundationKnowledgeMessage}</p>}
           </div>
 
           <div className="lib-web-panel">
@@ -3948,6 +5066,54 @@ function App() {
               </button>
             </div>
             {webSearchMessage && <p className="muted">{webSearchMessage}</p>}
+
+            <strong>Ingest From Website URL</strong>
+            <div className="lib-web-row">
+              <input
+                className="lib-search"
+                value={webIngestUrl}
+                onChange={(event) => setWebIngestUrl(event.target.value)}
+                placeholder="Paste article URL from Google results"
+              />
+              <button
+                className="run-button"
+                onClick={() => void handleIngestFromWebUrl()}
+                disabled={webIngestLoading}
+              >
+                {webIngestLoading ? 'Ingesting...' : 'Ingest URL'}
+              </button>
+            </div>
+            {webIngestMessage && <p className="muted">{webIngestMessage}</p>}
+
+            <strong>Auto Bootstrap (Google + GitHub Curated Packs)</strong>
+            <div className="lib-web-row">
+              <button
+                className="run-button"
+                onClick={() => void handleAutoKnowledgeBootstrap()}
+                disabled={knowledgeBootstrapLoading}
+              >
+                {knowledgeBootstrapLoading ? 'Bootstrapping...' : 'One-Click Add All Packs'}
+              </button>
+            </div>
+            {knowledgeBootstrapMessage && <p className="muted">{knowledgeBootstrapMessage}</p>}
+
+            <strong>Ingest From YouTube</strong>
+            <div className="lib-web-row">
+              <input
+                className="lib-search"
+                value={youtubeIngestUrl}
+                onChange={(event) => setYoutubeIngestUrl(event.target.value)}
+                placeholder="Paste YouTube video URL to import transcript"
+              />
+              <button
+                className="run-button"
+                onClick={() => void handleIngestFromYoutube()}
+                disabled={youtubeIngestLoading}
+              >
+                {youtubeIngestLoading ? 'Ingesting...' : 'Ingest YouTube'}
+              </button>
+            </div>
+            {youtubeIngestMessage && <p className="muted">{youtubeIngestMessage}</p>}
           </div>
 
           <div className="lib-toolbar">
@@ -4847,6 +6013,43 @@ function App() {
     if (activeTab === 'workspace') {
       return (
         <div className="tab-content-stack">
+          <div className="workspace-top-tabs" role="tablist" aria-label="Workspace topics">
+              <button
+                role="tab"
+                aria-selected={workspaceTopicTab === 'overview'}
+                className={workspaceTopicTab === 'overview' ? 'workspace-top-tab is-active' : 'workspace-top-tab'}
+                onClick={() => setWorkspaceTopicTab('overview')}
+              >
+                Overview
+              </button>
+              <button
+                role="tab"
+                aria-selected={workspaceTopicTab === 'polyglot'}
+                className={workspaceTopicTab === 'polyglot' ? 'workspace-top-tab is-active' : 'workspace-top-tab'}
+                onClick={() => setWorkspaceTopicTab('polyglot')}
+              >
+                Polyglot Lab
+              </button>
+              <button
+                role="tab"
+                aria-selected={workspaceTopicTab === 'youtube'}
+                className={workspaceTopicTab === 'youtube' ? 'workspace-top-tab is-active' : 'workspace-top-tab'}
+                onClick={() => setWorkspaceTopicTab('youtube')}
+              >
+                YouTube Learning
+              </button>
+              <button
+                role="tab"
+                aria-selected={workspaceTopicTab === 'automation'}
+                className={workspaceTopicTab === 'automation' ? 'workspace-top-tab is-active' : 'workspace-top-tab'}
+                onClick={() => setWorkspaceTopicTab('automation')}
+              >
+                Automation & Missions
+              </button>
+          </div>
+
+          {workspaceTopicTab === 'overview' && (
+          <div className="workspace-topic-layout">
           <div className="decision-card">
             <strong>Skill Growth Board</strong>
             <p>
@@ -4859,7 +6062,201 @@ function App() {
               <p className="muted">No skills unlocked yet. Add knowledge to start growth.</p>
             )}
           </div>
+          </div>
+          )}
 
+          {workspaceTopicTab === 'polyglot' && (
+          <div className="workspace-topic-layout workspace-topic-polyglot">
+          <div className="decision-card polyglot-lab-card">
+            <strong>Polyglot Runtime Lab</strong>
+            <p>
+              Run real local code in Python, C, C++, Java, Julia, R, and JavaScript from inside Paxion.
+              Each language uses the runtime or compiler available on your machine.
+            </p>
+            <div className="workspace-actions">
+              <button className="run-button" onClick={() => void refreshPolyglotStatus()}>
+                Detect Local Runtimes
+              </button>
+              <button className="run-button" onClick={() => loadPolyglotStarter(polyglotLanguage)}>
+                Load Starter
+              </button>
+              <button className="run-button" onClick={() => void runPolyglotBrainMesh()} disabled={polyglotBrainRunning}>
+                {polyglotBrainRunning ? 'Running Brain Mesh...' : 'Run Brain Mesh'}
+              </button>
+              <button className="run-button" onClick={() => void runPolyglotLab()} disabled={polyglotRunning}>
+                {polyglotRunning ? 'Running...' : 'Run Code'}
+              </button>
+            </div>
+            {polyglotMessage && <p className="muted">{polyglotMessage}</p>}
+            {polyglotStatusUpdatedAt && (
+              <p className="muted">Runtime scan updated {new Date(polyglotStatusUpdatedAt).toLocaleTimeString()}</p>
+            )}
+
+            <div className="polyglot-status-grid">
+              {(polyglotRuntimes.length > 0
+                ? polyglotRuntimes
+                : (Object.keys(POLYGLOT_LANGUAGE_LABELS) as PolyglotLanguage[]).map((language) => ({
+                    language,
+                    available: false,
+                    command: null,
+                    detail: 'Not scanned yet.',
+                  }))
+              ).map((runtime) => (
+                <article className={runtime.available ? 'polyglot-runtime-card is-ready' : 'polyglot-runtime-card'} key={runtime.language}>
+                  <strong>{POLYGLOT_LANGUAGE_LABELS[runtime.language as PolyglotLanguage] ?? runtime.language}</strong>
+                  <p className="muted">{runtime.available ? 'Available' : 'Unavailable'}</p>
+                  <p className="muted">{runtime.command ?? 'No runtime detected'}</p>
+                  <p className="muted">{runtime.detail}</p>
+                </article>
+              ))}
+            </div>
+
+            <div className="polyglot-lab-grid">
+              <div className="polyglot-side-panel">
+                <div className="control-group">
+                  <label htmlFor="polyglot-brain-objective">Brain mesh objective</label>
+                  <textarea
+                    id="polyglot-brain-objective"
+                    className="lib-paste-area polyglot-stdin"
+                    value={polyglotBrainObjective}
+                    onChange={(event) => setPolyglotBrainObjective(event.target.value)}
+                    rows={4}
+                    placeholder="Describe what you want the language modules to advise on"
+                  />
+                </div>
+                <div className="control-group">
+                  <label htmlFor="polyglot-language">Language</label>
+                  <select
+                    id="polyglot-language"
+                    value={polyglotLanguage}
+                    onChange={(event) => setPolyglotLanguage(event.target.value as PolyglotLanguage)}
+                  >
+                    {Object.entries(POLYGLOT_LANGUAGE_LABELS).map(([language, label]) => (
+                      <option key={language} value={language}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="control-group">
+                  <label htmlFor="polyglot-args">Program args</label>
+                  <input
+                    id="polyglot-args"
+                    value={polyglotArgsText}
+                    onChange={(event) => setPolyglotArgsText(event.target.value)}
+                    placeholder="Example: input.txt 42 --mode=test"
+                  />
+                </div>
+                <div className="control-group">
+                  <label htmlFor="polyglot-timeout">Timeout (ms)</label>
+                  <input
+                    id="polyglot-timeout"
+                    value={polyglotTimeoutMs}
+                    onChange={(event) => setPolyglotTimeoutMs(event.target.value)}
+                    placeholder="20000"
+                  />
+                </div>
+                <div className="control-group">
+                  <label htmlFor="polyglot-stdin">STDIN</label>
+                  <textarea
+                    id="polyglot-stdin"
+                    className="lib-paste-area polyglot-stdin"
+                    value={polyglotStdin}
+                    onChange={(event) => setPolyglotStdin(event.target.value)}
+                    rows={6}
+                    placeholder="Optional standard input for your program"
+                  />
+                </div>
+                <div className="decision-card polyglot-runtime-focus">
+                  <strong>Selected Runtime</strong>
+                  <p className="muted">{selectedPolyglotRuntime?.command ?? 'Runtime not detected yet.'}</p>
+                  <p className="muted">{selectedPolyglotRuntime?.detail ?? 'Run detection to see local toolchain details.'}</p>
+                </div>
+              </div>
+
+              <div className="polyglot-editor-panel">
+                <div className="control-group">
+                  <label htmlFor="polyglot-code">Code</label>
+                  <textarea
+                    id="polyglot-code"
+                    className="lib-paste-area polyglot-code-editor"
+                    value={polyglotCode}
+                    onChange={(event) => setPolyglotCode(event.target.value)}
+                    rows={18}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {polyglotBrainResult && (
+              <div className="polyglot-result-stack">
+                <article className="learning-log-item">
+                  <strong>Brain mesh summary</strong>
+                  <p className="muted">Objective: {polyglotBrainResult.objective}</p>
+                  <p className="muted">Completed: {polyglotBrainResult.completedCount}/{polyglotBrainResult.attemptedCount}</p>
+                  <p className="muted">{polyglotBrainResult.summary}</p>
+                </article>
+                <div className="learning-log-list">
+                  {polyglotBrainResult.results.map((item) => (
+                    <article className="learning-log-item" key={`${item.language}-${item.reason}`}>
+                      <strong>
+                        {POLYGLOT_LANGUAGE_LABELS[item.language as PolyglotLanguage] ?? item.language} {item.ok ? 'active' : 'unavailable'}
+                      </strong>
+                      <p className="muted">{item.reason}</p>
+                      {item.detail && (
+                        <>
+                          <p className="muted">Role: {String(item.detail.role ?? 'n/a')}</p>
+                          <p className="muted">Recommendation: {String(item.detail.recommendation ?? 'n/a')}</p>
+                          <p className="muted">
+                            Strengths: {Array.isArray(item.detail.strengths) ? item.detail.strengths.join(', ') : 'n/a'}
+                          </p>
+                          <p className="muted">
+                            Focus: {Array.isArray(item.detail.focusAreas) ? item.detail.focusAreas.join(', ') : 'n/a'}
+                          </p>
+                        </>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {polyglotResult && (
+              <div className="polyglot-result-stack">
+                <article className="learning-log-item">
+                  <strong>
+                    {POLYGLOT_LANGUAGE_LABELS[polyglotResult.language as PolyglotLanguage] ?? polyglotResult.language} {polyglotResult.ok ? 'completed' : 'failed'}
+                  </strong>
+                  <p className="muted">Stage: {polyglotResult.stage}</p>
+                  <p className="muted">Exit code: {polyglotResult.exitCode ?? 'n/a'}</p>
+                  <p className="muted">Timed out: {polyglotResult.timedOut ? 'yes' : 'no'}</p>
+                  {polyglotResult.artifactPath && <p className="muted">Artifact: {polyglotResult.artifactPath}</p>}
+                  {polyglotResult.commands.length > 0 && (
+                    <div className="polyglot-command-list">
+                      {polyglotResult.commands.map((command) => (
+                        <p className="muted" key={command}>{command}</p>
+                      ))}
+                    </div>
+                  )}
+                </article>
+                <div className="polyglot-output-grid">
+                  <article className="polyglot-output-card">
+                    <strong>STDOUT</strong>
+                    <pre className="polyglot-output">{polyglotResult.stdout || 'No stdout.'}</pre>
+                  </article>
+                  <article className="polyglot-output-card">
+                    <strong>STDERR</strong>
+                    <pre className="polyglot-output">{polyglotResult.stderr || 'No stderr.'}</pre>
+                  </article>
+                </div>
+              </div>
+            )}
+          </div>
+          </div>
+          )}
+
+          {workspaceTopicTab === 'youtube' && (
+          <div className="workspace-topic-layout workspace-topic-youtube">
           <div className="decision-card">
             <strong>YouTube Learning Planner</strong>
             <p>
@@ -4872,7 +6269,7 @@ function App() {
                 id="yt-topic"
                 value={videoTopic}
                 onChange={(event) => setVideoTopic(event.target.value)}
-                placeholder="Example: Python and C language core concepts"
+                placeholder="Example: Python, C, C++, Java, Julia, R, JavaScript core concepts"
               />
             </div>
             <div className="control-group">
@@ -4923,6 +6320,9 @@ function App() {
               <button className="run-button" onClick={() => void createYoutubeLearningPlan()}>
                 Create Video Plan
               </button>
+              <button className="run-button" onClick={() => void refreshYoutubeSttStatus()} disabled={videoSttLoading}>
+                {videoSttLoading ? 'Checking STT...' : 'Check STT Readiness'}
+              </button>
               <button
                 className="run-button"
                 onClick={() => {
@@ -4938,6 +6338,33 @@ function App() {
               </button>
             </div>
             {videoMessage && <p className="muted">{videoMessage}</p>}
+
+            {videoSttStatus && (
+              <div className="decision-card">
+                <strong>Speech-to-Text Readiness</strong>
+                <p className="muted">
+                  Status: {videoSttStatus.ready ? 'Ready' : 'Missing tools'}
+                  {videoSttStatus.updatedAt ? ` | Checked: ${videoSttStatus.updatedAt}` : ''}
+                </p>
+                <div className="capability-list">
+                  <div className="capability-item">
+                    <span>yt-dlp</span>
+                    <strong>{videoSttStatus.tools.ytDlp.available ? 'Ready' : 'Missing'}</strong>
+                  </div>
+                  <p className="muted">{videoSttStatus.tools.ytDlp.detail}</p>
+                  <div className="capability-item">
+                    <span>ffmpeg</span>
+                    <strong>{videoSttStatus.tools.ffmpeg.available ? 'Ready' : 'Missing'}</strong>
+                  </div>
+                  <p className="muted">{videoSttStatus.tools.ffmpeg.detail}</p>
+                  <div className="capability-item">
+                    <span>whisper</span>
+                    <strong>{videoSttStatus.tools.whisper.available ? 'Ready' : 'Missing'}</strong>
+                  </div>
+                  <p className="muted">{videoSttStatus.tools.whisper.detail}</p>
+                </div>
+              </div>
+            )}
 
             {videoPlans.length > 0 && (
               <div className="learning-log-list">
@@ -4960,6 +6387,14 @@ function App() {
                         >
                           Open Parallel Batch
                         </button>
+                        <button
+                          className="run-button"
+                          onClick={() => {
+                            void autoLearnYoutubeBatch(plan.id)
+                          }}
+                        >
+                          AI Learn Batch
+                        </button>
                       </div>
                       <div className="learning-log-list">
                         {plan.segments.slice(0, 8).map((segment) => (
@@ -4978,11 +6413,19 @@ function App() {
                               <button
                                 className="run-button"
                                 onClick={() => {
+                                  void autoLearnYoutubeSegment(plan.id, segment.id)
+                                }}
+                              >
+                                AI Learn Segment
+                              </button>
+                              <button
+                                className="run-button"
+                                onClick={() => {
                                   setVideoTargetPlanId(plan.id)
                                   setVideoTargetSegmentId(segment.id)
                                 }}
                               >
-                                Mark Learned
+                                Manual Mark
                               </button>
                             </div>
                           </article>
@@ -5028,15 +6471,88 @@ function App() {
                 id="yt-skills"
                 value={videoSegmentSkills}
                 onChange={(event) => setVideoSegmentSkills(event.target.value)}
-                placeholder="Python Basics, C Language Syntax"
+                placeholder="Python Basics, C pointers, C++ STL, Java OOP, Julia arrays, R tidyverse, JavaScript async"
               />
             </div>
             <button className="run-button" onClick={() => void completeYoutubeSegmentLearning()}>
               Save Segment Learning
             </button>
           </div>
+          </div>
+          )}
 
-          <div className="decision-card">
+          {workspaceTopicTab === 'automation' && (
+          <div className="workspace-topic-layout workspace-topic-automation">
+          <section className="automation-canvas-shell" aria-label="Automation flow canvas preview">
+            <header className="automation-canvas-head">
+              <div>
+                <strong>Automation Canvas</strong>
+                <p className="muted">
+                  N8N-style flow preview generated from your intent and step script before execution.
+                </p>
+              </div>
+              <div className="automation-readiness">
+                <span className={automationFlowPreview.hasIntent ? 'status-chip is-ready' : 'status-chip'}>
+                  Intent {automationFlowPreview.hasIntent ? 'ready' : 'missing'}
+                </span>
+                <span className={automationFlowPreview.hasTarget ? 'status-chip is-ready' : 'status-chip'}>
+                  URL {automationFlowPreview.hasTarget ? 'ready' : 'missing'}
+                </span>
+                <span className={automationFlowPreview.hasStepCount ? 'status-chip is-ready' : 'status-chip'}>
+                  Steps {automationFlowPreview.hasStepCount ? 'ready' : 'missing'}
+                </span>
+              </div>
+            </header>
+
+            <div className="automation-metrics">
+              <article className="automation-metric-card">
+                <span>Adapter</span>
+                <strong>{automationAdapterId}</strong>
+              </article>
+              <article className="automation-metric-card">
+                <span>Readiness</span>
+                <strong>{automationFlowPreview.readiness}/3</strong>
+              </article>
+              <article className="automation-metric-card">
+                <span>Parsed steps</span>
+                <strong>{automationFlowPreview.parsedSteps.length}</strong>
+              </article>
+              <article className="automation-metric-card">
+                <span>Target</span>
+                <strong>{automationFlowPreview.target || 'Not set'}</strong>
+              </article>
+            </div>
+
+            {Object.keys(automationFlowPreview.actionSummary).length > 0 && (
+              <p className="muted">
+                Action mix:{' '}
+                {Object.entries(automationFlowPreview.actionSummary)
+                  .map(([action, count]) => `${action} x${count}`)
+                  .join(' | ')}
+              </p>
+            )}
+
+            <div className="automation-node-lane" role="list">
+              {automationFlowPreview.nodes.map((node, index) => (
+                <article
+                  key={node.id}
+                  role="listitem"
+                  className={`automation-node automation-node-${node.kind}`}
+                >
+                  <span className="automation-node-index">{index + 1}</span>
+                  <strong>{node.title}</strong>
+                  <p className="muted">{node.detail}</p>
+                </article>
+              ))}
+            </div>
+            {automationFlowPreview.connectors.length > 0 && (
+              <p className="muted">
+                Flow edges: {automationFlowPreview.connectors.join(' | ')}
+              </p>
+            )}
+          </section>
+
+          <div className="decision-card" id="ws-automation">
             <strong>Task-Specific UI Automation</strong>
             <p>
               Run strict allowlisted browser automation adapters (form fill and click flow) with
@@ -5246,7 +6762,7 @@ function App() {
                 value={automationSourceKnowledge}
                 onChange={(event) => setAutomationSourceKnowledge(event.target.value)}
                 rows={4}
-                placeholder="Example: Notes from Python + C lessons, CMS publishing guide, design heuristics"
+                placeholder="Example: Notes from Python/C/C++/Java/Julia/R/JavaScript lessons, CMS guide, design heuristics"
               />
             </div>
             <button className="run-button" onClick={() => void runObserveLearnTemplate()}>
@@ -6187,6 +7703,8 @@ function App() {
               ))
             )}
           </div>
+          </div>
+          )}
         </div>
       )
     }
@@ -6201,6 +7719,60 @@ function App() {
     )
   }
 
+  const useModularControlShell = true
+  if (useModularControlShell) {
+    return (
+      <ControlShell
+        adminUnlocked={adminUnlocked}
+        adminExpiresAt={adminExpiresAt}
+        uiTheme={uiTheme}
+        onToggleTheme={() => setUiTheme((prev) => (prev === 'night' ? 'day' : 'night'))}
+        policySnapshot={policySnapshot}
+        routerConfig={routerConfig}
+        providerHealth={providerHealth}
+        channels={gatewayChannels}
+        onRoutingProfileChange={updateRoutingProfile}
+        onProviderEnabledChange={updateProviderEnabled}
+        onProviderKeyChange={updateProviderKey}
+        auditEntries={auditEntries}
+        learnedSkills={learnedSkills}
+        totalDocuments={libDocs.length}
+        totalWords={controlTotalWords}
+        workspaceMissions={controlWorkspaceMissions}
+        relay={{
+          mode: relayMode,
+          endpoint: cloudRelayEndpoint,
+          deviceId: cloudRelayDeviceId,
+          pollingEnabled: cloudRelayPollingEnabled,
+          tokenConfigured: cloudRelayTokenConfigured,
+          message: cloudRelayMessage,
+          lastSyncAt: cloudRelayLastSyncAt,
+          pendingRequests: cloudRelayRequests,
+        }}
+        bridge={{
+          enabled: bridgeEnabled,
+          host: bridgeHost,
+          port: bridgePort,
+          message: bridgeMessage,
+          pendingRequests: bridgePendingRequests,
+        }}
+        onRefreshRelay={() => void loadRelayStatus()}
+        onSyncRelay={() => void syncCloudRelayQueue()}
+        onSubmitRelayHeartbeat={() => void submitCloudRelayPing()}
+        onCompleteRelayRequest={(requestId) => void completeCloudRelayRequest(requestId)}
+        onRefreshBridge={() => void loadBridgeStatus()}
+        onToggleBridge={(enabled) => {
+          if (enabled) {
+            void startMobileBridge()
+            return
+          }
+          void stopMobileBridge()
+        }}
+        onAppendAudit={appendAudit}
+      />
+    )
+  }
+
   return (
     <div className="paxion-app">
       <header className="hero">
@@ -6210,6 +7782,14 @@ function App() {
           Desktop-first AI workspace with controlled permissions, verified sensitive actions,
           and full project continuity.
         </p>
+        <div className="hero-actions">
+          <button
+            className="run-button"
+            onClick={() => setUiTheme((prev) => (prev === 'night' ? 'day' : 'night'))}
+          >
+            Theme: {uiTheme === 'night' ? 'Night' : 'Day'}
+          </button>
+        </div>
       </header>
 
       <section className="grid-shell">
@@ -6231,7 +7811,7 @@ function App() {
           </div>
         </aside>
 
-        <main className="panel work-panel" role="tabpanel" aria-label={activeTabMeta.name}>
+        <main className={`panel work-panel ${activeTab === 'workspace' ? 'work-panel-workspace' : ''}`} role="tabpanel" aria-label={activeTabMeta.name}>
           <h2>{activeTabMeta.name}</h2>
           <p>{activeTabMeta.description}</p>
           <div className="admin-session-row">
@@ -6252,17 +7832,6 @@ function App() {
           {renderTabBody()}
         </main>
 
-        <aside className="panel policy-panel">
-          <h2>Core Policy</h2>
-          <ul>
-            {policyLines.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-          <div className="status">
-            <strong>Checkpoint:</strong> Initial desktop foundation is active.
-          </div>
-        </aside>
       </section>
 
       <footer className="footer">

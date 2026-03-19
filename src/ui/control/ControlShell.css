@@ -1,0 +1,380 @@
+.clean-shell {
+  --bg: #f5f7fb;
+  --panel: #ffffff;
+  --panel-soft: #f1f5ff;
+  --text: #111827;
+  --muted: #4b5563;
+  --line: #d9e0ef;
+  --brand: #2563eb;
+  --brand-soft: #dbeafe;
+  --danger: #dc2626;
+  --success: #16a34a;
+  min-height: 100vh;
+  padding: 1rem;
+  background: radial-gradient(circle at top right, #dbeafe, transparent 40%), var(--bg);
+  color: var(--text);
+  font-family: 'Manrope', 'DM Sans', 'Segoe UI', sans-serif;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.clean-shell.theme-night {
+  --bg: #0b1220;
+  --panel: #111b2e;
+  --panel-soft: #1a2742;
+  --text: #e5edf8;
+  --muted: #9ab0cd;
+  --line: #2a3b60;
+  --brand: #60a5fa;
+  --brand-soft: #1d355b;
+}
+
+.clean-header {
+  border: 1px solid var(--line);
+  background: linear-gradient(135deg, var(--panel), var(--panel-soft));
+  border-radius: 14px;
+  padding: 1rem 1.1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.8rem;
+}
+
+.clean-kicker {
+  margin: 0;
+  color: var(--brand);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.clean-header h1 {
+  margin: 0.25rem 0;
+  font-size: 1.6rem;
+}
+
+.clean-header p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.clean-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.clean-btn {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.5rem 0.8rem;
+  background: var(--brand);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.clean-btn.clean-btn-secondary {
+  background: var(--panel);
+  color: var(--text);
+}
+
+.clean-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.clean-metrics {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.clean-metric {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 0.72rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.24rem;
+}
+
+.clean-metric span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.clean-metric strong {
+  font-size: 1.12rem;
+}
+
+.clean-metric small {
+  color: var(--muted);
+}
+
+.clean-tabs {
+  display: grid;
+  gap: 0.56rem;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.clean-tab {
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 11px;
+  padding: 0.62rem;
+  cursor: pointer;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.clean-tab small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.clean-tab.is-active {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px var(--brand-soft);
+}
+
+.clean-main {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 14px;
+  padding: 0.9rem;
+}
+
+.clean-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.clean-card {
+  border: 1px solid var(--line);
+  background: var(--panel-soft);
+  border-radius: 12px;
+  padding: 0.78rem;
+}
+
+.clean-card h2,
+.clean-card h3 {
+  margin: 0 0 0.45rem;
+}
+
+.clean-textarea,
+.clean-input,
+.clean-card select {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 0.52rem;
+}
+
+.clean-textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.clean-row {
+  margin-top: 0.55rem;
+  display: flex;
+  gap: 0.52rem;
+  align-items: center;
+}
+
+.clean-row.wrap {
+  flex-wrap: wrap;
+}
+
+.clean-plan,
+.clean-list-item,
+.clean-msg {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.6rem;
+  background: var(--panel);
+}
+
+.clean-feed,
+.clean-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.clean-msg.user {
+  border-left: 4px solid var(--brand);
+}
+
+.clean-msg.assistant {
+  border-left: 4px solid var(--success);
+}
+
+.clean-msg p {
+  margin: 0.3rem 0 0;
+}
+
+.clean-settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 10, 20, 0.58);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 1.2rem;
+  z-index: 20;
+  overflow: auto;
+}
+
+.clean-settings {
+  width: min(1200px, 96vw);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  padding: 1rem;
+}
+
+.clean-settings-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.clean-settings-head h2 {
+  margin: 0;
+}
+
+.clean-settings-grid {
+  margin-top: 0.8rem;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.clean-toggle {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  color: var(--muted);
+  margin-top: 0.32rem;
+}
+
+.muted,
+.clean-card .muted {
+  color: var(--muted);
+}
+
+.nova-surface,
+.nova-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.nova-card,
+.nova-panel-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 0.62rem;
+}
+
+.nova-grid-cards {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.nova-status-badge {
+  padding: 0.2rem 0.44rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.72rem;
+}
+
+.nova-status-pending {
+  color: #d97706;
+}
+
+.nova-status-completed {
+  color: var(--success);
+}
+
+.nova-status-failed {
+  color: var(--danger);
+}
+
+.nova-node-head,
+.nova-provider-head,
+.nova-card-head,
+.nova-item-head,
+.nova-mission-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.nova-health-indicator,
+.nova-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  display: inline-block;
+  background: var(--line);
+}
+
+.nova-health-indicator.ready,
+.nova-status-connected {
+  background: var(--success);
+}
+
+.nova-health-indicator.missing-key,
+.nova-status-syncing {
+  background: #d97706;
+}
+
+.nova-health-indicator.disabled,
+.nova-status-disconnected {
+  background: var(--danger);
+}
+
+@media (max-width: 1100px) {
+  .clean-tabs {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .clean-metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .clean-grid,
+  .clean-settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .clean-shell {
+    padding: 0.6rem;
+  }
+
+  .clean-header {
+    flex-direction: column;
+  }
+
+  .clean-metrics {
+    grid-template-columns: 1fr;
+  }
+}

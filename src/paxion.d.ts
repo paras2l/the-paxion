@@ -12,6 +12,24 @@ interface PaxionLibraryFileError {
   error: string
 }
 
+interface PaxionLibraryWebIngestResult {
+  ok: boolean
+  reason?: string
+  name?: string
+  url?: string
+  content?: string
+}
+
+interface PaxionLibraryYoutubeIngestResult extends PaxionLibraryWebIngestResult {
+  segmentCount?: number
+  segments?: Array<{
+    name: string
+    content: string
+    start: number
+    end: number
+  }>
+}
+
 interface PaxionAdminUnlockResult {
   ok: boolean
   reason?: string
@@ -267,6 +285,23 @@ interface PaxionLearningRecordResult {
   updatedAt: string | null
 }
 
+interface PaxionSttToolStatus {
+  available: boolean
+  command: string | null
+  detail: string
+}
+
+interface PaxionLearningSttStatusResult {
+  ok: boolean
+  ready: boolean
+  tools: {
+    ytDlp: PaxionSttToolStatus
+    ffmpeg: PaxionSttToolStatus
+    whisper: PaxionSttToolStatus
+  }
+  updatedAt: string | null
+}
+
 interface PaxionAutomationTemplate {
   id: string
   appType: string
@@ -517,6 +552,60 @@ type PaxionAutomationStepInput = {
   waitMs?: number
 }
 
+interface PaxionPolyglotRuntimeStatus {
+  language: string
+  available: boolean
+  command: string | null
+  detail: string
+}
+
+interface PaxionPolyglotStarterResult {
+  ok: boolean
+  reason?: string
+  language: string
+  name?: string
+  content?: string
+  sourcePath?: string
+}
+
+interface PaxionPolyglotBrainMeshItem {
+  language: string
+  ok: boolean
+  reason: string
+  detail?: Record<string, unknown> | null
+  stdout?: string
+  stderr?: string
+  commands: string[]
+  timedOut?: boolean
+  artifactPath?: string | null
+}
+
+interface PaxionPolyglotBrainMeshResult {
+  ok: boolean
+  objective: string
+  results: PaxionPolyglotBrainMeshItem[]
+  summary: string
+  completedCount: number
+  attemptedCount: number
+  skills?: string[]
+  updatedAt?: string | null
+}
+
+interface PaxionPolyglotRunResult {
+  ok: boolean
+  reason: string
+  language: string
+  stage: 'setup' | 'compile' | 'run'
+  stdout: string
+  stderr: string
+  exitCode: number | null
+  timedOut: boolean
+  commands: string[]
+  artifactPath: string | null
+  skills?: string[]
+  updatedAt?: string | null
+}
+
 declare global {
   interface Window {
     readonly paxion?: {
@@ -561,6 +650,7 @@ declare global {
           source?: string
           newSkills?: string[]
         }): Promise<PaxionLearningRecordResult>
+        sttStatus(): Promise<PaxionLearningSttStatusResult>
         youtubePlanCreate(input: {
           topic: string
           videoUrl: string
@@ -587,6 +677,21 @@ declare global {
         }): Promise<
           | {
               ok: true
+              videoPlans: PaxionVideoLearningPlan[]
+              skills: string[]
+              updatedAt: string | null
+            }
+          | { ok: false; reason: string }
+        >
+        youtubeSegmentAutoLearn(input: {
+          planId: string
+          segmentId: string
+        }): Promise<
+          | {
+              ok: true
+              segmentLabel: string
+              docName: string
+              content: string
               videoPlans: PaxionVideoLearningPlan[]
               skills: string[]
               updatedAt: string | null
@@ -1059,6 +1164,27 @@ declare global {
           commands: string[]
         }): Promise<{ ok: boolean; reason?: string; simulation?: Record<string, unknown> }>
       }
+      polyglot: {
+        status(): Promise<{
+          ok: boolean
+          runtimes: PaxionPolyglotRuntimeStatus[]
+          updatedAt: string
+        }>
+        starter(input: {
+          language: 'python' | 'c' | 'cpp' | 'java' | 'julia' | 'r' | 'javascript'
+        }): Promise<PaxionPolyglotStarterResult>
+        brainMesh(input: {
+          objective: string
+          languages?: Array<'python' | 'c' | 'cpp' | 'java' | 'julia' | 'r' | 'javascript'>
+        }): Promise<PaxionPolyglotBrainMeshResult>
+        run(input: {
+          language: 'python' | 'c' | 'cpp' | 'java' | 'julia' | 'r' | 'javascript'
+          code: string
+          stdin?: string
+          args?: string[]
+          timeoutMs?: number
+        }): Promise<PaxionPolyglotRunResult>
+      }
       creative: {
         ideate(input: {
           domain: string
@@ -1172,6 +1298,8 @@ declare global {
       }
       library: {
         pickFile(): Promise<PaxionLibraryFileResult | PaxionLibraryFileError | null>
+        ingestWebUrl(input: { url: string }): Promise<PaxionLibraryWebIngestResult>
+        ingestYoutube(input: { url: string }): Promise<PaxionLibraryYoutubeIngestResult>
         load(): Promise<PaxionLibraryLoadResult>
         save(input: { docs: LibraryDocument[] }): Promise<PaxionLibrarySaveResult>
         clear(): Promise<{ ok: boolean; reason?: string }>

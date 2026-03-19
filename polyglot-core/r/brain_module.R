@@ -1,0 +1,1 @@
+cat('{"language":"r","role":"analytics-intelligence","strengths":["statistics","reporting","data analysis"],"recommendation":"Use R for analytics dashboards, statistical validation, and evidence-heavy insight summaries.","focusAreas":["statistical checks","visual reporting","evidence review"]}\n')

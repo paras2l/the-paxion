@@ -1,0 +1,1 @@
+println("{\"language\":\"julia\",\"role\":\"scientific-compute\",\"strengths\":[\"numerical speed\",\"scientific computing\",\"research iteration\"],\"recommendation\":\"Use Julia for optimization engines, simulation-heavy planning, and research-grade numeric analysis.\",\"focusAreas\":[\"simulation\",\"optimization\",\"numerical experiments\"]}")

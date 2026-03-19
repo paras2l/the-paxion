@@ -71,11 +71,11 @@ export const BOUNDARY_PATTERNS = [
 // Response pool — Paxion personality: direct, hacker tone, loyal
 export const PAXION_REPLIES = {
   greeting: [
-    "System online. Paxion active. What's the mission, Chief?",
-    "Ready. All systems operational. Awaiting your command, Paro.",
-    'Online and standing by. What do you need, Chief?',
-    'Paxion initialized. Knowledge systems nominal. Go ahead.',
-    'Access granted. Hello, Chief. What are we working on?',
+    "Hey, I am ready. What do you want to work on?",
+    "I am here and listening. Tell me what you need.",
+    'Ready when you are. Ask me anything from your library.',
+    'Paxion is online. What should we tackle first?',
+    'Good to see you. Share your question and I will reason it out.',
   ],
 
   identity: (docCount: number, wordCount: number) =>
@@ -103,24 +103,24 @@ export const PAXION_REPLIES = {
     ].join('\n'),
 
   found: [
-    'Pulling from indexed knowledge. Here is what I have on that:',
-    'Query matched. Synthesizing indexed data:',
-    'Knowledge retrieved. Here is the relevant information:',
-    'Found a match in the Library. Extracting:',
-    'Indexed knowledge located. Processing:',
+    'I found relevant evidence in your library.',
+    'I matched your question to your sources.',
+    'I pulled grounded details from your documents.',
+    'I found supporting content in your library.',
+    'I located relevant sections and synthesized them.',
   ],
 
   notFound: [
-    "I scanned the Library but found nothing relevant on that. Feed me a document on this topic and I will learn it.",
-    "No matching data in the Neural Index. Add a relevant book or document to teach me about this.",
-    "Library search returned zero results for this query. I do not know what I have not been taught yet.",
-    "That knowledge is not in my index yet. Load a document on this topic and I will absorb it.",
+    "I scanned your library but could not find enough relevant evidence for that question.",
+    "I do not have a grounded match yet. Add a relevant source and ask again.",
+    "I could not find reliable support in current documents for this query.",
+    "That topic is not well covered in the loaded files yet.",
   ],
 
   emptyLibrary: [
-    "Library is empty, Chief. I cannot answer factual questions yet — I have nothing to learn from. Add a document first.",
-    "No knowledge loaded. Head to the Library tab and ingest a document. I will be ready to assist once I have data.",
-    "Neural Index is empty. I operate from Library knowledge. Feed me something and I will get to work.",
+    'Your library is empty right now. Add documents and I will answer from them.',
+    'No sources are loaded yet. Import a file and I will use it for grounded answers.',
+    'I need at least one document in Library to answer factual questions reliably.',
   ],
 
   unknown: [

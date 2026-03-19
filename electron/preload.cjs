@@ -33,9 +33,11 @@ contextBridge.exposeInMainWorld('paxion', {
   learning: {
     load: () => ipcRenderer.invoke('paxion:learning:load'),
     record: (input) => ipcRenderer.invoke('paxion:learning:record', input),
+    sttStatus: () => ipcRenderer.invoke('paxion:learning:sttStatus'),
     youtubePlanCreate: (input) => ipcRenderer.invoke('paxion:learning:youtubePlanCreate', input),
     youtubeSegmentOpen: (input) => ipcRenderer.invoke('paxion:learning:youtubeSegmentOpen', input),
     youtubeSegmentComplete: (input) => ipcRenderer.invoke('paxion:learning:youtubeSegmentComplete', input),
+    youtubeSegmentAutoLearn: (input) => ipcRenderer.invoke('paxion:learning:youtubeSegmentAutoLearn', input),
   },
   automation: {
     load: () => ipcRenderer.invoke('paxion:automation:load'),
@@ -112,6 +114,12 @@ contextBridge.exposeInMainWorld('paxion', {
     createPack: (input) => ipcRenderer.invoke('paxion:terminal:pack:create', input),
     activatePack: (input) => ipcRenderer.invoke('paxion:terminal:pack:activate', input),
     simulatePack: (input) => ipcRenderer.invoke('paxion:terminal:pack:simulate', input),
+  },
+  polyglot: {
+    status: () => ipcRenderer.invoke('paxion:polyglot:status'),
+    starter: (input) => ipcRenderer.invoke('paxion:polyglot:starter', input),
+    brainMesh: (input) => ipcRenderer.invoke('paxion:polyglot:brainMesh', input),
+    run: (input) => ipcRenderer.invoke('paxion:polyglot:run', input),
   },
   creative: {
     ideate: (input) => ipcRenderer.invoke('paxion:creative:ideate', input),
@@ -194,6 +202,8 @@ contextBridge.exposeInMainWorld('paxion', {
   },
   library: {
     pickFile: () => ipcRenderer.invoke('paxion:library:pickFile'),
+    ingestWebUrl: (input) => ipcRenderer.invoke('paxion:library:ingestWebUrl', input),
+    ingestYoutube: (input) => ipcRenderer.invoke('paxion:library:ingestYoutube', input),
     load: () => ipcRenderer.invoke('paxion:library:load'),
     save: (input) => ipcRenderer.invoke('paxion:library:save', input),
     clear: () => ipcRenderer.invoke('paxion:library:clear'),

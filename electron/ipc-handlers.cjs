@@ -3,10 +3,11 @@
 const { ipcMain, dialog, app, shell, desktopCapturer, safeStorage } = require('electron')
 const crypto = require('crypto')
 const http = require('http')
+const https = require('https')
 const fs = require('fs')
 const path = require('path')
-const { exec } = require('child_process')
-const pdfParse = require('pdf-parse')
+const { exec, spawn } = require('child_process')
+const { PDFParse } = require('pdf-parse')
 const Tesseract = require('tesseract.js')
 const {
   buildCrossAppMission,
@@ -67,7 +68,7 @@ const DEFAULT_CAPABILITIES = {
   selfEvolution: false,
   videoLearning: false,
   libraryIngestLocal: true,
-  libraryIngestWeb: false,
+  libraryIngestWeb: true,
   chatExternalModel: false,
   voiceInput: true,
   voiceOutput: true,
@@ -604,6 +605,247 @@ function slugifyName(input, fallback = 'target') {
   return normalized || fallback
 }
 
+const MAX_REMOTE_BYTES = 2 * 1024 * 1024
+const MAX_INGEST_TEXT_CHARS = 260000
+
+function decodeHtmlEntities(text) {
+  return String(text || '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+}
+
+function extractHtmlTitle(html) {
+  const match = String(html || '').match(/<title[^>]*>([\s\S]*?)<\/title>/i)
+  if (!match?.[1]) return ''
+  return decodeHtmlEntities(match[1]).replace(/\s+/g, ' ').trim()
+}
+
+function htmlToPlainText(html) {
+  const withoutScripts = String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+  const text = withoutScripts
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return decodeHtmlEntities(text)
+}
+
+function fetchRemoteText(targetUrl, redirectsLeft = 4) {
+  return new Promise((resolve, reject) => {
+    let parsed
+    try {
+      parsed = new URL(targetUrl)
+    } catch {
+      reject(new Error('Invalid URL.'))
+      return
+    }
+
+    const protocol = parsed.protocol.toLowerCase()
+    if (protocol !== 'http:' && protocol !== 'https:') {
+      reject(new Error('Only http/https URLs are supported.'))
+      return
+    }
+
+    const client = protocol === 'https:' ? https : http
+    const req = client.get(
+      targetUrl,
+      {
+        headers: {
+          'User-Agent': 'Paxion/0.22 LibraryIngest',
+          Accept: 'text/html,text/plain,application/xhtml+xml;q=0.9,*/*;q=0.4',
+        },
+      },
+      (res) => {
+        const statusCode = Number(res.statusCode || 0)
+        const location = typeof res.headers.location === 'string' ? res.headers.location : ''
+
+        if ([301, 302, 303, 307, 308].includes(statusCode) && location) {
+          if (redirectsLeft <= 0) {
+            reject(new Error('Too many redirects while fetching URL.'))
+            return
+          }
+          const nextUrl = new URL(location, targetUrl).toString()
+          res.resume()
+          fetchRemoteText(nextUrl, redirectsLeft - 1).then(resolve).catch(reject)
+          return
+        }
+
+        if (statusCode < 200 || statusCode >= 300) {
+          reject(new Error(`Remote server returned HTTP ${statusCode}.`))
+          return
+        }
+
+        const contentType = String(res.headers['content-type'] || '').toLowerCase()
+        const likelyText = !contentType
+          || contentType.includes('text/')
+          || contentType.includes('json')
+          || contentType.includes('xml')
+          || contentType.includes('html')
+
+        if (!likelyText) {
+          reject(new Error(`Unsupported content type: ${contentType || 'unknown'}`))
+          return
+        }
+
+        let raw = ''
+        let bytes = 0
+
+        res.on('data', (chunk) => {
+          bytes += chunk.length
+          if (bytes > MAX_REMOTE_BYTES) {
+            req.destroy(new Error('Remote content too large. Limit is 2 MB.'))
+            return
+          }
+          raw += chunk.toString('utf8')
+        })
+
+        res.on('end', () => {
+          resolve({
+            finalUrl: targetUrl,
+            contentType,
+            raw,
+          })
+        })
+      },
+    )
+
+    req.setTimeout(12000, () => {
+      req.destroy(new Error('Remote request timed out after 12 seconds.'))
+    })
+
+    req.on('error', (err) => {
+      reject(err)
+    })
+  })
+}
+
+function normalizeIngestedText(text) {
+  return String(text || '')
+    .replace(/\u0000/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_INGEST_TEXT_CHARS)
+}
+
+function extractYoutubeVideoId(inputUrl) {
+  try {
+    const u = new URL(String(inputUrl || ''))
+    const host = u.hostname.toLowerCase()
+    if (host === 'youtu.be') {
+      return u.pathname.replace(/^\//, '').split('/')[0] || null
+    }
+    if (host.includes('youtube.com')) {
+      if (u.pathname === '/watch') {
+        return u.searchParams.get('v')
+      }
+      const shortsMatch = u.pathname.match(/^\/shorts\/([^/?#]+)/)
+      if (shortsMatch?.[1]) return shortsMatch[1]
+      const embedMatch = u.pathname.match(/^\/embed\/([^/?#]+)/)
+      if (embedMatch?.[1]) return embedMatch[1]
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
+function parseXmlTranscript(xml) {
+  const rows = []
+  const pattern = /<text\s+start="([\d.]+)"\s+dur="([\d.]+)"[^>]*>([\s\S]*?)<\/text>/gi
+  let match
+  while ((match = pattern.exec(xml)) !== null) {
+    const start = Number(match[1] || 0)
+    const text = decodeHtmlEntities(String(match[3] || ''))
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (text) {
+      rows.push({ start, text })
+    }
+  }
+  return rows
+}
+
+function fetchTextUrl(url, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, {
+      headers: {
+        'User-Agent': 'Paxion/0.22 LibraryIngest',
+      },
+    }, (res) => {
+      const status = Number(res.statusCode || 0)
+      if (status < 200 || status >= 300) {
+        reject(new Error(`HTTP ${status} while fetching transcript.`))
+        return
+      }
+
+      let raw = ''
+      res.on('data', (chunk) => {
+        raw += chunk.toString('utf8')
+      })
+      res.on('end', () => resolve(raw))
+    })
+
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('Transcript request timed out.')))
+    req.on('error', (err) => reject(err))
+  })
+}
+
+async function fetchYoutubeTranscriptRows(videoId) {
+  const candidates = [
+    `https://www.youtube.com/api/timedtext?v=${encodeURIComponent(videoId)}&lang=en`,
+    `https://www.youtube.com/api/timedtext?v=${encodeURIComponent(videoId)}&lang=en-US`,
+    `https://www.youtube.com/api/timedtext?v=${encodeURIComponent(videoId)}&lang=en&kind=asr`,
+    `https://www.youtube.com/api/timedtext?v=${encodeURIComponent(videoId)}&lang=en-US&kind=asr`,
+  ]
+
+  for (const url of candidates) {
+    try {
+      const xml = await fetchTextUrl(url)
+      const rows = parseXmlTranscript(xml)
+      if (rows.length > 0) {
+        return rows
+      }
+    } catch {
+      // Try next endpoint candidate.
+    }
+  }
+
+  throw new Error('No public transcript was found for this video. Try a video with captions enabled.')
+}
+
+function buildTranscriptSegments(rows, segmentSeconds = 360) {
+  const groups = new Map()
+  for (const row of rows) {
+    const index = Math.floor((Number(row.start) || 0) / segmentSeconds)
+    if (!groups.has(index)) {
+      groups.set(index, [])
+    }
+    groups.get(index).push(row)
+  }
+
+  return Array.from(groups.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([index, entries]) => {
+      const start = index * segmentSeconds
+      const end = start + segmentSeconds
+      const text = entries.map((x) => x.text).join(' ')
+      return {
+        index,
+        start,
+        end,
+        text: normalizeIngestedText(text),
+      }
+    })
+    .filter((seg) => seg.text.length >= 80)
+}
+
 // ── IPC handler registration ──
 
 function registerIpcHandlers(mainWindow) {
@@ -626,6 +868,7 @@ function registerIpcHandlers(mainWindow) {
   const terminalPackStateFilePath = path.join(app.getPath('userData'), 'paxion-terminal-command-packs.json')
   const bridgeStateFilePath = path.join(app.getPath('userData'), 'paxion-bridge-state.json')
   const advancedStateFilePath = path.join(app.getPath('userData'), 'paxion-advanced-domains.json')
+  const polyglotCoreDirPath = path.join(app.getAppPath(), 'polyglot-core')
   const adminSession = buildAdminSessionState()
   const approvalTickets = new Map()
   const replayPreviewApprovals = new Map()
@@ -1805,6 +2048,491 @@ function registerIpcHandlers(mainWindow) {
     return entry
   }
 
+  function normalizePolyglotLanguage(value) {
+    const raw = String(value || '').trim().toLowerCase()
+    if (raw === 'js') return 'javascript'
+    if (raw === 'c#') return 'csharp'
+    return raw
+  }
+
+  function normalizePolyglotArgs(raw) {
+    if (!Array.isArray(raw)) return []
+    return raw
+      .filter((item) => typeof item === 'string' || typeof item === 'number')
+      .map((item) => String(item).trim())
+      .filter(Boolean)
+      .slice(0, 24)
+  }
+
+  function firstMeaningfulLine(text) {
+    return String(text || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) || ''
+  }
+
+  function buildPolyglotTempDir() {
+    return fs.mkdtempSync(path.join(app.getPath('temp'), 'paxion-polyglot-'))
+  }
+
+  function executeSpawn(command, args, options = {}) {
+    return new Promise((resolve) => {
+      let stdout = ''
+      let stderr = ''
+      let finished = false
+      let timedOut = false
+      const child = spawn(command, Array.isArray(args) ? args : [], {
+        cwd: options.cwd || app.getPath('userData'),
+        env: { ...process.env, ...(options.env || {}) },
+        shell: false,
+        windowsHide: true,
+      })
+
+      const timeoutMs = Math.max(500, Number(options.timeoutMs || 15000))
+      const timeout = setTimeout(() => {
+        timedOut = true
+        try {
+          child.kill()
+        } catch (_err) {
+          // Ignore kill failures; close/error handlers resolve below.
+        }
+      }, timeoutMs)
+
+      const finish = (payload) => {
+        if (finished) return
+        finished = true
+        clearTimeout(timeout)
+        resolve({
+          stdout,
+          stderr,
+          timedOut,
+          ...payload,
+        })
+      }
+
+      child.on('error', (err) => {
+        finish({
+          ok: false,
+          exitCode: null,
+          spawnError: err.message,
+        })
+      })
+
+      if (child.stdout) {
+        child.stdout.on('data', (chunk) => {
+          stdout += String(chunk)
+        })
+      }
+
+      if (child.stderr) {
+        child.stderr.on('data', (chunk) => {
+          stderr += String(chunk)
+        })
+      }
+
+      child.on('close', (code) => {
+        finish({
+          ok: !timedOut && code === 0,
+          exitCode: typeof code === 'number' ? code : null,
+          spawnError: null,
+        })
+      })
+
+      if (typeof options.stdin === 'string' && child.stdin) {
+        child.stdin.write(options.stdin)
+      }
+      if (child.stdin) {
+        child.stdin.end()
+      }
+    })
+  }
+
+  async function detectCommandCandidate(candidates) {
+    for (const candidate of candidates) {
+      const probe = await executeSpawn(candidate.command, candidate.probeArgs || ['--version'], {
+        timeoutMs: 4000,
+      })
+
+      if (!probe.spawnError && (probe.exitCode === 0 || probe.stdout || probe.stderr)) {
+        return {
+          command: candidate.command,
+          prefixArgs: Array.isArray(candidate.prefixArgs) ? candidate.prefixArgs : [],
+          displayCommand: [candidate.command, ...(candidate.prefixArgs || [])].join(' '),
+          detail: firstMeaningfulLine(probe.stdout || probe.stderr) || 'available',
+        }
+      }
+    }
+
+    return null
+  }
+
+  async function resolvePolyglotRuntime(language) {
+    switch (language) {
+      case 'python':
+        return detectCommandCandidate([
+          { command: 'python', probeArgs: ['--version'], prefixArgs: [] },
+          { command: 'py', probeArgs: ['-3', '--version'], prefixArgs: ['-3'] },
+        ])
+      case 'javascript':
+        return detectCommandCandidate([{ command: 'node', probeArgs: ['--version'], prefixArgs: [] }])
+      case 'julia':
+        return detectCommandCandidate([{ command: 'julia', probeArgs: ['--version'], prefixArgs: [] }])
+      case 'r':
+        return detectCommandCandidate([{ command: 'Rscript', probeArgs: ['--version'], prefixArgs: [] }])
+      case 'c':
+        return detectCommandCandidate([
+          { command: 'gcc', probeArgs: ['--version'], prefixArgs: [] },
+          { command: 'clang', probeArgs: ['--version'], prefixArgs: [] },
+        ])
+      case 'cpp':
+        return detectCommandCandidate([
+          { command: 'g++', probeArgs: ['--version'], prefixArgs: [] },
+          { command: 'clang++', probeArgs: ['--version'], prefixArgs: [] },
+        ])
+      case 'java': {
+        const compiler = await detectCommandCandidate([
+          { command: 'javac', probeArgs: ['-version'], prefixArgs: [] },
+        ])
+        const runtime = await detectCommandCandidate([
+          { command: 'java', probeArgs: ['-version'], prefixArgs: [] },
+        ])
+
+        if (!compiler || !runtime) {
+          return null
+        }
+
+        return {
+          compile: compiler,
+          run: runtime,
+          detail: `${compiler.detail} | ${runtime.detail}`,
+        }
+      }
+      default:
+        return null
+    }
+  }
+
+  function resolveJavaClassName(code) {
+    const publicClass = String(code || '').match(/\bpublic\s+class\s+([A-Za-z_][A-Za-z0-9_]*)/)
+    if (publicClass?.[1]) return publicClass[1]
+    const anyClass = String(code || '').match(/\bclass\s+([A-Za-z_][A-Za-z0-9_]*)/)
+    if (anyClass?.[1]) return anyClass[1]
+    return 'Main'
+  }
+
+  function buildPolyglotSkill(language) {
+    const map = {
+      python: 'Python Runtime Execution',
+      javascript: 'JavaScript Runtime Execution',
+      c: 'C Runtime Compilation',
+      cpp: 'C++ Runtime Compilation',
+      java: 'Java Runtime Execution',
+      julia: 'Julia Runtime Execution',
+      r: 'R Runtime Execution',
+    }
+
+    return map[language] || 'Polyglot Runtime Execution'
+  }
+
+  async function buildPolyglotStatus() {
+    const languages = ['python', 'c', 'cpp', 'java', 'julia', 'r', 'javascript']
+    const rows = []
+
+    for (const language of languages) {
+      const runtime = await resolvePolyglotRuntime(language)
+      if (!runtime) {
+        rows.push({
+          language,
+          available: false,
+          command: null,
+          detail: 'Runtime or compiler not found on this machine.',
+        })
+        continue
+      }
+
+      if (language === 'java') {
+        rows.push({
+          language,
+          available: true,
+          command: `${runtime.compile.displayCommand} + ${runtime.run.displayCommand}`,
+          detail: runtime.detail,
+        })
+        continue
+      }
+
+      rows.push({
+        language,
+        available: true,
+        command: runtime.displayCommand,
+        detail: runtime.detail,
+      })
+    }
+
+    return rows
+  }
+
+  async function runPolyglotProgram(input) {
+    const language = normalizePolyglotLanguage(input?.language)
+    const allowedLanguages = new Set(['python', 'c', 'cpp', 'java', 'julia', 'r', 'javascript'])
+    if (!allowedLanguages.has(language)) {
+      return {
+        ok: false,
+        reason: 'Unsupported language requested.',
+        language,
+        stage: 'setup',
+        stdout: '',
+        stderr: '',
+        exitCode: null,
+        timedOut: false,
+        commands: [],
+        artifactPath: null,
+      }
+    }
+
+    const runtime = await resolvePolyglotRuntime(language)
+    if (!runtime) {
+      return {
+        ok: false,
+        reason: `${language} runtime is not installed or not available in PATH.`,
+        language,
+        stage: 'setup',
+        stdout: '',
+        stderr: '',
+        exitCode: null,
+        timedOut: false,
+        commands: [],
+        artifactPath: null,
+      }
+    }
+
+    const code = String(input?.code || '')
+    if (!code.trim()) {
+      return {
+        ok: false,
+        reason: 'Code is empty.',
+        language,
+        stage: 'setup',
+        stdout: '',
+        stderr: '',
+        exitCode: null,
+        timedOut: false,
+        commands: [],
+        artifactPath: null,
+      }
+    }
+
+    const stdin = typeof input?.stdin === 'string' ? input.stdin : ''
+    const args = normalizePolyglotArgs(input?.args)
+    const timeoutMs = Math.min(120000, Math.max(1000, Number(input?.timeoutMs || 20000)))
+    const tempDir = buildPolyglotTempDir()
+    const commands = []
+
+    if (language === 'python') {
+      const sourcePath = path.join(tempDir, 'main.py')
+      fs.writeFileSync(sourcePath, code, 'utf8')
+      commands.push(`${runtime.displayCommand} ${path.basename(sourcePath)} ${args.join(' ')}`.trim())
+      const result = await executeSpawn(runtime.command, [...runtime.prefixArgs, sourcePath, ...args], {
+        cwd: tempDir,
+        stdin,
+        timeoutMs,
+      })
+      return {
+        ok: result.ok,
+        reason: result.ok ? 'Python program executed.' : result.spawnError || 'Python program failed.',
+        language,
+        stage: 'run',
+        stdout: result.stdout,
+        stderr: result.stderr,
+        exitCode: result.exitCode,
+        timedOut: result.timedOut,
+        commands,
+        artifactPath: sourcePath,
+      }
+    }
+
+    if (language === 'javascript') {
+      const sourcePath = path.join(tempDir, 'main.js')
+      fs.writeFileSync(sourcePath, code, 'utf8')
+      commands.push(`${runtime.displayCommand} ${path.basename(sourcePath)} ${args.join(' ')}`.trim())
+      const result = await executeSpawn(runtime.command, [...runtime.prefixArgs, sourcePath, ...args], {
+        cwd: tempDir,
+        stdin,
+        timeoutMs,
+      })
+      return {
+        ok: result.ok,
+        reason: result.ok ? 'JavaScript program executed.' : result.spawnError || 'JavaScript program failed.',
+        language,
+        stage: 'run',
+        stdout: result.stdout,
+        stderr: result.stderr,
+        exitCode: result.exitCode,
+        timedOut: result.timedOut,
+        commands,
+        artifactPath: sourcePath,
+      }
+    }
+
+    if (language === 'julia') {
+      const sourcePath = path.join(tempDir, 'main.jl')
+      fs.writeFileSync(sourcePath, code, 'utf8')
+      commands.push(`${runtime.displayCommand} ${path.basename(sourcePath)} ${args.join(' ')}`.trim())
+      const result = await executeSpawn(runtime.command, [...runtime.prefixArgs, sourcePath, ...args], {
+        cwd: tempDir,
+        stdin,
+        timeoutMs,
+      })
+      return {
+        ok: result.ok,
+        reason: result.ok ? 'Julia program executed.' : result.spawnError || 'Julia program failed.',
+        language,
+        stage: 'run',
+        stdout: result.stdout,
+        stderr: result.stderr,
+        exitCode: result.exitCode,
+        timedOut: result.timedOut,
+        commands,
+        artifactPath: sourcePath,
+      }
+    }
+
+    if (language === 'r') {
+      const sourcePath = path.join(tempDir, 'main.R')
+      fs.writeFileSync(sourcePath, code, 'utf8')
+      commands.push(`${runtime.displayCommand} ${path.basename(sourcePath)} ${args.join(' ')}`.trim())
+      const result = await executeSpawn(runtime.command, [...runtime.prefixArgs, sourcePath, ...args], {
+        cwd: tempDir,
+        stdin,
+        timeoutMs,
+      })
+      return {
+        ok: result.ok,
+        reason: result.ok ? 'R program executed.' : result.spawnError || 'R program failed.',
+        language,
+        stage: 'run',
+        stdout: result.stdout,
+        stderr: result.stderr,
+        exitCode: result.exitCode,
+        timedOut: result.timedOut,
+        commands,
+        artifactPath: sourcePath,
+      }
+    }
+
+    if (language === 'c' || language === 'cpp') {
+      const ext = language === 'c' ? 'c' : 'cpp'
+      const sourcePath = path.join(tempDir, `main.${ext}`)
+      const binaryPath = path.join(tempDir, process.platform === 'win32' ? 'program.exe' : 'program')
+      fs.writeFileSync(sourcePath, code, 'utf8')
+
+      const compileArgs = language === 'c'
+        ? [sourcePath, '-O2', '-o', binaryPath]
+        : [sourcePath, '-std=c++17', '-O2', '-o', binaryPath]
+      commands.push(`${runtime.displayCommand} ${compileArgs.map((item) => path.basename(item) === item ? item : `"${item}"`).join(' ')}`)
+      const compile = await executeSpawn(runtime.command, [...runtime.prefixArgs, ...compileArgs], {
+        cwd: tempDir,
+        timeoutMs: Math.min(timeoutMs, 30000),
+      })
+
+      if (!compile.ok) {
+        return {
+          ok: false,
+          reason: compile.spawnError || `${language === 'c' ? 'C' : 'C++'} compilation failed.`,
+          language,
+          stage: 'compile',
+          stdout: compile.stdout,
+          stderr: compile.stderr,
+          exitCode: compile.exitCode,
+          timedOut: compile.timedOut,
+          commands,
+          artifactPath: sourcePath,
+        }
+      }
+
+      commands.push(`${binaryPath} ${args.join(' ')}`.trim())
+      const run = await executeSpawn(binaryPath, args, {
+        cwd: tempDir,
+        stdin,
+        timeoutMs,
+      })
+
+      return {
+        ok: run.ok,
+        reason: run.ok ? `${language === 'c' ? 'C' : 'C++'} program executed.` : run.spawnError || `${language === 'c' ? 'C' : 'C++'} program failed.`,
+        language,
+        stage: 'run',
+        stdout: `${compile.stdout}${compile.stderr ? `\n${compile.stderr}` : ''}${run.stdout ? `${compile.stdout || compile.stderr ? '\n' : ''}${run.stdout}` : ''}`,
+        stderr: run.stderr,
+        exitCode: run.exitCode,
+        timedOut: run.timedOut,
+        commands,
+        artifactPath: binaryPath,
+      }
+    }
+
+    if (language === 'java') {
+      const className = resolveJavaClassName(code)
+      const sourcePath = path.join(tempDir, `${className}.java`)
+      fs.writeFileSync(sourcePath, code, 'utf8')
+
+      const compileArgs = [...runtime.compile.prefixArgs, sourcePath]
+      commands.push(`${runtime.compile.displayCommand} ${path.basename(sourcePath)}`)
+      const compile = await executeSpawn(runtime.compile.command, compileArgs, {
+        cwd: tempDir,
+        timeoutMs: Math.min(timeoutMs, 30000),
+      })
+
+      if (!compile.ok) {
+        return {
+          ok: false,
+          reason: compile.spawnError || 'Java compilation failed.',
+          language,
+          stage: 'compile',
+          stdout: compile.stdout,
+          stderr: compile.stderr,
+          exitCode: compile.exitCode,
+          timedOut: compile.timedOut,
+          commands,
+          artifactPath: sourcePath,
+        }
+      }
+
+      const runArgs = [...runtime.run.prefixArgs, '-cp', tempDir, className, ...args]
+      commands.push(`${runtime.run.displayCommand} -cp "${tempDir}" ${className} ${args.join(' ')}`.trim())
+      const run = await executeSpawn(runtime.run.command, runArgs, {
+        cwd: tempDir,
+        stdin,
+        timeoutMs,
+      })
+
+      return {
+        ok: run.ok,
+        reason: run.ok ? 'Java program executed.' : run.spawnError || 'Java program failed.',
+        language,
+        stage: 'run',
+        stdout: `${compile.stdout}${compile.stderr ? `\n${compile.stderr}` : ''}${run.stdout ? `${compile.stdout || compile.stderr ? '\n' : ''}${run.stdout}` : ''}`,
+        stderr: run.stderr,
+        exitCode: run.exitCode,
+        timedOut: run.timedOut,
+        commands,
+        artifactPath: sourcePath,
+      }
+    }
+
+    return {
+      ok: false,
+      reason: 'Language runner is not yet implemented.',
+      language,
+      stage: 'setup',
+      stdout: '',
+      stderr: '',
+      exitCode: null,
+      timedOut: false,
+      commands: [],
+      artifactPath: null,
+    }
+  }
+
   function buildLearningGraph() {
     return buildLearningGraphSnapshot({
       skills: learningState.skills,
@@ -1813,6 +2541,296 @@ function registerIpcHandlers(mainWindow) {
       observations: learningState.observationSnapshots,
       visionJobs: learningState.visionJobs,
     })
+  }
+
+  function resolvePolyglotStarterSpec(language) {
+    const normalized = normalizePolyglotLanguage(language)
+    const fileMap = {
+      python: ['python', 'starter.py'],
+      c: ['c', 'starter.c'],
+      cpp: ['cpp', 'starter.cpp'],
+      java: ['java', 'Main.java'],
+      julia: ['julia', 'starter.jl'],
+      r: ['r', 'starter.R'],
+      javascript: ['javascript', 'starter.js'],
+    }
+
+    const parts = fileMap[normalized]
+    if (!parts) return null
+
+    return {
+      language: normalized,
+      filePath: path.join(polyglotCoreDirPath, ...parts),
+      fileName: parts[1],
+    }
+  }
+
+  function loadPolyglotStarterSource(language) {
+    const spec = resolvePolyglotStarterSpec(language)
+    if (!spec) {
+      return {
+        ok: false,
+        reason: 'Unsupported starter language.',
+        language: normalizePolyglotLanguage(language),
+      }
+    }
+
+    if (!fs.existsSync(spec.filePath)) {
+      return {
+        ok: false,
+        reason: `Starter file not found for ${spec.language}.`,
+        language: spec.language,
+      }
+    }
+
+    return {
+      ok: true,
+      language: spec.language,
+      name: spec.fileName,
+      content: fs.readFileSync(spec.filePath, 'utf8'),
+      sourcePath: spec.filePath,
+    }
+  }
+
+  function resolvePolyglotBrainSpec(language) {
+    const normalized = normalizePolyglotLanguage(language)
+    const fileMap = {
+      python: ['python', 'brain_module.py'],
+      c: ['c', 'brain_module.c'],
+      cpp: ['cpp', 'brain_module.cpp'],
+      java: ['java', 'BrainModule.java'],
+      julia: ['julia', 'brain_module.jl'],
+      r: ['r', 'brain_module.R'],
+      javascript: ['javascript', 'brain_module.js'],
+    }
+
+    const parts = fileMap[normalized]
+    if (!parts) return null
+
+    return {
+      language: normalized,
+      filePath: path.join(polyglotCoreDirPath, ...parts),
+      fileName: parts[1],
+    }
+  }
+
+  function tryParseJsonObject(text) {
+    try {
+      return JSON.parse(String(text || '').trim())
+    } catch (_err) {
+      return null
+    }
+  }
+
+  async function executePolyglotFile(language, filePath, stdin, timeoutMs = 12000) {
+    const runtime = await resolvePolyglotRuntime(language)
+    if (!runtime) {
+      return {
+        ok: false,
+        reason: `${language} runtime is not installed or not available in PATH.`,
+        language,
+        stage: 'setup',
+        stdout: '',
+        stderr: '',
+        exitCode: null,
+        timedOut: false,
+        commands: [],
+        artifactPath: null,
+      }
+    }
+
+    if (!fs.existsSync(filePath)) {
+      return {
+        ok: false,
+        reason: `Source file not found: ${filePath}`,
+        language,
+        stage: 'setup',
+        stdout: '',
+        stderr: '',
+        exitCode: null,
+        timedOut: false,
+        commands: [],
+        artifactPath: null,
+      }
+    }
+
+    const tempDir = buildPolyglotTempDir()
+    const commands = []
+
+    if (language === 'python' || language === 'javascript' || language === 'julia' || language === 'r') {
+      const commandLabel = language === 'java' ? runtime.run.displayCommand : runtime.displayCommand
+      commands.push(`${commandLabel} ${path.basename(filePath)}`)
+      const result = await executeSpawn(runtime.command, [...runtime.prefixArgs, filePath], {
+        cwd: tempDir,
+        stdin,
+        timeoutMs,
+      })
+      return {
+        ok: result.ok,
+        reason: result.ok ? `${language} module executed.` : result.spawnError || `${language} module failed.`,
+        language,
+        stage: 'run',
+        stdout: result.stdout,
+        stderr: result.stderr,
+        exitCode: result.exitCode,
+        timedOut: result.timedOut,
+        commands,
+        artifactPath: filePath,
+      }
+    }
+
+    if (language === 'c' || language === 'cpp') {
+      const binaryPath = path.join(tempDir, process.platform === 'win32' ? 'brain.exe' : 'brain')
+      const compileArgs = language === 'c'
+        ? [filePath, '-O2', '-o', binaryPath]
+        : [filePath, '-std=c++17', '-O2', '-o', binaryPath]
+      commands.push(`${runtime.displayCommand} ${compileArgs.join(' ')}`)
+      const compile = await executeSpawn(runtime.command, [...runtime.prefixArgs, ...compileArgs], {
+        cwd: tempDir,
+        timeoutMs: Math.min(timeoutMs, 30000),
+      })
+      if (!compile.ok) {
+        return {
+          ok: false,
+          reason: compile.spawnError || `${language} module compilation failed.`,
+          language,
+          stage: 'compile',
+          stdout: compile.stdout,
+          stderr: compile.stderr,
+          exitCode: compile.exitCode,
+          timedOut: compile.timedOut,
+          commands,
+          artifactPath: filePath,
+        }
+      }
+      commands.push(binaryPath)
+      const run = await executeSpawn(binaryPath, [], {
+        cwd: tempDir,
+        stdin,
+        timeoutMs,
+      })
+      return {
+        ok: run.ok,
+        reason: run.ok ? `${language} module executed.` : run.spawnError || `${language} module failed.`,
+        language,
+        stage: 'run',
+        stdout: run.stdout,
+        stderr: run.stderr,
+        exitCode: run.exitCode,
+        timedOut: run.timedOut,
+        commands,
+        artifactPath: filePath,
+      }
+    }
+
+    if (language === 'java') {
+      const className = 'BrainModule'
+      const stagedFilePath = path.join(tempDir, `${className}.java`)
+      fs.copyFileSync(filePath, stagedFilePath)
+      const compileArgs = [...runtime.compile.prefixArgs, stagedFilePath]
+      commands.push(`${runtime.compile.displayCommand} ${className}.java`)
+      const compile = await executeSpawn(runtime.compile.command, compileArgs, {
+        cwd: tempDir,
+        timeoutMs: Math.min(timeoutMs, 30000),
+      })
+      if (!compile.ok) {
+        return {
+          ok: false,
+          reason: compile.spawnError || 'java module compilation failed.',
+          language,
+          stage: 'compile',
+          stdout: compile.stdout,
+          stderr: compile.stderr,
+          exitCode: compile.exitCode,
+          timedOut: compile.timedOut,
+          commands,
+          artifactPath: filePath,
+        }
+      }
+      const runArgs = [...runtime.run.prefixArgs, '-cp', tempDir, className]
+      commands.push(`${runtime.run.displayCommand} -cp ${tempDir} ${className}`)
+      const run = await executeSpawn(runtime.run.command, runArgs, {
+        cwd: tempDir,
+        stdin,
+        timeoutMs,
+      })
+      return {
+        ok: run.ok,
+        reason: run.ok ? 'java module executed.' : run.spawnError || 'java module failed.',
+        language,
+        stage: 'run',
+        stdout: run.stdout,
+        stderr: run.stderr,
+        exitCode: run.exitCode,
+        timedOut: run.timedOut,
+        commands,
+        artifactPath: filePath,
+      }
+    }
+
+    return {
+      ok: false,
+      reason: 'Unsupported polyglot module language.',
+      language,
+      stage: 'setup',
+      stdout: '',
+      stderr: '',
+      exitCode: null,
+      timedOut: false,
+      commands: [],
+      artifactPath: null,
+    }
+  }
+
+  async function runPolyglotBrainMesh(input) {
+    const requested = Array.isArray(input?.languages) ? input.languages : ['python', 'c', 'cpp', 'java', 'julia', 'r', 'javascript']
+    const objective = String(input?.objective || 'Strengthen Paxion architecture').trim()
+    const languages = Array.from(new Set(requested.map((language) => normalizePolyglotLanguage(language)).filter(Boolean)))
+    const results = []
+
+    for (const language of languages) {
+      const spec = resolvePolyglotBrainSpec(language)
+      if (!spec) {
+        results.push({
+          language,
+          ok: false,
+          reason: 'Unsupported language requested for brain mesh.',
+          detail: null,
+          commands: [],
+        })
+        continue
+      }
+
+      const execution = await executePolyglotFile(language, spec.filePath, JSON.stringify({ objective }), 12000)
+      const parsed = execution.ok ? tryParseJsonObject(execution.stdout) : null
+      results.push({
+        language,
+        ok: execution.ok,
+        reason: execution.reason,
+        detail: parsed,
+        stdout: execution.stdout,
+        stderr: execution.stderr,
+        commands: execution.commands,
+        timedOut: execution.timedOut,
+        artifactPath: execution.artifactPath,
+      })
+    }
+
+    const successful = results.filter((item) => item.ok && item.detail)
+    const summary = successful.length === 0
+      ? 'No brain modules executed successfully. Install the local runtimes you want to use.'
+      : successful
+          .map((item) => `${String(item.detail.language || item.language)}: ${String(item.detail.recommendation || 'No recommendation provided.')}`)
+          .join(' | ')
+
+    return {
+      ok: successful.length > 0,
+      objective,
+      results,
+      summary,
+      completedCount: successful.length,
+      attemptedCount: results.length,
+    }
   }
 
   function appendExecutionSession(input) {
@@ -4206,20 +5224,6 @@ function registerIpcHandlers(mainWindow) {
   })
 
   ipcMain.handle('paxion:learning:youtubePlanCreate', (_event, input) => {
-    if (capabilityState.videoLearning === false) {
-      return {
-        ok: false,
-        reason: 'Video learning capability is disabled in Access tab.',
-      }
-    }
-
-    if (!isAdminUnlocked(adminSession)) {
-      return {
-        ok: false,
-        reason: 'Admin session required for YouTube learning plans.',
-      }
-    }
-
     const explicitPermission = Boolean(input?.explicitPermission)
     if (!explicitPermission) {
       return {
@@ -4255,21 +5259,31 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
+  ipcMain.handle('paxion:learning:sttStatus', async () => {
+    const toolchain = await detectSttToolchain()
+    const ytDlp = toolchain.ytDlp
+    const ffmpeg = toolchain.ffmpeg
+    const whisper = toolchain.whisper
+
+    return {
+      ok: true,
+      ready: toolchain.ready,
+      tools: {
+        ytDlp: ytDlp
+          ? { available: true, command: ytDlp.displayCommand, detail: ytDlp.detail }
+          : { available: false, command: null, detail: 'yt-dlp not found' },
+        ffmpeg: ffmpeg
+          ? { available: true, command: ffmpeg.displayCommand, detail: ffmpeg.detail }
+          : { available: false, command: null, detail: 'ffmpeg not found' },
+        whisper: whisper
+          ? { available: true, command: whisper.displayCommand, detail: whisper.detail }
+          : { available: false, command: null, detail: 'whisper not found' },
+      },
+      updatedAt: new Date().toISOString(),
+    }
+  })
+
   ipcMain.handle('paxion:learning:youtubeSegmentOpen', async (_event, input) => {
-    if (capabilityState.videoLearning === false) {
-      return {
-        ok: false,
-        reason: 'Video learning capability is disabled in Access tab.',
-      }
-    }
-
-    if (!isAdminUnlocked(adminSession)) {
-      return {
-        ok: false,
-        reason: 'Admin session required for opening video segments.',
-      }
-    }
-
     const planId = String(input?.planId || '')
     const segmentId = String(input?.segmentId || '')
     const plans = Array.isArray(learningState.videoPlans) ? learningState.videoPlans : []
@@ -4355,6 +5369,403 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
+  function cleanupTempDirSafe(dirPath) {
+    try {
+      fs.rmSync(dirPath, { recursive: true, force: true })
+    } catch {
+      // Ignore cleanup failures for temp directory.
+    }
+  }
+
+  function findTranscriptFileInDir(dirPath) {
+    try {
+      const entries = fs.readdirSync(dirPath)
+      const txt = entries.find((name) => String(name || '').toLowerCase().endsWith('.txt'))
+      return txt ? path.join(dirPath, txt) : null
+    } catch {
+      return null
+    }
+  }
+
+  function buildSttPythonCandidates() {
+    const candidates = []
+    const seen = new Set()
+
+    const pushIfExists = (exePath) => {
+      const normalized = String(exePath || '').trim()
+      if (!normalized || seen.has(normalized)) return
+      if (fs.existsSync(normalized)) {
+        seen.add(normalized)
+        candidates.push({ command: normalized, prefixArgs: [] })
+      }
+    }
+
+    // Preferred: development venvs near current app/workspace runtime.
+    pushIfExists(path.resolve(__dirname, '..', '.venv', 'Scripts', 'python.exe'))
+    pushIfExists(path.join(app.getAppPath(), '.venv', 'Scripts', 'python.exe'))
+    pushIfExists(path.join(process.cwd(), '.venv', 'Scripts', 'python.exe'))
+
+    // Preferred: common per-user Windows Python installs.
+    const home = app.getPath('home')
+    const commonVersions = ['Python311', 'Python312', 'Python310', 'Python39']
+    for (const versionDir of commonVersions) {
+      pushIfExists(path.join(home, 'AppData', 'Local', 'Programs', 'Python', versionDir, 'python.exe'))
+    }
+
+    // Finally try PATH-based launchers.
+    candidates.push({ command: 'python', prefixArgs: [] })
+    candidates.push({ command: 'py', prefixArgs: ['-3'] })
+
+    return candidates
+  }
+
+  async function detectBinaryCandidateStrict(candidates) {
+    for (const candidate of candidates) {
+      const probe = await executeSpawn(candidate.command, candidate.probeArgs || ['--version'], {
+        timeoutMs: 5000,
+      })
+      if (probe.spawnError || probe.exitCode !== 0) {
+        continue
+      }
+      return {
+        command: candidate.command,
+        prefixArgs: Array.isArray(candidate.prefixArgs) ? candidate.prefixArgs : [],
+        displayCommand: [candidate.command, ...(candidate.prefixArgs || [])].join(' '),
+        detail: firstMeaningfulLine(probe.stdout || probe.stderr) || 'available',
+      }
+    }
+    return null
+  }
+
+  async function detectPythonModuleCandidateStrict(moduleName) {
+    const pythonCandidates = buildSttPythonCandidates()
+    for (const candidate of pythonCandidates) {
+      const probe = await executeSpawn(candidate.command, [...candidate.prefixArgs, '-c', `import ${moduleName}; print('ok')`], {
+        timeoutMs: 5000,
+      })
+      if (probe.spawnError || probe.exitCode !== 0) {
+        continue
+      }
+      return {
+        command: candidate.command,
+        prefixArgs: [...candidate.prefixArgs, '-m', moduleName],
+        displayCommand: [candidate.command, ...candidate.prefixArgs, '-m', moduleName].join(' '),
+        detail: `python module ${moduleName} available`,
+      }
+    }
+    return null
+  }
+
+  async function detectSttToolchain() {
+    const ytDlpBinary = await detectBinaryCandidateStrict([
+      { command: 'yt-dlp', probeArgs: ['--version'], prefixArgs: [] },
+    ])
+    const ytDlpModule = ytDlpBinary ? null : await detectPythonModuleCandidateStrict('yt_dlp')
+    const ytDlp = ytDlpBinary || ytDlpModule
+
+    const ffmpeg = await detectBinaryCandidateStrict([
+      { command: 'ffmpeg', probeArgs: ['-version'], prefixArgs: [] },
+    ])
+
+    const whisperBinary = await detectBinaryCandidateStrict([
+      { command: 'whisper', probeArgs: ['--version'], prefixArgs: [] },
+    ])
+    const whisperModule = whisperBinary ? null : await detectPythonModuleCandidateStrict('whisper')
+    const whisper = whisperBinary || whisperModule
+
+    return {
+      ytDlp,
+      ffmpeg,
+      whisper,
+      ready: Boolean(ytDlp && ffmpeg && whisper),
+    }
+  }
+
+  async function transcribeYoutubeWithLocalStt(videoUrl, options = {}) {
+    const toolchain = await detectSttToolchain()
+    const ytdlp = toolchain.ytDlp
+    if (!ytdlp) {
+      return {
+        ok: false,
+        reason: 'Local STT fallback requires yt-dlp. Install yt-dlp to enable captionless YouTube learning.',
+      }
+    }
+
+    const ffmpeg = toolchain.ffmpeg
+    if (!ffmpeg) {
+      return {
+        ok: false,
+        reason: 'Local STT fallback requires ffmpeg in PATH.',
+      }
+    }
+
+    const whisper = toolchain.whisper
+    if (!whisper) {
+      return {
+        ok: false,
+        reason: 'Local STT fallback requires whisper CLI (`whisper` or `python -m whisper`).',
+      }
+    }
+
+    const tmpDir = fs.mkdtempSync(path.join(app.getPath('temp'), 'paxion-yt-stt-'))
+    try {
+      const outputTemplate = path.join(tmpDir, 'audio.%(ext)s')
+      const downloadArgs = [
+        ...ytdlp.prefixArgs,
+        '--no-playlist',
+        '-f',
+        'bestaudio/best',
+        '-o',
+        outputTemplate,
+      ]
+
+      const startSec = Number(options.startSec)
+      const endSec = Number(options.endSec)
+      if (Number.isFinite(startSec) && Number.isFinite(endSec) && endSec > startSec) {
+        downloadArgs.push('--download-sections', `*${Math.max(0, Math.floor(startSec))}-${Math.max(1, Math.ceil(endSec))}`)
+      }
+
+      downloadArgs.push(videoUrl)
+
+      const download = await executeSpawn(ytdlp.command, downloadArgs, {
+        cwd: tmpDir,
+        timeoutMs: 240000,
+      })
+      if (!download.ok) {
+        return {
+          ok: false,
+          reason: firstMeaningfulLine(download.stderr || download.stdout)
+            || 'yt-dlp failed while downloading audio for transcription.',
+        }
+      }
+
+      const sourceAudio = (() => {
+        try {
+          const files = fs.readdirSync(tmpDir)
+          const found = files.find((name) => /^audio\./i.test(String(name || '')) && !String(name).endsWith('.part'))
+          return found ? path.join(tmpDir, found) : null
+        } catch {
+          return null
+        }
+      })()
+
+      if (!sourceAudio) {
+        return {
+          ok: false,
+          reason: 'Audio download completed but output file was not found.',
+        }
+      }
+
+      const wavPath = path.join(tmpDir, 'audio.wav')
+      const convert = await executeSpawn(ffmpeg.command, [
+        ...ffmpeg.prefixArgs,
+        '-y',
+        '-i',
+        sourceAudio,
+        '-vn',
+        '-ac',
+        '1',
+        '-ar',
+        '16000',
+        wavPath,
+      ], {
+        cwd: tmpDir,
+        timeoutMs: 180000,
+      })
+      if (!convert.ok) {
+        return {
+          ok: false,
+          reason: firstMeaningfulLine(convert.stderr || convert.stdout)
+            || 'ffmpeg failed while converting audio for transcription.',
+        }
+      }
+
+      const transcribe = await executeSpawn(whisper.command, [
+        ...whisper.prefixArgs,
+        wavPath,
+        '--task',
+        'transcribe',
+        '--model',
+        'base',
+        '--language',
+        'en',
+        '--output_format',
+        'txt',
+        '--output_dir',
+        tmpDir,
+        '--verbose',
+        'False',
+      ], {
+        cwd: tmpDir,
+        timeoutMs: 420000,
+      })
+      if (!transcribe.ok) {
+        return {
+          ok: false,
+          reason: firstMeaningfulLine(transcribe.stderr || transcribe.stdout)
+            || 'Whisper failed while transcribing downloaded audio.',
+        }
+      }
+
+      const transcriptPath = findTranscriptFileInDir(tmpDir)
+      if (!transcriptPath) {
+        return {
+          ok: false,
+          reason: 'Whisper completed but no transcript file was produced.',
+        }
+      }
+
+      const text = normalizeIngestedText(fs.readFileSync(transcriptPath, 'utf8'))
+      if (text.length < 120) {
+        return {
+          ok: false,
+          reason: 'Local STT transcript is too short for reliable learning.',
+        }
+      }
+
+      return {
+        ok: true,
+        mode: 'local-stt',
+        text,
+      }
+    } finally {
+      cleanupTempDirSafe(tmpDir)
+    }
+  }
+
+  ipcMain.handle('paxion:learning:youtubeSegmentAutoLearn', async (_event, input) => {
+    const planId = String(input?.planId || '')
+    const segmentId = String(input?.segmentId || '')
+    const plans = Array.isArray(learningState.videoPlans) ? learningState.videoPlans : []
+    const plan = plans.find((p) => p.id === planId)
+    if (!plan) {
+      return {
+        ok: false,
+        reason: 'Video plan not found.',
+      }
+    }
+
+    const segment = Array.isArray(plan.segments) ? plan.segments.find((s) => s.id === segmentId) : null
+    if (!segment) {
+      return {
+        ok: false,
+        reason: 'Video segment not found.',
+      }
+    }
+
+    const videoId = extractYoutubeVideoId(plan.videoUrl)
+    if (!videoId) {
+      return {
+        ok: false,
+        reason: 'Invalid YouTube URL for this plan.',
+      }
+    }
+
+    let learnedText = ''
+    let learnMode = 'caption-transcript'
+    try {
+      const rows = await fetchYoutubeTranscriptRows(videoId)
+      const startSec = Math.max(0, Math.floor(Number(segment.startMinute || 0) * 60))
+      const endSec = Math.max(startSec + 1, Math.ceil(Number(segment.endMinute || 0) * 60))
+
+      const segmentRows = rows.filter((row) => {
+        const sec = Number(row?.start || 0)
+        return sec >= startSec && sec < endSec
+      })
+
+      const text = normalizeIngestedText(segmentRows.map((row) => String(row?.text || '').trim()).join(' '))
+      if (text.length < 120) {
+        const sttFallback = await transcribeYoutubeWithLocalStt(plan.videoUrl, { startSec, endSec })
+        if (!sttFallback.ok) {
+          return {
+            ok: false,
+            reason: `Transcript content too short, and STT fallback failed: ${sttFallback.reason}`,
+          }
+        }
+        learnedText = sttFallback.text
+        learnMode = 'local-stt'
+      } else {
+        learnedText = text
+      }
+
+      const docName = `YouTube AI Learned: ${plan.topic} [${segment.label}]`
+      const content = [
+        `Source URL: ${plan.videoUrl}`,
+        `Video ID: ${videoId}`,
+        `Segment: ${segment.label} (${startSec}s-${endSec}s)`,
+        `Learning mode: ${learnMode}`,
+        '',
+        learnedText,
+      ].join('\n')
+
+      segment.status = 'learned'
+      segment.notes = `AI auto-learned via ${learnMode} (${Math.ceil(learnedText.length / 5)} chars processed).`
+      learningState.updatedAt = new Date().toISOString()
+      saveLearningState()
+
+      const inferred = inferSkills(`${plan.topic}\n${segment.label}\n${learnedText}`)
+      appendLearningLog({
+        title: `AI auto-learned YouTube segment: ${plan.topic} (${segment.label})`,
+        detail: `Segment consumed by AI using ${learnMode} and queued into Library knowledge memory.`,
+        source: 'youtube-segment-auto-learn',
+        newSkills: ['Video Transcript Learning', 'Speech-to-Text Learning', ...inferred],
+      })
+
+      return {
+        ok: true,
+        segmentLabel: segment.label,
+        docName,
+        content,
+        videoPlans: learningState.videoPlans,
+        skills: learningState.skills,
+        updatedAt: learningState.updatedAt,
+      }
+    } catch (err) {
+      const startSec = Math.max(0, Math.floor(Number(segment.startMinute || 0) * 60))
+      const endSec = Math.max(startSec + 1, Math.ceil(Number(segment.endMinute || 0) * 60))
+      const sttFallback = await transcribeYoutubeWithLocalStt(plan.videoUrl, { startSec, endSec })
+      if (!sttFallback.ok) {
+        return {
+          ok: false,
+          reason: `Could not auto-learn this segment: ${err.message}. STT fallback failed: ${sttFallback.reason}`,
+        }
+      }
+
+      const docName = `YouTube AI Learned: ${plan.topic} [${segment.label}]`
+      const content = [
+        `Source URL: ${plan.videoUrl}`,
+        `Video ID: ${videoId}`,
+        `Segment: ${segment.label} (${startSec}s-${endSec}s)`,
+        'Learning mode: local-stt',
+        '',
+        sttFallback.text,
+      ].join('\n')
+
+      segment.status = 'learned'
+      segment.notes = `AI auto-learned via local-stt (${Math.ceil(sttFallback.text.length / 5)} chars processed).`
+      learningState.updatedAt = new Date().toISOString()
+      saveLearningState()
+
+      const inferred = inferSkills(`${plan.topic}\n${segment.label}\n${sttFallback.text}`)
+      appendLearningLog({
+        title: `AI auto-learned YouTube segment: ${plan.topic} (${segment.label})`,
+        detail: 'Segment consumed by AI using local speech-to-text fallback.',
+        source: 'youtube-segment-auto-learn',
+        newSkills: ['Video Transcript Learning', 'Speech-to-Text Learning', ...inferred],
+      })
+
+      return {
+        ok: true,
+        segmentLabel: segment.label,
+        docName,
+        content,
+        videoPlans: learningState.videoPlans,
+        skills: learningState.skills,
+        updatedAt: learningState.updatedAt,
+      }
+    }
+  })
+
   ipcMain.handle('paxion:integrations:googleSearch', async (_event, input) => {
     if (capabilityState.libraryIngestWeb === false) {
       return {
@@ -4397,26 +5808,11 @@ function registerIpcHandlers(mainWindow) {
   })
 
   ipcMain.handle('paxion:integrations:gptChat', async (_event, input) => {
-    if (capabilityState.chatExternalModel === false) {
-      return {
-        ok: false,
-        reason: 'External chat model capability is disabled in Access tab.',
-        reply: '',
-      }
-    }
-
     const query = String(input?.query || '').trim()
     if (!query) {
       return {
         ok: false,
         reason: 'Chat query is required.',
-      }
-    }
-
-    if (!isAdminUnlocked(adminSession)) {
-      return {
-        ok: false,
-        reason: 'Admin session required for desktop ChatGPT relay.',
       }
     }
 
@@ -5548,6 +6944,75 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
+  ipcMain.handle('paxion:polyglot:status', async () => {
+    const runtimes = await buildPolyglotStatus()
+    return {
+      ok: true,
+      runtimes,
+      updatedAt: new Date().toISOString(),
+    }
+  })
+
+  ipcMain.handle('paxion:polyglot:starter', (_event, input) => {
+    return loadPolyglotStarterSource(input?.language)
+  })
+
+  ipcMain.handle('paxion:polyglot:brainMesh', async (_event, input) => {
+    const result = await runPolyglotBrainMesh(input)
+
+    appendAuditEntry('action_result', {
+      actionId: 'polyglot.brainMesh',
+      status: result.ok ? 'allowed' : 'failed',
+      reason: result.summary,
+      completedCount: result.completedCount,
+      attemptedCount: result.attemptedCount,
+    })
+
+    if (result.ok) {
+      appendLearningLog({
+        title: 'Polyglot brain mesh executed',
+        detail: `Aggregated ${result.completedCount} language module(s) for architecture guidance.`,
+        source: 'polyglot-brain-mesh',
+        newSkills: ['Polyglot Architecture', 'Cross-Language Runtime Coordination'],
+      })
+    }
+
+    return {
+      ...result,
+      skills: learningState.skills,
+      updatedAt: learningState.updatedAt,
+    }
+  })
+
+  ipcMain.handle('paxion:polyglot:run', async (_event, input) => {
+    const result = await runPolyglotProgram(input)
+
+    appendAuditEntry('action_result', {
+      actionId: 'polyglot.run',
+      status: result.ok ? 'allowed' : 'failed',
+      language: result.language,
+      stage: result.stage,
+      reason: result.reason,
+      timedOut: result.timedOut,
+      exitCode: result.exitCode,
+    })
+
+    if (result.ok) {
+      appendLearningLog({
+        title: `${String(result.language || 'polyglot').toUpperCase()} program executed`,
+        detail: `Program completed via ${Array.isArray(result.commands) ? result.commands[0] || 'local runtime' : 'local runtime'}.`,
+        source: 'polyglot-runtime',
+        newSkills: [buildPolyglotSkill(result.language)],
+      })
+    }
+
+    return {
+      ...result,
+      skills: learningState.skills,
+      updatedAt: learningState.updatedAt,
+    }
+  })
+
   ipcMain.handle('paxion:creative:ideate', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required for creative ideation.' }
@@ -5682,12 +7147,14 @@ function registerIpcHandlers(mainWindow) {
       const ext = path.extname(filePath).toLowerCase()
       if (ext === '.pdf') {
         const buffer = fs.readFileSync(filePath)
-        const parsed = await pdfParse(buffer)
+        const parser = new PDFParse({ data: buffer })
+        const parsed = await parser.getText()
+        await parser.destroy()
         return {
           name: path.basename(filePath),
           content: parsed.text,
           path: filePath,
-          pageCount: parsed.numpages,
+          pageCount: typeof parsed.total === 'number' ? parsed.total : null,
         }
       }
 
@@ -5695,6 +7162,153 @@ function registerIpcHandlers(mainWindow) {
       return { name: path.basename(filePath), content, path: filePath }
     } catch (err) {
       return { error: `Could not read file: ${err.message}` }
+    }
+  })
+
+  ipcMain.handle('paxion:library:ingestWebUrl', async (_event, input) => {
+    if (capabilityState.libraryIngestWeb === false) {
+      return {
+        ok: false,
+        reason: 'Web ingest capability is disabled in Access tab.',
+      }
+    }
+
+    const url = String(input?.url || '').trim()
+    if (!url) {
+      return {
+        ok: false,
+        reason: 'A website URL is required.',
+      }
+    }
+
+    try {
+      const fetched = await fetchRemoteText(url)
+      const title = extractHtmlTitle(fetched.raw)
+      const rawText = fetched.contentType.includes('html') ? htmlToPlainText(fetched.raw) : fetched.raw
+      const content = normalizeIngestedText(rawText)
+
+      if (content.length < 160) {
+        return {
+          ok: false,
+          reason: 'Fetched content is too short to ingest as knowledge.',
+        }
+      }
+
+      const fallbackName = (() => {
+        try {
+          const parsed = new URL(fetched.finalUrl)
+          return `Web: ${parsed.hostname}${parsed.pathname === '/' ? '' : parsed.pathname}`
+        } catch {
+          return 'Web article'
+        }
+      })()
+
+      appendAuditEntry('action_result', {
+        actionId: 'library.ingestWebUrl',
+        status: 'allowed',
+        reason: `Fetched and parsed website URL for library ingestion: ${url}`,
+      })
+
+      return {
+        ok: true,
+        name: title || fallbackName,
+        url: fetched.finalUrl,
+        content: `Source URL: ${fetched.finalUrl}\n\n${content}`,
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        reason: `Could not ingest website content: ${err.message}`,
+      }
+    }
+  })
+
+  ipcMain.handle('paxion:library:ingestYoutube', async (_event, input) => {
+    if (capabilityState.libraryIngestWeb === false) {
+      return {
+        ok: false,
+        reason: 'Web ingest capability is disabled in Access tab.',
+      }
+    }
+
+    const url = String(input?.url || '').trim()
+    if (!url) {
+      return {
+        ok: false,
+        reason: 'A YouTube URL is required.',
+      }
+    }
+
+    const videoId = extractYoutubeVideoId(url)
+    if (!videoId) {
+      return {
+        ok: false,
+        reason: 'Invalid YouTube URL.',
+      }
+    }
+
+    try {
+      const transcriptRows = await fetchYoutubeTranscriptRows(videoId)
+      const lines = transcriptRows.map((item) => {
+        const sec = Number(item?.start || 0)
+        const mins = Math.floor(sec / 60)
+        const secs = Math.floor(sec % 60)
+        const stamp = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+        return `[${stamp}] ${String(item?.text || '').trim()}`
+      })
+
+      const segments = buildTranscriptSegments(transcriptRows, 360)
+
+      const content = normalizeIngestedText(lines.join('\n'))
+      if (content.length < 120) {
+        return {
+          ok: false,
+          reason: 'Transcript is unavailable or too short for ingestion.',
+        }
+      }
+
+      appendAuditEntry('action_result', {
+        actionId: 'library.ingestYoutube',
+        status: 'allowed',
+        reason: `Fetched YouTube transcript for video ${videoId}.`,
+      })
+
+      return {
+        ok: true,
+        name: `YouTube transcript: ${videoId}`,
+        url,
+        content: `Source URL: ${url}\nVideo ID: ${videoId}\n\nTranscript:\n${content}`,
+        segmentCount: lines.length,
+        segments: segments.map((segment) => ({
+          name: `YouTube ${videoId} [${Math.floor(segment.start / 60)}-${Math.ceil(segment.end / 60)} min]`,
+          content: `Source URL: ${url}\nVideo ID: ${videoId}\nSegment: ${segment.start}s-${segment.end}s\n\n${segment.text}`,
+          start: segment.start,
+          end: segment.end,
+        })),
+      }
+    } catch (err) {
+      const sttFallback = await transcribeYoutubeWithLocalStt(url)
+      if (!sttFallback.ok) {
+        return {
+          ok: false,
+          reason: `Could not ingest YouTube transcript: ${err.message}. STT fallback failed: ${sttFallback.reason}`,
+        }
+      }
+
+      appendAuditEntry('action_result', {
+        actionId: 'library.ingestYoutube',
+        status: 'allowed',
+        reason: `Used local STT fallback for YouTube video ${videoId}.`,
+      })
+
+      return {
+        ok: true,
+        name: `YouTube STT transcript: ${videoId}`,
+        url,
+        content: `Source URL: ${url}\nVideo ID: ${videoId}\nLearning mode: local-stt\n\nTranscript:\n${sttFallback.text}`,
+        segmentCount: 0,
+        segments: [],
+      }
     }
   })
 
