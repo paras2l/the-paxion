@@ -13,9 +13,12 @@ if (shouldDisableGpu) {
   app.disableHardwareAcceleration()
   app.commandLine.appendSwitch('disable-gpu-compositing')
 }
+
 let tray = null
 let mainWindowRef = null
 let closeToTrayEnabled = true
+let alwaysOnWakewordEnabled = false
+let wakewordInterval = null
 let forceQuit = false
 
 function logWindowDebug(message, details) {
@@ -65,6 +68,18 @@ function createTray() {
         }
       },
     },
+    {
+      label: alwaysOnWakewordEnabled ? 'Disable Always-On Wakeword' : 'Enable Always-On Wakeword',
+      click: () => {
+        alwaysOnWakewordEnabled = !alwaysOnWakewordEnabled
+        if (alwaysOnWakewordEnabled) {
+          startWakewordBackgroundLoop()
+        } else {
+          stopWakewordBackgroundLoop()
+        }
+        createTrayMenu()
+      },
+    },
     { type: 'separator' },
     {
       label: 'Quit Paxion',
@@ -99,6 +114,18 @@ function createTrayMenu() {
         createTrayMenu()
       },
     },
+    {
+      label: alwaysOnWakewordEnabled ? 'Disable Always-On Wakeword' : 'Enable Always-On Wakeword',
+      click: () => {
+        alwaysOnWakewordEnabled = !alwaysOnWakewordEnabled
+        if (alwaysOnWakewordEnabled) {
+          startWakewordBackgroundLoop()
+        } else {
+          stopWakewordBackgroundLoop()
+        }
+        createTrayMenu()
+      },
+    },
     { type: 'separator' },
     {
       label: 'Quit Paxion',
@@ -109,6 +136,33 @@ function createTrayMenu() {
     },
   ])
   tray.setContextMenu(menu)
+// --- Wakeword background loop ---
+function startWakewordBackgroundLoop() {
+  if (wakewordInterval) return
+  // Poll every 2 seconds for wakeword detection (replace with real engine integration)
+  wakewordInterval = setInterval(async () => {
+    try {
+      // TODO: Replace with real native wakeword detection call
+      // Simulate detection for demo: randomly trigger
+      if (Math.random() < 0.01) {
+        if (mainWindowRef) {
+          mainWindowRef.show()
+          mainWindowRef.focus()
+          mainWindowRef.webContents.send('wakeword-detected')
+        }
+      }
+    } catch (err) {
+      // Log error, optionally notify user
+    }
+  }, 2000)
+}
+
+function stopWakewordBackgroundLoop() {
+  if (wakewordInterval) {
+    clearInterval(wakewordInterval)
+    wakewordInterval = null
+  }
+}
 }
 
 function createWindow() {

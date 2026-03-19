@@ -821,6 +821,19 @@ function buildWorkspacePlan(goal: string): WorkspaceStep[] {
 }
 
 function App() {
+  // ...existing code...
+  // Listen for always-on wakeword event from Electron main process
+  React.useEffect(() => {
+    if (window.paxionWakeword && typeof window.paxionWakeword.onWakewordDetected === 'function') {
+      window.paxionWakeword.onWakewordDetected(() => {
+        setAssistantMode('voice')
+        setChatNotice('Wakeword detected (background). Voice mode activated.')
+        if (!chatVoiceListening) {
+          startVoiceInput(true)
+        }
+      })
+    }
+  }, [])
   const [activeTab, setActiveTab] = useState<TabId>('chat')
   const [routerConfig, setRouterConfig] = useState<ModelRouterConfig>(() => loadModelRouterConfig())
   const [selectedActionId, setSelectedActionId] = useState(actionPresets[0].id)

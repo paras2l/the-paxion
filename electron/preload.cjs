@@ -2,6 +2,15 @@
 
 const { contextBridge, ipcRenderer } = require('electron')
 
+// Expose wakeword-detected event to renderer
+contextBridge.exposeInMainWorld('paxionWakeword', {
+  onWakewordDetected: (callback) => {
+    ipcRenderer.on('wakeword-detected', () => {
+      if (typeof callback === 'function') callback()
+    })
+  },
+})
+
 // Expose a narrow, typed Paxion API to the renderer via contextBridge.
 // No Node.js built-ins are used here — all heavy lifting is done in main via IPC.
 contextBridge.exposeInMainWorld('paxion', {
