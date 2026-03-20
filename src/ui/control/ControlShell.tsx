@@ -62,6 +62,7 @@ import type { BridgeSummary, DeviceNode, RelaySummary } from './surfaces/Nodes'
 import { Workspace } from './surfaces/Workspace'
 import type { WorkspaceMission } from './surfaces/Workspace'
 import { Audit } from './surfaces/Audit'
+import { Swarms, SwarmAgent } from './surfaces/Swarms'
 import './ControlShell.css'
 
 type ChannelStatus = {
@@ -174,12 +175,13 @@ type PermissionPrompt = {
   command: string
 }
 
-const tabs: Array<{ id: TabId; label: string; description: string }> = [
+const tabs: Array<{ id: TabId | 'swarms'; label: string; description: string }> = [
   { id: 'chat', label: 'Chat', description: 'Talk to your AI and delegate real-world tasks.' },
   { id: 'workspace', label: 'Workspace', description: 'Track multi-step missions and outcomes.' },
   { id: 'automations', label: 'Automations', description: 'Queue and run actions across apps.' },
   { id: 'integrations', label: 'Integrations', description: 'Connect channels, devices, and bridges.' },
   { id: 'learn', label: 'Learn', description: 'Grow local brain memory and model intelligence.' },
+  { id: 'swarms', label: 'Swarms', description: 'Background agents and loops.' },
 ]
 
 const defaultUsers: UserAccount[] = [
@@ -299,7 +301,33 @@ export default function ControlShell({
   onResetBurstThrottle,
   onAppendAudit,
 }: ControlShellProps) {
-  const [activeTab, setActiveTab] = useState<TabId>('chat')
+  const [activeTab, setActiveTab] = useState<TabId | 'swarms'>('chat')
+    // Example: Replace with real agent state management
+    const [swarmAgents, setSwarmAgents] = useState<SwarmAgent[]>([
+      {
+        id: 'swarm-1',
+        name: 'Web Scraper Loop',
+        status: 'running',
+        lastExecution: new Date().toLocaleTimeString(),
+      },
+      {
+        id: 'swarm-2',
+        name: 'Email Monitor',
+        status: 'paused',
+        lastExecution: new Date().toLocaleTimeString(),
+      },
+    ])
+
+    function handlePauseSwarm(id: string) {
+      setSwarmAgents((prev) => prev.map((a) => a.id === id ? { ...a, status: 'paused' } : a))
+    }
+    function handleResumeSwarm(id: string) {
+      setSwarmAgents((prev) => prev.map((a) => a.id === id ? { ...a, status: 'running' } : a))
+    }
+    function handleViewLog(id: string) {
+      // Placeholder: Show log modal or notification
+      alert(`View log for agent ${id}`)
+    }
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [adapterState, setAdapterState] = useState<ChannelAdapter[]>(() => createChannelAdapters(channels))
   const [queueItems, setQueueItems] = useState<QueueItem[]>(() => createSeedQueue())
@@ -927,6 +955,14 @@ export default function ControlShell({
       </nav>
 
       <main className="clean-main" role="tabpanel" aria-label={activeTabMeta.label}>
+                {activeTab === 'swarms' && (
+                  <Swarms
+                    agents={swarmAgents}
+                    onPause={handlePauseSwarm}
+                    onResume={handleResumeSwarm}
+                    onViewLog={handleViewLog}
+                  />
+                )}
         {activeTab === 'chat' && (
           <div className="clean-grid">
             <section className="clean-card">
