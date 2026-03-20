@@ -83,7 +83,88 @@ function callViaTwilio(input) {
   })
 }
 
+function sendMessageViaTwilio(input) {
+  const accountSid = String(input?.accountSid || process.env.PAXION_TWILIO_ACCOUNT_SID || '').trim()
+  const authToken = String(input?.authToken || process.env.PAXION_TWILIO_AUTH_TOKEN || '').trim()
+  let fromNumber = normalizePhoneNumber(input?.fromNumber || process.env.PAXION_TWILIO_FROM_NUMBER)
+  let toNumber = normalizePhoneNumber(input?.toNumber)
+  const isWhatsapp = Boolean(input?.whatsapp)
+
+  if (!accountSid || !authToken || !fromNumber || !toNumber) {
+    return Promise.resolve({
+      ok: false,
+      reason: 'Twilio provider is not fully configured (SID/TOKEN/FROM/TO required).',
+    })
+  }
+
+  if (isWhatsapp) {
+    if (!fromNumber.startsWith('whatsapp:')) fromNumber = `whatsapp:${fromNumber}`
+    if (!toNumber.startsWith('whatsapp:')) toNumber = `whatsapp:${toNumber}`
+  }
+
+  const messageBody = String(input?.message || 'Hello from Paxion.').trim()
+  const body = new URLSearchParams({
+    To: toNumber,
+    From: fromNumber,
+    Body: messageBody,
+  }).toString()
+
+  const auth = Buffer.from(`${accountSid}:${authToken}`).toString('base64')
+  const options = {
+    hostname: 'api.twilio.com',
+    path: `/2010-04-01/Accounts/${accountSid}/Messages.json`,
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Length': Buffer.byteLength(body),
+    },
+  }
+
+  return new Promise((resolve) => {
+    const req = https.request(options, (res) => {
+      let raw = ''
+      res.on('data', (chunk) => {
+        raw += String(chunk || '')
+      })
+      res.on('end', () => {
+        let parsed = null
+        try {
+          parsed = JSON.parse(raw)
+        } catch {
+          parsed = null
+        }
+
+        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+          resolve({
+            ok: true,
+            provider: 'twilio',
+            sid: parsed?.sid || null,
+            status: parsed?.status || 'queued',
+            to: toNumber,
+          })
+          return
+        }
+
+        resolve({
+          ok: false,
+          provider: 'twilio',
+          reason: parsed?.message || `Twilio message failed with status ${res.statusCode || 'unknown'}.`,
+        })
+      })
+    })
+
+    req.on('error', (err) => {
+      resolve({ ok: false, provider: 'twilio', reason: `Twilio request error: ${String(err?.message || err)}` })
+    })
+
+    req.write(body)
+    req.end()
+  })
+}
+
 module.exports = {
   normalizePhoneNumber,
   callViaTwilio,
+  sendMessageViaTwilio,
 }

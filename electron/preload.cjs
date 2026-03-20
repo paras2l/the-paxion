@@ -30,6 +30,9 @@ contextBridge.exposeInMainWorld('paxion', {
     googleSearch: (input) => ipcRenderer.invoke('paxion:integrations:googleSearch', input),
     gptChat: (input) => ipcRenderer.invoke('paxion:integrations:gptChat', input),
   },
+  messaging: {
+    send: (input) => ipcRenderer.invoke('paxion:messaging:send', input),
+  },
   learning: {
     load: () => ipcRenderer.invoke('paxion:learning:load'),
     record: (input) => ipcRenderer.invoke('paxion:learning:record', input),
@@ -46,6 +49,10 @@ contextBridge.exposeInMainWorld('paxion', {
     observeLearn: (input) => ipcRenderer.invoke('paxion:automation:observeLearn', input),
     replayRecord: (input) => ipcRenderer.invoke('paxion:automation:replayRecord', input),
     suggestions: () => ipcRenderer.invoke('paxion:automation:suggestions'),
+    puppeteer: (input) => ipcRenderer.invoke('paxion:automation:puppeteer', input),
+    email: {
+      send: (input) => ipcRenderer.invoke('paxion:automation:email:send', input),
+    },
   },
   readiness: {
     load: () => ipcRenderer.invoke('paxion:readiness:load'),
@@ -79,13 +86,25 @@ contextBridge.exposeInMainWorld('paxion', {
   },
   learningV2: {
     update: (input) => ipcRenderer.invoke('paxion:learning:v2:update', input),
+    rollback: (input) => ipcRenderer.invoke('paxion:learning:v2:rollback', input),
   },
   trading: {
     backtest: (input) => ipcRenderer.invoke('paxion:trading:backtest', input),
     paperOrder: (input) => ipcRenderer.invoke('paxion:trading:paperOrder', input),
   },
+  checkpoint: {
+    list: (scriptId) => ipcRenderer.invoke('paxion:checkpoint:list', scriptId),
+    create: (input) => ipcRenderer.invoke('paxion:checkpoint:create', input),
+  },
+  social: {
+    schedule: (input) => ipcRenderer.invoke('paxion:social:schedule', input),
+    ideas: (input) => ipcRenderer.invoke('paxion:social:ideas', input),
+    analyze: (input) => ipcRenderer.invoke('paxion:social:analyze', input),
+    steps: (input) => ipcRenderer.invoke('paxion:social:steps', input),
+  },
   medical: {
     review: (input) => ipcRenderer.invoke('paxion:medical:review', input),
+    adviceCheck: (input) => ipcRenderer.invoke('paxion:medical:adviceCheck', input),
   },
   media: {
     generate: (input) => ipcRenderer.invoke('paxion:media:generate', input),
@@ -147,6 +166,7 @@ contextBridge.exposeInMainWorld('paxion', {
     researchProgram: (input) => ipcRenderer.invoke('paxion:science:researchProgram', input),
   },
   voiceQuality: {
+    get: () => ipcRenderer.invoke('paxion:voiceQuality:get'),
     status: () => ipcRenderer.invoke('paxion:voiceQuality:status'),
     update: (input) => ipcRenderer.invoke('paxion:voiceQuality:update', input),
     evaluate: (input) => ipcRenderer.invoke('paxion:voiceQuality:evaluate', input),
@@ -197,5 +217,15 @@ contextBridge.exposeInMainWorld('paxion', {
     load: () => ipcRenderer.invoke('paxion:library:load'),
     save: (input) => ipcRenderer.invoke('paxion:library:save', input),
     clear: () => ipcRenderer.invoke('paxion:library:clear'),
+  },
+  swarm: {
+    start: (input) => ipcRenderer.invoke('paxion:swarm:start', input),
+    status: () => ipcRenderer.invoke('paxion:swarm:status'),
+  },
+  notify: (input) => ipcRenderer.invoke('paxion:notify', input),
+  // Checkpoint APIs
+  checkpoint: {
+    create: (input) => ipcRenderer.invoke('paxion:checkpoint:create', input),
+    list: (scriptId) => ipcRenderer.invoke('paxion:checkpoint:list', scriptId)
   },
 })

@@ -12,10 +12,24 @@ import {
   finalizePolicyDecision,
   getImmutablePolicySummary,
   verifyAdminCodeword,
+  checkCodewordObedience,
 } from './security/policy'
 import type { ActionCategory, ActionRequest, AuditEntry, AuditEventType } from './security/types'
+import { AvatarCore, type AvatarStatus } from './components/Avatar'
+import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
+import { Marketplace } from './components/Marketplace'
+import { EmailAutomation } from './components/EmailAutomation'
+import { VoiceSettings } from './components/VoiceSettings'
+import { Analytics } from './components/Analytics'
+import { TradingLab } from './components/TradingLab'
+import { ComplianceMonitor } from './components/ComplianceMonitor'
+import { MedicalAdvisor } from './components/MedicalAdvisor'
+import { RoboticsControl } from './components/RoboticsControl'
+import { CheckpointHistory } from './components/CheckpointHistory'
+import { TwoFAChallenge } from './components/TwoFAChallenge'
+import { SocialMediaAutomation } from './components/SocialMediaAutomation'
 
-type TabId = 'chat' | 'library' | 'logs' | 'workspace' | 'access'
+type TabId = 'chat' | 'library' | 'logs' | 'workspace' | 'access' | 'plugins' | 'automations' | 'settings' | 'analytics' | 'trading' | 'compliance' | 'medical' | 'robotics' | 'checkpoints' | 'social'
 
 type Tab = {
   id: TabId
@@ -41,12 +55,56 @@ const tabs: Tab[] = [
     name: 'Access',
     description: 'Permission map for every external platform and connector.',
   },
-]
-
-const policyLines = [
-  'Legal-safe operations only; dangerous and illegal actions are blocked.',
-  'Sensitive actions require admin verification and explicit approval.',
-  'The app cannot self-grant permissions or hide actions from logs.',
+  {
+    id: 'plugins',
+    name: 'Plugins',
+    description: 'Marketplace for intelligence extensions and automation scripts.',
+  },
+  {
+    id: 'automations',
+    name: 'Integrations',
+    description: 'Configure and test headless outbound automation integrations.',
+  },
+  {
+    id: 'settings',
+    name: 'Settings',
+    description: 'Paxion personality and core configuration.',
+  },
+  {
+    id: 'analytics',
+    name: 'Analytics',
+    description: 'Live event telemetry and operational metrics.',
+  },
+  {
+    id: 'trading',
+    name: 'Trading Lab',
+    description: 'Quantitative backtesting and paper order simulation.',
+  },
+  {
+    id: 'compliance',
+    name: 'Compliance',
+    description: 'Jurisdiction-aware action compliance evaluation.',
+  },
+  {
+    id: 'medical',
+    name: 'Med Advisor',
+    description: 'Drug interaction checker and advice confidence gate.',
+  },
+  {
+    id: 'robotics',
+    name: 'Robotics',
+    description: 'IoT actuator control plane and actuation plan builder.',
+  },
+  {
+    id: 'checkpoints',
+    name: 'Checkpoints',
+    description: 'Browse and restore previous script versions.',
+  },
+  {
+    id: 'social',
+    name: 'Social Media',
+    description: 'Schedule posts, generate ideas, and analyze engagement.',
+  },
 ]
 
 const profileVariablePattern = /{{\s*([a-zA-Z0-9_-]+)\s*}}/g
@@ -57,6 +115,16 @@ type ActionPreset = {
   category: ActionCategory
   targetPath: string
   detail: string
+}
+
+type SwarmTask = {
+  id: string
+  name: string
+  status: string
+  commandsTotal: number
+  commandsCompleted: number
+  logs: string[]
+  startTime: string
 }
 
 type WorkspaceStepStatus =
@@ -582,6 +650,8 @@ function App() {
   const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus>(defaultIntegrationStatus)
   const [learningLogs, setLearningLogs] = useState<LearningLogEntry[]>([])
   const [learnedSkills, setLearnedSkills] = useState<string[]>([])
+  const [learnedSkillsV2, setLearnedSkillsV2] = useState<Record<string, number>>({})
+  const [learningHypotheses, setLearningHypotheses] = useState<Array<Record<string, unknown>>>([])
   const [videoPlans, setVideoPlans] = useState<VideoLearningPlan[]>([])
   const [learningUpdatedAt, setLearningUpdatedAt] = useState<string | null>(null)
   const [videoTopic, setVideoTopic] = useState('')
@@ -766,7 +836,16 @@ function App() {
   const [weeklyOptimizationMessage, setWeeklyOptimizationMessage] = useState('')
   const [weeklyOptimizationAutoTune, setWeeklyOptimizationAutoTune] = useState(true)
   const [weeklyOptimizationReport, setWeeklyOptimizationReport] = useState<Record<string, unknown> | null>(null)
-  const [showThought, setShowThought] = useState<string | null>(null)
+  const [showTraceModal, setShowTraceModal] = useState<boolean>(false)
+  const [traceData, setTraceData] = useState<any[] | null>(null)
+
+  // 2FA challenge modal state
+  const [twoFAPending, setTwoFAPending] = useState<{ label: string; callback: () => void } | null>(null)
+
+  // Gate a callback behind a 2FA challenge for master-gated actions
+  function requireTwoFA(label: string, callback: () => void) {
+    setTwoFAPending({ label, callback })
+  }
   const chatScrollRef = useRef<HTMLDivElement>(null)
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const perceptionVideoRef = useRef<HTMLVideoElement | null>(null)
@@ -789,6 +868,13 @@ function App() {
   const workspaceQueuePausedRef = useRef(false)
   const workspaceQueueStoppedRef = useRef(false)
 
+  const [showThought, setShowThought] = useState<string | null>(null)
+
+  // Swarm State
+  const [activeSwarms, setActiveSwarms] = useState<SwarmTask[]>([])
+  const [swarmName, setSwarmName] = useState('')
+  const [swarmCommandsText, setSwarmCommandsText] = useState('')
+
   const activeTabMeta = useMemo(
     () => tabs.find((tab) => tab.id === activeTab) ?? tabs[0],
     [activeTab],
@@ -801,6 +887,37 @@ function App() {
   const auditLedger = useMemo(() => new AuditLedger(), [])
   const brain = useMemo(() => new PaxionBrain(), [])
 
+  useEffect(() => {
+    let inter: ReturnType<typeof setInterval>
+    if (activeTab === 'workspace' && adminUnlocked) {
+      inter = setInterval(async () => {
+        if (!window.paxion?.swarm) return
+        const res = await window.paxion.swarm.status().catch(() => null)
+        if (res?.ok && Array.isArray(res.swarms)) {
+          setActiveSwarms(res.swarms as SwarmTask[])
+        }
+      }, 2000)
+    }
+    return () => clearInterval(inter)
+  }, [activeTab, adminUnlocked])
+
+  async function runSwarm() {
+    if (!window.paxion?.swarm) return
+    const cmds = swarmCommandsText.split('\n').map(c => c.trim()).filter(Boolean)
+    if (cmds.length === 0) return
+    const startRes = await window.paxion.swarm.start({ name: swarmName, commands: cmds }).catch(() => null)
+    if (startRes?.ok) {
+      setSwarmName('')
+      setSwarmCommandsText('')
+      const res = await window.paxion.swarm.status().catch(() => null)
+      if (res?.ok && Array.isArray(res.swarms)) {
+        setActiveSwarms(res.swarms as SwarmTask[])
+      }
+      if (window.paxion?.notify) {
+        window.paxion.notify({ title: 'Swarm Deployed', body: `Swarm ${name} has been launched in the background.` })
+      }
+    }
+  }
 
   const refreshAdminStatus = useCallback(async () => {
     if (!window.paxion) return
@@ -874,6 +991,10 @@ function App() {
     setLearnedSkills(result.skills)
     setVideoPlans(result.videoPlans)
     setLearningUpdatedAt(result.updatedAt)
+    if (result.stateV2) {
+      setLearnedSkillsV2(result.stateV2.confidence as Record<string, number> || {})
+      setLearningHypotheses(result.stateV2.hypotheses as Array<Record<string, unknown>> || [])
+    }
   }, [])
 
   const loadAutomationState = useCallback(async () => {
@@ -961,6 +1082,19 @@ function App() {
       const result = await window.paxion.learning.record(input).catch(() => null)
       if (!result?.ok) {
         return
+      }
+
+      if (input.newSkills && input.newSkills.length > 0) {
+        const v2Result = await window.paxion.learningV2.update({
+          newSkills: input.newSkills,
+          successful: true,
+          goal: input.title,
+        }).catch(() => null)
+
+        if (v2Result?.ok && v2Result.state) {
+          setLearnedSkillsV2(v2Result.state.confidence as Record<string, number> || {})
+          setLearningHypotheses(v2Result.state.hypotheses as Array<Record<string, unknown>> || [])
+        }
       }
 
       setLearnedSkills(result.skills)
@@ -1387,6 +1521,16 @@ function App() {
     await loadTerminalPacks()
   }
 
+  async function loadTraceLogs() {
+    if (!window.paxion?.audit?.load) return
+    const result = await window.paxion.audit.load().catch(() => null)
+    if (result?.ok) {
+      const logs = result.entries.filter((l: any) => l.type === 'action_result' || l.type === 'policy_check')
+      setTraceData(logs.slice(-10).reverse())
+      setShowTraceModal(true)
+    }
+  }
+
   async function setTerminalPackActivation(packId: string, active: boolean) {
     if (!window.paxion?.terminal?.activatePack) {
       return
@@ -1431,7 +1575,7 @@ function App() {
   async function loadVoiceRuntimeState() {
     if (window.paxion?.voiceQuality?.status) {
       const result = await window.paxion.voiceQuality.status().catch(() => null)
-      const profile = result?.state?.profile as Partial<VoiceRuntimeProfile> | undefined
+      const profile = (result as any)?.state?.profile as Partial<VoiceRuntimeProfile> | undefined
       setVoiceProfile({
         duplexEnabled: Boolean(profile?.duplexEnabled ?? true),
         interruptionHandling: String(profile?.interruptionHandling || 'barge-in'),
@@ -1906,18 +2050,18 @@ function App() {
     utterance.rate = speakRate
     utterance.pitch =
       voiceProfile.prosody === 'calm' ? 0.85
-      : voiceProfile.prosody === 'energetic' ? 1.15
-      : voiceProfile.prosody === 'emphatic' ? 1.05
-      : 1.0
+        : voiceProfile.prosody === 'energetic' ? 1.15
+          : voiceProfile.prosody === 'emphatic' ? 1.05
+            : 1.0
     utterance.lang = 'en-US'
     // Persona-based voice selection (best-effort browser API)
     const availableVoices = window.speechSynthesis.getVoices()
     if (availableVoices.length > 0) {
       const personaKeyword =
         voiceProfile.personaMemory === 'formal' ? 'david'
-        : voiceProfile.personaMemory === 'casual' ? 'zira'
-        : voiceProfile.personaMemory === 'warm' ? 'hazel'
-        : 'google'
+          : voiceProfile.personaMemory === 'casual' ? 'zira'
+            : voiceProfile.personaMemory === 'warm' ? 'hazel'
+              : 'google'
       const matched = availableVoices.find((v) =>
         v.lang.startsWith('en') && v.name.toLowerCase().includes(personaKeyword)
       )
@@ -2007,6 +2151,35 @@ function App() {
     const text = String(commandText || '').trim()
     if (!text || !window.paxion) {
       return false
+    }
+
+    const msgMatch = text.match(/^(?:send a |send an )?(text|message|sms|whatsapp)\s+(?:to\s+)?([0-9\+\-\s\(\)]+)\s+saying\s+(.+)$/i)
+    if (msgMatch && window.paxion.messaging?.send) {
+      const isWhatsapp = msgMatch[1].toLowerCase() === 'whatsapp'
+      const number = msgMatch[2].replace(/[^0-9+]/g, '')
+      const message = msgMatch[3].trim()
+
+      const result = await window.paxion.messaging.send({
+        number,
+        message,
+        whatsapp: isWhatsapp,
+      }).catch(() => null)
+
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `msg-${Date.now()}-a-msg`,
+          role: 'assistant',
+          content: result?.ok
+            ? `Successfully sent ${isWhatsapp ? 'WhatsApp' : 'message'} to ${number}.`
+            : `Failed to send message: ${result?.reason || 'unknown reason'}`,
+          timestamp: new Date().toISOString(),
+          contextDocs: [],
+          reasoningSteps: [`Routed messaging command to desktop API via Twilio ${isWhatsapp ? 'WhatsApp' : 'SMS'} adapter.`],
+          confidence: result?.ok ? 'high' : 'medium',
+        },
+      ])
+      return true
     }
 
     if (/\bcheck\s+nmap\b|\bnmap\s+version\b/i.test(text) && window.paxion.terminal?.run) {
@@ -2129,10 +2302,18 @@ function App() {
         setChatNotice('Wake phrase accepted. Listening for your command...')
       }
 
-      const commandText = hasWake ? transcript.slice(lower.indexOf(wake) + wake.length).trim() : transcript
-      if (!commandText) {
+      const commandTextRaw = hasWake ? transcript.slice(lower.indexOf(wake) + wake.length).trim() : transcript
+      if (!commandTextRaw) {
         return
       }
+
+      const obedience = checkCodewordObedience(commandTextRaw)
+      if (!obedience.allowed) {
+        setChatNotice(`Access Denied: ${obedience.reason}`)
+        return
+      }
+
+      const commandText = obedience.cleanText
 
       if (voiceCommandInFlightRef.current || chatLoading) {
         setChatNotice('Voice command queued. Waiting for current task...')
@@ -2167,9 +2348,16 @@ function App() {
 
     if (hasWake) {
       setAssistantMode('voice')
-      const commandText = transcript.slice(lower.indexOf(wake) + wake.length).trim()
+      const commandTextRaw = transcript.slice(lower.indexOf(wake) + wake.length).trim()
       setChatNotice('Wake phrase accepted. Voice mode activated.')
-      if (commandText) {
+      if (commandTextRaw) {
+        const obedience = checkCodewordObedience(commandTextRaw)
+        if (!obedience.allowed) {
+          setChatNotice(`Access Denied: ${obedience.reason}`)
+          return
+        }
+        const commandText = obedience.cleanText
+
         if (voiceCommandInFlightRef.current || chatLoading) {
           return
         }
@@ -2319,6 +2507,13 @@ function App() {
       setLastDecision(
         `${decisionEnvelope.finalDecision.allowed ? 'Allowed' : 'Denied'}: ${decisionEnvelope.finalDecision.reason}${decisionEnvelope.execution?.executed ? ` | executed: ${decisionEnvelope.execution.mode}` : ''}`,
       )
+      if (window.paxion?.notify) {
+        if (decisionEnvelope.finalDecision.allowed) {
+          window.paxion.notify({ title: 'Action Executed', body: `Successfully ran ${request.actionId}` })
+        } else {
+          window.paxion.notify({ title: 'Security Alert: Action Blocked', body: `Denied ${request.actionId}: ${decisionEnvelope.finalDecision.reason}` })
+        }
+      }
       return
     }
 
@@ -2409,6 +2604,18 @@ function App() {
       source: 'library-file',
       newSkills,
     })
+  }
+
+  async function installMarketplacePlugin(name: string, commandsText: string) {
+    if (!window.paxion) return
+    const commands = commandsText.split('\n').map(c => c.trim()).filter(Boolean)
+    const result = await window.paxion.terminal.createPack({ name, commands }).catch(() => null)
+    if (result?.ok) {
+      setTerminalPacks(result.packs || [])
+      setLibAddError(`Successfully installed plugin: ${name}`)
+    } else {
+      setLibAddError(result?.reason || 'Failed to install plugin')
+    }
   }
 
   async function handleWebSearch() {
@@ -2520,10 +2727,10 @@ function App() {
           prev.map((item) =>
             item.id === step.id
               ? {
-                  ...item,
-                  status: 'dry-run-deny',
-                  result: 'Dry run denied: blocked by unresolved previous step.',
-                }
+                ...item,
+                status: 'dry-run-deny',
+                result: 'Dry run denied: blocked by unresolved previous step.',
+              }
               : item,
           ),
         )
@@ -2565,6 +2772,9 @@ function App() {
 
     setWorkspaceRunning(false)
     setWorkspaceMessage('Dry run complete.')
+    if (window.paxion?.notify) {
+      window.paxion.notify({ title: 'Workspace Dry Run', body: 'Mission dry run policy checks completed.' })
+    }
   }
 
   async function executeWorkspaceStep(stepId: string, managedByQueue = false): Promise<boolean> {
@@ -2577,10 +2787,10 @@ function App() {
         prev.map((item) =>
           item.id === stepId
             ? {
-                ...item,
-                status: 'failed',
-                result: 'Execution blocked: complete previous steps first.',
-              }
+              ...item,
+              status: 'failed',
+              result: 'Execution blocked: complete previous steps first.',
+            }
             : item,
         ),
       )
@@ -2654,6 +2864,9 @@ function App() {
       const executed = await executeWorkspaceStep(step.id, true)
       if (!executed) {
         setWorkspaceMessage('Mission queue paused due to failed step.')
+        if (window.paxion?.notify) {
+          window.paxion.notify({ title: 'Mission Paused', body: `Queue halted due to failed or blocked step: ${step.title}` })
+        }
         break
       }
     }
@@ -2661,6 +2874,9 @@ function App() {
     setWorkspaceRunning(false)
     if (!workspaceQueueStoppedRef.current) {
       setWorkspaceMessage('Mission execution queue finished.')
+      if (window.paxion?.notify) {
+        window.paxion.notify({ title: 'Mission Complete', body: `Execution queue finished for ${workspaceGoal}` })
+      }
     }
   }
 
@@ -3561,8 +3777,35 @@ function App() {
   }
 
   async function sendChatMessage(overrideText?: string) {
-    const text = typeof overrideText === 'string' ? overrideText.trim() : chatInput.trim()
-    if (!text || chatLoading) return
+    const rawText = typeof overrideText === 'string' ? overrideText.trim() : chatInput.trim()
+    if (!rawText || chatLoading) return
+
+    const obedience = checkCodewordObedience(rawText)
+    if (!obedience.allowed) {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `msg-${Date.now()}-u`,
+          role: 'user',
+          content: rawText,
+          timestamp: new Date().toISOString(),
+          contextDocs: [],
+        },
+        {
+          id: `msg-${Date.now()}-a-denied`,
+          role: 'assistant',
+          content: `ACCESS DENIED: ${obedience.reason}`,
+          timestamp: new Date().toISOString(),
+          confidence: 'high',
+          reasoningSteps: ['Global handler intercepted restricted command without codeword.'],
+          contextDocs: [],
+        },
+      ])
+      if (typeof overrideText !== 'string') setChatInput('')
+      return
+    }
+
+    const text = obedience.cleanText
 
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}-u`,
@@ -3652,10 +3895,27 @@ function App() {
   }
 
   function renderTabBody() {
+    if (activeTab === 'plugins') return <Marketplace />
+    if (activeTab === 'automations') return <EmailAutomation />
+    if (activeTab === 'settings') return <VoiceSettings />
+    if (activeTab === 'analytics') return <Analytics />
+    if (activeTab === 'trading') return <TradingLab />
+    if (activeTab === 'compliance') return <ComplianceMonitor />
+    if (activeTab === 'medical') return <MedicalAdvisor />
+    if (activeTab === 'robotics') return <RoboticsControl />
+    if (activeTab === 'checkpoints') return <CheckpointHistory />
+    if (activeTab === 'social') return <SocialMediaAutomation />
+
     if (activeTab === 'chat') {
       const totalLibWords = libDocs.reduce((acc, d) => acc + d.wordCount, 0)
       const rank = rankFromDocs(libDocs.length)
       const lastConf = [...chatMessages].reverse().find((m) => m.role === 'assistant')?.confidence
+
+      const avatarStatus: AvatarStatus = chatLoading
+        ? 'processing'
+        : chatVoiceListening
+          ? 'listening'
+          : 'idle'
 
       return (
         <div className="tab-content-stack">
@@ -3672,6 +3932,8 @@ function App() {
             </span>
             <span className={`chat-rank chat-rank-${lastConf ?? 'none'}`}>{rank}</span>
           </div>
+
+          <AvatarCore status={avatarStatus} />
 
           <div className="chat-voice-row">
             <select
@@ -3820,7 +4082,7 @@ function App() {
                         <button
                           className="chat-toggle-thought"
                           onClick={() =>
-                            setShowThought((prev) => (prev === msg.id ? null : msg.id))
+                            setShowThought(showThought === msg.id ? null : msg.id)
                           }
                         >
                           {showThought === msg.id ? '▲ hide trace' : '▼ show trace'}
@@ -3834,6 +4096,17 @@ function App() {
                         )}
                       </>
                     )}
+                  {msg.role === 'assistant' && (
+                    <div style={{ marginTop: 8 }}>
+                      <button
+                        className="run-button chat-trace-btn"
+                        style={{ fontSize: '0.8em', padding: '4px 8px' }}
+                        onClick={() => void loadTraceLogs()}
+                      >
+                        [View Decision Trace]
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))
             )}
@@ -3910,10 +4183,10 @@ function App() {
       const selectedDoc = libDocs.find((d) => d.id === libSelectedId) ?? null
       const displayDocs = libSearch.trim()
         ? libDocs.filter(
-            (d) =>
-              d.name.toLowerCase().includes(libSearch.toLowerCase()) ||
-              d.content.toLowerCase().includes(libSearch.toLowerCase()),
-          )
+          (d) =>
+            d.name.toLowerCase().includes(libSearch.toLowerCase()) ||
+            d.content.toLowerCase().includes(libSearch.toLowerCase()),
+        )
         : libDocs
       const totalWords = libDocs.reduce((acc, doc) => acc + doc.wordCount, 0)
       const estimatedChunks = Math.max(1, Math.ceil(totalWords / 130))
@@ -3932,6 +4205,41 @@ function App() {
                 ? `Last sync: ${libraryUpdatedAt}`
                 : 'No persistence snapshot yet.'}
             </p>
+          </div>
+
+          <div className="decision-card">
+            <strong>Plugin Ecosystem Marketplace</strong>
+            <p className="muted">Browse and one-click install predefined script automation packs for your terminal capabilities.</p>
+            <div className="capability-list">
+              <div className="capability-item">
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span><strong>GitHub Auto-Committer</strong></span>
+                  <span className="muted" style={{ fontSize: '0.8em' }}>Automatically stages, commits with AI-generated messages, and pushes branches.</span>
+                </div>
+                <button className="run-button" onClick={() => void installMarketplacePlugin('GitHub Auto-Committer', 'git add .\ngit commit -m "Auto sync"\ngit push')}>
+                  Install
+                </button>
+              </div>
+              <div className="capability-item">
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span><strong>Excel Pipeline Parser</strong></span>
+                  <span className="muted" style={{ fontSize: '0.8em' }}>Extracts CRM entries from local CSV and XLSX sheets into JSON formatted output.</span>
+                </div>
+                <button className="run-button" onClick={() => void installMarketplacePlugin('Excel Pipeline Parser', 'npm i -g spreadsheet-parser\nparser extract data.xlsx')}>
+                  Install
+                </button>
+              </div>
+              <div className="capability-item">
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span><strong>PDF Invoice Extractor</strong></span>
+                  <span className="muted" style={{ fontSize: '0.8em' }}>Batch processes PDF invoices into structured accounting data.</span>
+                </div>
+                <button className="run-button" onClick={() => void installMarketplacePlugin('PDF Invoice Extractor', 'npm i -g pdf-parse\npdf-parse extract invoices/')}>
+                  Install
+                </button>
+              </div>
+            </div>
+            {libAddError && <p className="lib-error">{libAddError}</p>}
           </div>
 
           <div className="lib-web-panel">
@@ -4636,55 +4944,55 @@ function App() {
             <video ref={perceptionVideoRef} style={{ display: 'none' }} autoPlay muted playsInline />
           </div>
 
-            <div className="decision-card">
-              <strong>Weekly Self-Evaluation + Auto-Tuning</strong>
-              <p className="muted">
-                Reviews recent runtime quality and applies safe tuning to voice, wake-word, and relay settings.
-              </p>
-              <div className="capability-item">
-                <span>Auto-apply tuning changes</span>
-                <input
-                  type="checkbox"
-                  checked={weeklyOptimizationAutoTune}
-                  onChange={(event) => setWeeklyOptimizationAutoTune(event.target.checked)}
-                />
-              </div>
-              <div className="workspace-actions">
-                <button className="run-button" onClick={() => void loadWeeklyOptimizationStatus()}>
-                  Refresh Optimizer Status
-                </button>
-                <button className="run-button" onClick={() => void runWeeklyOptimization()}>
-                  Run Weekly Optimization
-                </button>
-              </div>
-              {weeklyOptimizationMessage && <p className="muted">{weeklyOptimizationMessage}</p>}
-              {weeklyOptimizationReport ? (
-                <div className="capability-list">
-                  <div className="capability-item">
-                    <span>Last run</span>
-                    <strong>{String(weeklyOptimizationReport.generatedAt || 'unknown')}</strong>
-                  </div>
-                  <div className="capability-item">
-                    <span>Applied changes</span>
-                    <strong>
-                      {Array.isArray(weeklyOptimizationReport.applied)
-                        ? weeklyOptimizationReport.applied.length
-                        : 0}
-                    </strong>
-                  </div>
-                  <div className="capability-item">
-                    <span>Recommendations</span>
-                    <strong>
-                      {Array.isArray(weeklyOptimizationReport.recommendations)
-                        ? weeklyOptimizationReport.recommendations.length
-                        : 0}
-                    </strong>
-                  </div>
-                </div>
-              ) : (
-                <p className="muted">No weekly optimization report yet.</p>
-              )}
+          <div className="decision-card">
+            <strong>Weekly Self-Evaluation + Auto-Tuning</strong>
+            <p className="muted">
+              Reviews recent runtime quality and applies safe tuning to voice, wake-word, and relay settings.
+            </p>
+            <div className="capability-item">
+              <span>Auto-apply tuning changes</span>
+              <input
+                type="checkbox"
+                checked={weeklyOptimizationAutoTune}
+                onChange={(event) => setWeeklyOptimizationAutoTune(event.target.checked)}
+              />
             </div>
+            <div className="workspace-actions">
+              <button className="run-button" onClick={() => void loadWeeklyOptimizationStatus()}>
+                Refresh Optimizer Status
+              </button>
+              <button className="run-button" onClick={() => void runWeeklyOptimization()}>
+                Run Weekly Optimization
+              </button>
+            </div>
+            {weeklyOptimizationMessage && <p className="muted">{weeklyOptimizationMessage}</p>}
+            {weeklyOptimizationReport ? (
+              <div className="capability-list">
+                <div className="capability-item">
+                  <span>Last run</span>
+                  <strong>{String(weeklyOptimizationReport.generatedAt || 'unknown')}</strong>
+                </div>
+                <div className="capability-item">
+                  <span>Applied changes</span>
+                  <strong>
+                    {Array.isArray(weeklyOptimizationReport.applied)
+                      ? weeklyOptimizationReport.applied.length
+                      : 0}
+                  </strong>
+                </div>
+                <div className="capability-item">
+                  <span>Recommendations</span>
+                  <strong>
+                    {Array.isArray(weeklyOptimizationReport.recommendations)
+                      ? weeklyOptimizationReport.recommendations.length
+                      : 0}
+                  </strong>
+                </div>
+              </div>
+            ) : (
+              <p className="muted">No weekly optimization report yet.</p>
+            )}
+          </div>
 
           <div className="control-group">
             <label htmlFor="action-preset">Action preset</label>
@@ -4848,15 +5156,71 @@ function App() {
       return (
         <div className="tab-content-stack">
           <div className="decision-card">
-            <strong>Skill Growth Board</strong>
-            <p>
-              Current unlocked skills: {learnedSkills.length}. Paxion grows by books, web research,
-              and relay captures.
+            <strong>Multi-Agent Swarm Commander</strong>
+            <p className="muted">Launch concurrent background script pools with Promise.allSettled orchestration.</p>
+            <div className="control-group">
+              <label>Swarm label</label>
+              <input value={swarmName} onChange={e => setSwarmName(e.target.value)} placeholder="Data scraping swarm" />
+            </div>
+            <div className="control-group">
+              <label>Commands (one per line)</label>
+              <textarea className="lib-paste-area" rows={4} value={swarmCommandsText} onChange={e => setSwarmCommandsText(e.target.value)} placeholder="node scrape.js --target A&#10;node scrape.js --target B" />
+            </div>
+            <button className="run-button" onClick={() => void runSwarm()}>Launch Swarm</button>
+            {activeSwarms.length > 0 && (
+              <div className="learning-log-list" style={{ marginTop: '1rem' }}>
+                {activeSwarms.map(swarm => (
+                  <article className="learning-log-item" key={swarm.id}>
+                    <strong>{swarm.name}</strong> [{swarm.status}]
+                    <p className="muted">Tasks: {swarm.commandsCompleted} / {swarm.commandsTotal}</p>
+                    {swarm.logs.length > 0 && <p className="muted" style={{ fontSize: '0.8em' }}>{swarm.logs.slice(-1)[0]}</p>}
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="decision-card">
+            <strong>Adaptive Intelligence Dashboard</strong>
+            <p className="muted">
+              Paxion dynamically evolves skill confidence via successful automations, relays, and inputs.
             </p>
-            {learnedSkills.length > 0 ? (
-              <p className="muted">{learnedSkills.slice(0, 10).join(' | ')}</p>
+            {Object.keys(learnedSkillsV2).length > 0 ? (
+              <div className="capability-list">
+                {Object.entries(learnedSkillsV2)
+                  .sort(([, a], [, b]) => b - a)
+                  .map(([skill, conf]) => (
+                    <div className="capability-item" key={skill}>
+                      <span>{skill}</span>
+                      <strong>{(conf * 100).toFixed(1)}%</strong>
+                    </div>
+                  ))}
+              </div>
             ) : (
-              <p className="muted">No skills unlocked yet. Add knowledge to start growth.</p>
+              <p className="muted">No dynamic skills evolved yet. Run tasks to grow intelligence.</p>
+            )}
+
+            {learningHypotheses.length > 0 && (
+              <div style={{ marginTop: '1rem' }}>
+                <strong>Improvement Hypotheses</strong>
+                <div className="learning-log-list" style={{ marginTop: '0.5rem' }}>
+                  {learningHypotheses.map((hyp) => (
+                    <article className="learning-log-item" key={String(hyp.id)}>
+                      <strong>{String(hyp.skill)}</strong>
+                      <p className="muted">{String(hyp.recommendation)}</p>
+                      <div className="workspace-step-actions">
+                        <button className="run-button" onClick={() => {
+                          setWorkspaceGoal(`Execute training routine for ${hyp.skill}`)
+                          setChatInput(`I need to improve my ${hyp.skill} capabilities. Setting up a training routine...`)
+                          setActiveTab('chat')
+                        }}>
+                          Run Training
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
 
@@ -5098,31 +5462,31 @@ function App() {
                 </div>
                 {automationProfilePresets.filter((preset) => preset.profileId === selectedAutomationProfileId)
                   .length > 0 && (
-                  <div className="learning-log-list">
-                    {automationProfilePresets
-                      .filter((preset) => preset.profileId === selectedAutomationProfileId)
-                      .slice(0, 6)
-                      .map((preset) => (
-                        <article className="learning-log-item" key={preset.id}>
-                          <strong>{preset.name}</strong>
-                          <p className="muted">
-                            Updated {new Date(preset.updatedAt).toLocaleString()}
-                          </p>
-                          <div className="workspace-step-actions">
-                            <button className="run-button" onClick={() => loadAutomationPreset(preset.id)}>
-                              Load Preset
-                            </button>
-                            <button
-                              className="run-button"
-                              onClick={() => void deleteAutomationPreset(preset.id)}
-                            >
-                              Delete Preset
-                            </button>
-                          </div>
-                        </article>
-                      ))}
-                  </div>
-                )}
+                    <div className="learning-log-list">
+                      {automationProfilePresets
+                        .filter((preset) => preset.profileId === selectedAutomationProfileId)
+                        .slice(0, 6)
+                        .map((preset) => (
+                          <article className="learning-log-item" key={preset.id}>
+                            <strong>{preset.name}</strong>
+                            <p className="muted">
+                              Updated {new Date(preset.updatedAt).toLocaleString()}
+                            </p>
+                            <div className="workspace-step-actions">
+                              <button className="run-button" onClick={() => loadAutomationPreset(preset.id)}>
+                                Load Preset
+                              </button>
+                              <button
+                                className="run-button"
+                                onClick={() => void deleteAutomationPreset(preset.id)}
+                              >
+                                Delete Preset
+                              </button>
+                            </div>
+                          </article>
+                        ))}
+                    </div>
+                  )}
               </div>
             )}
             <div className="control-group">
@@ -5338,6 +5702,69 @@ function App() {
               </div>
             )}
             {automationMessage && <p className="muted">{automationMessage}</p>}
+          </div>
+
+          <div className="decision-card">
+            <strong>Multi-Agent Swarm Dashboard</strong>
+            <p className="muted">
+              Monitor and control background AI swarms. Full transparency on long-running tasks.
+            </p>
+            <div className="control-group">
+              <label htmlFor="swarm-name">Deploy New Swarm</label>
+              <input
+                id="swarm-name"
+                value={swarmName}
+                onChange={(e) => setSwarmName(e.target.value)}
+                placeholder="Swarm Name (e.g. Research Bot)"
+              />
+              <textarea
+                id="swarm-commands"
+                className="lib-paste-area"
+                value={swarmCommandsText}
+                onChange={(e) => setSwarmCommandsText(e.target.value)}
+                placeholder="Initial commands / prompt..."
+                rows={3}
+                style={{ marginTop: '0.5rem' }}
+              />
+            </div>
+            <div className="workspace-actions">
+              <button
+                className="run-button"
+                onClick={() => void runSwarm()}
+                disabled={!swarmName || !swarmCommandsText}
+              >
+                Deploy Swarm
+              </button>
+            </div>
+
+            {activeSwarms.length > 0 ? (
+              <div className="learning-log-list" style={{ marginTop: '1rem' }}>
+                {activeSwarms.map((swarm: any) => (
+                  <article className="learning-log-item" key={swarm.id}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <strong>{swarm.name}</strong>
+                      <span className={`workspace-status status-${(swarm.status || '').toLowerCase()}`}>{swarm.status}</span>
+                    </div>
+                    <p className="muted" style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>ID: {swarm.id}</p>
+                    <div className="workspace-step-actions" style={{ marginTop: '0.5rem' }}>
+                      <button
+                        className="run-button"
+                        style={{ padding: '4px 8px', fontSize: '0.8rem', backgroundColor: '#442222', borderColor: '#662222' }}
+                        onClick={() => {
+                          if (window.paxion?.swarm?.kill) {
+                            window.paxion.swarm.kill(swarm.id);
+                          }
+                        }}
+                      >
+                        Kill
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="muted" style={{ marginTop: '1rem' }}>No active swarms.</p>
+            )}
           </div>
 
           <div className="decision-card">
@@ -6204,72 +6631,77 @@ function App() {
   return (
     <div className="paxion-app">
       <header className="hero">
-        <p className="eyebrow">The Paxion</p>
-        <h1>Mission Console</h1>
-        <p className="subtitle">
-          Desktop-first AI workspace with controlled permissions, verified sensitive actions,
-          and full project continuity.
-        </p>
+        <p className="eyebrow">Paxion Platform</p>
+        <h1>AI Studio Workspace</h1>
       </header>
 
-      <section className="grid-shell">
-        <aside className="panel nav-panel">
-          <h2>Tabs</h2>
-          <div className="tab-list" role="tablist" aria-label="Paxion tabs">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                role="tab"
-                aria-selected={activeTab === tab.id}
-                className={activeTab === tab.id ? 'tab is-active' : 'tab'}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                <span>{tab.name}</span>
-                <small>{tab.description}</small>
-              </button>
-            ))}
-          </div>
-        </aside>
+      <section className="grid-shell" style={{ height: 'calc(100vh - 100px)', padding: '0 1rem 1rem' }}>
+        <PanelGroup direction="horizontal">
+          <Panel defaultSize={20} minSize={15} maxSize={30}>
+            <aside className="panel nav-panel" style={{ height: '100%', margin: 0, padding: '1rem', overflowY: 'auto' }}>
+              <h2 style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.7, marginBottom: '1rem' }}>Menu</h2>
+              <div className="tab-list" role="tablist" aria-label="Paxion tabs">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    role="tab"
+                    aria-selected={activeTab === tab.id}
+                    className={activeTab === tab.id ? 'tab is-active' : 'tab'}
+                    onClick={() => setActiveTab(tab.id)}
+                  >
+                    <span>{tab.name}</span>
+                  </button>
+                ))}
+              </div>
+              <div style={{ marginTop: '3rem', fontSize: '0.8rem', opacity: 0.5 }}>
+                <p>Profile: Paro the Chief</p>
+                <p>Mode: Policy-Enforced Build</p>
+              </div>
+            </aside>
+          </Panel>
 
-        <main className="panel work-panel" role="tabpanel" aria-label={activeTabMeta.name}>
-          <h2>{activeTabMeta.name}</h2>
-          <p>{activeTabMeta.description}</p>
-          <div className="admin-session-row">
-            <span>
-              Admin session:{' '}
-              <strong>{adminUnlocked ? 'Unlocked' : 'Locked'}</strong>
-              {adminUnlocked && adminExpiresAt
-                ? ` (expires ${new Date(adminExpiresAt).toLocaleTimeString()})`
-                : ''}
-            </span>
-            {adminUnlocked ? (
-              <button className="run-button" onClick={lockAdminSession}>
-                Lock
-              </button>
-            ) : null}
-          </div>
-          {adminMessage && <p className="muted">{adminMessage}</p>}
-          {renderTabBody()}
-        </main>
+          <PanelResizeHandle className="resize-handle">
+            <div className="resize-handle-indicator" />
+          </PanelResizeHandle>
 
-        <aside className="panel policy-panel">
-          <h2>Core Policy</h2>
-          <ul>
-            {policyLines.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-          <div className="status">
-            <strong>Checkpoint:</strong> Initial desktop foundation is active.
-          </div>
-        </aside>
+          <Panel defaultSize={80} minSize={50}>
+            <main className="panel work-panel" role="tabpanel" aria-label={activeTabMeta.name} style={{ height: '100%', margin: 0, display: 'flex', flexDirection: 'column' }}>
+              <div className="admin-session-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', paddingBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 500 }}>{activeTabMeta.name}</h2>
+                  <p className="muted" style={{ margin: 0, fontSize: '0.9rem' }}>{activeTabMeta.description}</p>
+                </div>
+                <span>
+                  Admin session:{' '}
+                  <strong style={{ color: adminUnlocked ? 'var(--neon-cyan)' : 'inherit' }}>{adminUnlocked ? 'Unlocked' : 'Locked'}</strong>
+                  {adminUnlocked && adminExpiresAt
+                    ? ` (expires ${new Date(adminExpiresAt).toLocaleTimeString()})`
+                    : ''}
+                  {adminUnlocked ? (
+                    <button className="run-button" style={{ marginLeft: '1rem', padding: '0.3rem 0.8rem' }} onClick={lockAdminSession}>
+                      Lock
+                    </button>
+                  ) : null}
+                </span>
+              </div>
+              {adminMessage && <p className="muted">{adminMessage}</p>}
+              <div style={{ flex: 1, overflowY: 'auto', paddingRight: '0.5rem' }}>
+                {renderTabBody()}
+              </div>
+            </main>
+          </Panel>
+        </PanelGroup>
       </section>
-
-      <footer className="footer">
-        <span>Profile: Paro the Chief</span>
-        <span>Mode: Policy-Enforced Build</span>
-        <span>Version: v0.19.0-safe-domain-expansion-bootstrap</span>
-      </footer>
+      {twoFAPending && (
+        <TwoFAChallenge
+          actionLabel={twoFAPending.label}
+          onConfirm={() => {
+            twoFAPending.callback()
+            setTwoFAPending(null)
+          }}
+          onCancel={() => setTwoFAPending(null)}
+        />
+      )}
     </div>
   )
 }

@@ -1,0 +1,197 @@
+.robotics-container {
+    padding: 28px;
+    max-width: 1100px;
+    margin: 0 auto;
+}
+
+.robotics-header {
+    margin-bottom: 24px;
+}
+
+.robotics-header h1 {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #e2e8f0;
+}
+
+.robotics-header p {
+    color: #94a3b8;
+    margin-top: 4px;
+}
+
+.robotics-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+@media (max-width: 780px) {
+    .robotics-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.robotics-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 22px;
+}
+
+.robotics-card h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #e2e8f0;
+    margin-bottom: 14px;
+}
+
+.robotics-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.robotics-form label {
+    font-size: 0.8rem;
+    color: #94a3b8;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 4px;
+}
+
+.robotics-input,
+.robotics-select {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: #e2e8f0;
+    font-size: 0.9rem;
+    width: 100%;
+}
+
+.robotics-input::placeholder {
+    color: #64748b;
+}
+
+.robotics-btn {
+    padding: 10px 22px;
+    border-radius: 8px;
+    border: none;
+    background: #f97316;
+    color: #fff;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    margin-top: 10px;
+}
+
+.robotics-btn:hover {
+    opacity: 0.85;
+}
+
+.actuator-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.actuator-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 0.85rem;
+}
+
+.actuator-kind {
+    background: rgba(249, 115, 22, 0.15);
+    color: #f97316;
+    padding: 2px 10px;
+    border-radius: 99px;
+    font-weight: 600;
+    font-size: 0.78rem;
+}
+
+.actuator-id {
+    font-weight: 600;
+    color: #e2e8f0;
+}
+
+.actuator-ws {
+    color: #94a3b8;
+    margin-left: auto;
+    font-size: 0.8rem;
+}
+
+.robotics-muted {
+    color: #64748b;
+    font-size: 0.9rem;
+}
+
+.actuation-plan {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(249, 115, 22, 0.2);
+    border-radius: 10px;
+    padding: 14px;
+    margin-top: 12px;
+}
+
+.plan-row {
+    display: flex;
+    gap: 14px;
+    align-items: baseline;
+    font-size: 0.9rem;
+    margin-bottom: 8px;
+}
+
+.plan-row span {
+    color: #94a3b8;
+    min-width: 70px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.plan-row strong {
+    color: #e2e8f0;
+}
+
+.safety-checks {
+    margin-top: 10px;
+}
+
+.safety-checks p {
+    color: #94a3b8;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.safety-checks ul {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.safety-checks li {
+    color: #22c55e;
+    font-size: 0.88rem;
+}
+
+.robotics-status {
+    font-size: 0.85rem;
+    color: #94a3b8;
+    margin-top: 8px;
+}

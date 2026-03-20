@@ -121,3 +121,47 @@ export function finalizePolicyDecision(
     reason: 'Sensitive action approved with admin verification and valid approval ticket.',
   }
 }
+
+export function checkCodewordObedience(text: string): { allowed: boolean; reason?: string; cleanText: string } {
+  const lowerText = text.toLowerCase()
+
+  // Map of patterns that trigger restricted mode, excluding normal conversational chat
+  const restrictedPatterns = [
+    /\brun\s+terminal\b/i,
+    /\bterminal\s+run\b/i,
+    /\bcheck\s+nmap\b/i,
+    /\bnmap\s+version\b/i,
+    /\bcall\b/i,
+    /\b(make|create|generate)\s+(ai\s+)?workflow\b/i,
+    /\b(creative|ideate|brainstorm|research\s+idea)\b/i,
+    /\badmin\b/i,
+    /\bsudo\b/i,
+    /\bexecute\b/i,
+    /\bsystem\b/i,
+  ]
+
+  const isRestricted = restrictedPatterns.some((pattern) => pattern.test(lowerText))
+
+  if (isRestricted) {
+    if (lowerText.includes(MASTER_CODEWORD)) {
+      return {
+        allowed: true,
+        cleanText: text.replace(new RegExp(MASTER_CODEWORD, 'ig'), '').trim(),
+      }
+    }
+    if (lowerText.includes(ADMIN_CODEWORD)) {
+      return {
+        allowed: true,
+        cleanText: text.replace(new RegExp(ADMIN_CODEWORD, 'ig'), '').trim(),
+      }
+    }
+
+    return {
+      allowed: false,
+      reason: 'Missing authorization codeword ("paro the chief" or "paro the master") for restricted command.',
+      cleanText: text,
+    }
+  }
+
+  return { allowed: true, cleanText: text }
+}

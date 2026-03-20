@@ -1,0 +1,123 @@
+.voice-settings-container {
+    padding: 30px;
+    color: #e0e0e0;
+    max-width: 600px;
+    animation: fadeIn 0.4s ease-out;
+}
+
+.voice-header {
+    margin-bottom: 30px;
+}
+
+.voice-header h1 {
+    font-size: 2.2rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #fff 0%, #a0a0a0 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 10px;
+}
+
+.voice-header p {
+    color: #888;
+}
+
+.voice-form {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 30px;
+}
+
+.voice-field {
+    margin-bottom: 25px;
+}
+
+.voice-field label {
+    display: block;
+    margin-bottom: 10px;
+    font-weight: 500;
+    color: #ccc;
+}
+
+.voice-field select {
+    width: 100%;
+    padding: 12px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    color: #fff;
+    outline: none;
+}
+
+.voice-field input[type="range"] {
+    width: 100%;
+    background: transparent;
+    -webkit-appearance: none;
+}
+
+.voice-field input[type="range"]::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+
+.voice-field input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    height: 18px;
+    width: 18px;
+    border-radius: 50%;
+    background: #6366f1;
+    margin-top: -6px;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(99, 102, 241, 0.4);
+}
+
+.voice-actions {
+    display: flex;
+    gap: 15px;
+    margin-top: 10px;
+}
+
+.test-btn,
+.save-btn {
+    flex: 1;
+    padding: 12px;
+    border-radius: 10px;
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.test-btn {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.test-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.save-btn {
+    background: #fff;
+    color: #000;
+}
+
+.save-btn:hover {
+    background: #e0e0e0;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

@@ -1,0 +1,200 @@
+.checkpoint-container {
+    padding: 28px;
+    max-width: 1100px;
+    margin: 0 auto;
+}
+
+.checkpoint-header {
+    margin-bottom: 24px;
+}
+
+.checkpoint-header h1 {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #e2e8f0;
+}
+
+.checkpoint-header p {
+    color: #94a3b8;
+    margin-top: 4px;
+}
+
+.checkpoint-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+@media (max-width: 780px) {
+    .checkpoint-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.checkpoint-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 22px;
+}
+
+.checkpoint-card h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #e2e8f0;
+    margin-bottom: 14px;
+}
+
+.checkpoint-search-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.checkpoint-input {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: #e2e8f0;
+    font-size: 0.9rem;
+    flex: 1;
+}
+
+.checkpoint-input::placeholder {
+    color: #64748b;
+}
+
+.checkpoint-btn {
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: none;
+    background: #7c3aed;
+    color: #fff;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    white-space: nowrap;
+}
+
+.checkpoint-btn:hover {
+    opacity: 0.85;
+}
+
+.checkpoint-status {
+    font-size: 0.85rem;
+    color: #94a3b8;
+    margin: 8px 0;
+}
+
+.checkpoint-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 380px;
+    overflow-y: auto;
+}
+
+.checkpoint-muted {
+    color: #64748b;
+    font-size: 0.9rem;
+}
+
+.checkpoint-row {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 10px;
+    padding: 12px;
+}
+
+.cp-row-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.cp-id {
+    font-size: 0.8rem;
+    font-family: monospace;
+    color: #a78bfa;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cp-time {
+    font-size: 0.78rem;
+    color: #64748b;
+    white-space: nowrap;
+}
+
+.cp-expand-btn,
+.cp-copy-btn {
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: transparent;
+    color: #94a3b8;
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.cp-expand-btn:hover {
+    color: #e2e8f0;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.cp-copy-btn {
+    border-color: rgba(124, 58, 237, 0.4);
+    color: #a78bfa;
+}
+
+.cp-copy-btn:hover {
+    background: rgba(124, 58, 237, 0.12);
+}
+
+.cp-code-preview {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 10px;
+    font-family: monospace;
+    font-size: 0.8rem;
+    color: #94a3b8;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.checkpoint-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.checkpoint-form label {
+    font-size: 0.8rem;
+    color: #94a3b8;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 4px;
+}
+
+.checkpoint-textarea {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 12px;
+    color: #e2e8f0;
+    font-size: 0.9rem;
+    font-family: monospace;
+    resize: vertical;
+}

@@ -1,26 +1,26 @@
 :root {
-  /* ── Solo Leveling / Hacker dark theme ── */
-  --bg-void: #030711;
-  --bg-deep: #070e1e;
-  --panel: rgba(8, 18, 42, 0.92);
-  --panel-soft: rgba(10, 22, 52, 0.74);
-  --edge: rgba(0, 200, 255, 0.15);
-  --edge-soft: rgba(0, 200, 255, 0.08);
-  --edge-glow: rgba(0, 212, 255, 0.5);
-  --ink-main: #c8e8ff;
-  --ink-muted: #4a7a9b;
-  --ink-light: #eaf5ff;
+  /* ── Premium Jarvis / Neon Glass Theme ── */
+  --bg-void: #02050a;
+  --bg-deep: #050b14;
+  --panel: rgba(10, 16, 30, 0.6);
+  --panel-soft: rgba(15, 25, 45, 0.4);
+  --edge: rgba(0, 212, 255, 0.2);
+  --edge-soft: rgba(0, 212, 255, 0.1);
+  --edge-glow: rgba(0, 212, 255, 0.6);
+  --ink-main: #d8ecf8;
+  --ink-muted: #648ba6;
+  --ink-light: #f0f8ff;
   --accent-cyan: #00d4ff;
-  --accent-purple: #8b5cf6;
-  --accent-green: #00e87a;
-  --accent-danger: #ff4444;
-  --accent-soft: rgba(0, 212, 255, 0.1);
-  --app-shell: #030711;
-  --glow-cyan: 0 0 18px rgba(0, 212, 255, 0.28);
-  --glow-purple: 0 0 18px rgba(139, 92, 246, 0.28);
+  --accent-purple: #9d4edd;
+  --accent-green: #00fa9a;
+  --accent-danger: #ff4d4d;
+  --accent-soft: rgba(0, 212, 255, 0.15);
+  --app-shell: #02050a;
+  --glow-cyan: 0 4px 24px rgba(0, 212, 255, 0.25);
+  --glow-purple: 0 4px 24px rgba(157, 78, 221, 0.25);
 
-  font-family: 'Courier New', 'Consolas', 'JetBrains Mono', monospace;
-  line-height: 1.55;
+  font-family: 'Inter', 'Outfit', system-ui, -apple-system, sans-serif;
+  line-height: 1.6;
   font-weight: 400;
   color: var(--ink-main);
   background: var(--app-shell);

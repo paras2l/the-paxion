@@ -1,6 +1,6 @@
 'use strict'
 
-const { ipcMain, dialog, app, shell, desktopCapturer, safeStorage } = require('electron')
+const { ipcMain, dialog, app, shell, desktopCapturer, safeStorage, Notification } = require('electron')
 const crypto = require('crypto')
 const http = require('http')
 const fs = require('fs')
@@ -8,6 +8,7 @@ const path = require('path')
 const { exec } = require('child_process')
 const pdfParse = require('pdf-parse')
 const Tesseract = require('tesseract.js')
+const dbAdapter = require('./db.cjs')
 const {
   buildCrossAppMission,
   buildLearningGraphSnapshot,
@@ -33,7 +34,7 @@ const { evolveSkills, generateHypotheses } = require('./learning-engine-v2.cjs')
 const { runBacktest, placePaperOrder } = require('./trading-engine.cjs')
 const { evaluateMedicationSafety, evaluateMedicalAdviceConfidence } = require('./medical-safety.cjs')
 const { enqueueMediaJob } = require('./media-generation.cjs')
-const { callViaTwilio, normalizePhoneNumber } = require('./telephony-adapter.cjs')
+const { callViaTwilio, sendMessageViaTwilio, normalizePhoneNumber } = require('./telephony-adapter.cjs')
 const { generateWorkflow } = require('./workflow-engine.cjs')
 const { assessTerminalCommand, buildCommandPlan } = require('./terminal-agent.cjs')
 const { generateCreativeHypotheses } = require('./creative-lab.cjs')
@@ -47,6 +48,7 @@ const { submitRelayRequest, listPendingRelayRequests, completeRelayRequest } = r
 const { configureWakewordAdapter, getNativeWakewordStatus } = require('./wakeword-native.cjs')
 const { createLongHorizonPlan, advanceValidationLoop } = require('./planner-executor.cjs')
 const { registerEcosystemAdapter, planDeviceAction } = require('./device-ecosystem.cjs')
+const { runHeadlessAutomation } = require('./puppeteer-agent.cjs')
 const { registerActuator, buildActuationPlan } = require('./robotics-control.cjs')
 const { summarizeVaultProviders, configureVaultProvider } = require('./secret-vault.cjs')
 const { buildSceneGraph, groundPerceptionFrame } = require('./multimodal-perception.cjs')
@@ -729,23 +731,17 @@ function registerIpcHandlers(mainWindow) {
     optimization: { reports: [], lastRunAt: null, autoTune: true, updatedAt: null },
   }
 
+  let swarmState = {
+    tasks: [],
+    updatedAt: null
+  }
+
   function loadAuditEntriesFromDisk() {
-    if (!fs.existsSync(auditFilePath)) {
+    try {
+      return dbAdapter.getAuditLogs(1000)
+    } catch {
       return []
     }
-
-    const raw = fs.readFileSync(auditFilePath, 'utf8')
-    return raw
-      .split('\n')
-      .filter(Boolean)
-      .reduce((acc, line) => {
-        try {
-          acc.push(JSON.parse(line))
-        } catch {
-          // Skip corrupt lines rather than crashing.
-        }
-        return acc
-      }, [])
   }
 
   function initializeAuditState() {
@@ -783,7 +779,11 @@ function registerIpcHandlers(mainWindow) {
       hash: sha256Hex(stableStringify(entrySeed)),
     }
 
+    dbAdapter.insertAuditLog(entry)
+
+    // Also keep massive JSONL backup strictly for archival resilience.
     fs.appendFileSync(auditFilePath, JSON.stringify(entry) + '\n', 'utf8')
+
     auditState.lastIndex = nextIndex
     auditState.lastHash = entry.hash
     return entry
@@ -1787,11 +1787,11 @@ function registerIpcHandlers(mainWindow) {
     learningState = {
       ...learningState,
       skills: Array.from(mergedSkills).sort((a, b) => a.localeCompare(b)),
-      logs: [...learningState.logs, entry].slice(-600),
       updatedAt: ts,
     }
 
     saveLearningState()
+    dbAdapter.insertLearningLog(entry)
 
     appendAuditEntry('action_result', {
       actionId: 'learning.record',
@@ -2778,12 +2778,21 @@ function registerIpcHandlers(mainWindow) {
       }
     }
 
+    const dbLogs = dbAdapter.getLearningLogs(600)
+    const dbConfidence = dbAdapter.getAllSkillsConfidence()
+    const dbHypotheses = dbAdapter.getV2Hypotheses()
+
     return {
       ok: true,
       skills: learningState.skills,
-      logs: learningState.logs,
+      logs: dbLogs.length > 0 ? dbLogs : learningState.logs,
       videoPlans: learningState.videoPlans || [],
       updatedAt: learningState.updatedAt,
+      stateV2: {
+        ...learningV2State,
+        confidence: Object.keys(dbConfidence).length > 0 ? dbConfidence : learningV2State.confidence,
+        hypotheses: dbHypotheses.length > 0 ? dbHypotheses : learningV2State.hypotheses
+      },
     }
   })
 
@@ -2854,10 +2863,10 @@ function registerIpcHandlers(mainWindow) {
     const variables =
       input?.variables && typeof input.variables === 'object'
         ? Object.fromEntries(
-            Object.entries(input.variables)
-              .filter(([key, value]) => typeof key === 'string' && key.trim() && typeof value === 'string')
-              .map(([key, value]) => [String(key).trim(), String(value)]),
-          )
+          Object.entries(input.variables)
+            .filter(([key, value]) => typeof key === 'string' && key.trim() && typeof value === 'string')
+            .map(([key, value]) => [String(key).trim(), String(value)]),
+        )
         : {}
 
     const existing = Array.isArray(learningState.automationProfilePresets)
@@ -3287,10 +3296,10 @@ function registerIpcHandlers(mainWindow) {
     const variables =
       input?.variables && typeof input.variables === 'object'
         ? Object.fromEntries(
-            Object.entries(input.variables)
-              .filter(([key, value]) => typeof key === 'string' && typeof value === 'string')
-              .map(([key, value]) => [String(key).trim(), String(value)]),
-          )
+          Object.entries(input.variables)
+            .filter(([key, value]) => typeof key === 'string' && typeof value === 'string')
+            .map(([key, value]) => [String(key).trim(), String(value)]),
+        )
         : {}
     const appKey = String(input?.appKey || pack.appType || '').trim().toLowerCase()
     const appVersion = String(input?.appVersion || '').trim()
@@ -4546,6 +4555,165 @@ function registerIpcHandlers(mainWindow) {
             ? 'Opened SIP dial target in your system client.'
             : 'Opened your system dialer with the requested number.'
         : 'Opened contact call lookup in browser (desktop relay mode).',
+    }
+  })
+
+  ipcMain.handle('paxion:messaging:send', async (_event, input) => {
+    if (capabilityState.emergencyCallRelay === false) {
+      return {
+        ok: false,
+        reason: 'Emergency call/messaging relay capability is disabled in Access tab.',
+      }
+    }
+
+    const number = String(input?.number || '').trim()
+    const message = String(input?.message || '').trim()
+    const emergency = Boolean(input?.emergency)
+    const whatsapp = Boolean(input?.whatsapp)
+
+    if (!number || !message) {
+      return { ok: false, reason: 'Provide both a phone number and a message body.' }
+    }
+
+    const adminActive = isAdminUnlocked(adminSession)
+    if (!adminActive && !emergency) {
+      return { ok: false, reason: 'Admin session required for messaging relay.' }
+    }
+
+    const secrets = loadVoiceSecrets()
+    const providerResult = await sendMessageViaTwilio({
+      toNumber: number,
+      fromNumber: String(input?.fromNumber || callProviderState.fromNumber || secrets.twilioFromNumber || ''),
+      accountSid: secrets.twilioAccountSid,
+      authToken: secrets.twilioAuthToken,
+      message,
+      whatsapp,
+    })
+
+    if (!providerResult?.ok) {
+      return { ok: false, reason: providerResult?.reason || 'Twilio message could not be sent.' }
+    }
+
+    appendAuditEntry('action_result', {
+      actionId: 'messaging.sendRelay',
+      status: 'allowed',
+      reason: emergency ? 'Emergency message relay initiated.' : 'Message relay initiated.',
+      target: number,
+      whatsapp,
+      providerResult,
+    })
+
+    return {
+      ok: true,
+      reason: whatsapp ? 'Sent WhatsApp message via Twilio.' : 'Sent SMS via Twilio.',
+      providerResult,
+    }
+  })
+
+  ipcMain.handle('paxion:learning:v2:update', async (_event, input) => {
+    if (!learningV2State) {
+      learningV2State = { skills: [], confidence: {}, hypotheses: [], timeline: [] }
+    }
+
+    const evolved = evolveSkills(learningV2State, input)
+    learningV2State.skills = evolved.skills
+    learningV2State.confidence = evolved.confidence
+    learningV2State.updatedAt = evolved.updatedAt
+
+    for (const [skill, conf] of Object.entries(evolved.confidence)) {
+      dbAdapter.upsertSkillConfidence(skill, conf, evolved.updatedAt)
+    }
+
+    const hypotheses = generateHypotheses(learningV2State, input)
+    learningV2State.hypotheses = hypotheses
+    dbAdapter.insertV2Hypotheses(hypotheses)
+
+    saveJsonState(learningV2StateFilePath, learningV2State)
+
+    return {
+      ok: true,
+      state: learningV2State
+    }
+  })
+
+  ipcMain.handle('paxion:voiceQuality:get', () => {
+    try {
+      return { ok: true, ...dbAdapter.getVoiceSettings() }
+    } catch (e) {
+      return { ok: false, reason: e.message }
+    }
+  })
+
+  ipcMain.handle('paxion:ecosystem:register', (_event, input) => {
+    try {
+      return dbAdapter.registerPlugin(input)
+    } catch (e) {
+      return { ok: false, reason: e.message }
+    }
+  })
+
+  ipcMain.handle('paxion:automation:email:send', async (_event, input) => {
+    try {
+      const { sendEmail } = require('./email-agent.cjs')
+      return await sendEmail(input)
+    } catch (e) {
+      return { ok: false, reason: e.message }
+    }
+  })
+
+  ipcMain.handle('paxion:checkpoint:list', (_event, scriptId) => {
+    try {
+      const checkpoints = dbAdapter.getCheckpoints(String(scriptId || ''))
+      return { ok: true, checkpoints }
+    } catch (e) {
+      return { ok: false, reason: e.message, checkpoints: [] }
+    }
+  })
+
+  ipcMain.handle('paxion:checkpoint:create', (_event, input) => {
+    try {
+      const scriptId = String(input?.scriptId || '').trim()
+      const code = String(input?.code || '').trim()
+      if (!scriptId || !code) return { ok: false, reason: 'scriptId and code are required.' }
+      return dbAdapter.createCheckpoint(scriptId, code)
+    } catch (e) {
+      return { ok: false, reason: e.message }
+    }
+  })
+
+  // ─── Social Media Automation ──────────────────────────────────────────────
+  const socialAgent = require('./social-media-agent.cjs')
+
+  ipcMain.handle('paxion:social:schedule', (_event, input) => {
+    try {
+      return socialAgent.schedulePost(input)
+    } catch (e) {
+      return { ok: false, reason: e.message }
+    }
+  })
+
+  ipcMain.handle('paxion:social:ideas', (_event, input) => {
+    try {
+      return socialAgent.generatePostIdeas(input)
+    } catch (e) {
+      return { ok: false, reason: e.message }
+    }
+  })
+
+  ipcMain.handle('paxion:social:analyze', (_event, input) => {
+    try {
+      return socialAgent.analyzeEngagement(input)
+    } catch (e) {
+      return { ok: false, reason: e.message }
+    }
+  })
+
+  ipcMain.handle('paxion:social:steps', (_event, input) => {
+    try {
+      const { platform, content, mediaPath } = input || {}
+      return { ok: true, ...socialAgent.buildPostSteps(String(platform || 'twitter'), String(content || ''), mediaPath) }
+    } catch (e) {
+      return { ok: false, reason: e.message }
     }
   })
 
@@ -5859,6 +6027,19 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
+  ipcMain.handle('paxion:learning:v2:rollback', (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required to rollback skill.' }
+    }
+    const success = dbAdapter.rollbackSkill(input?.skill)
+    if (success) {
+      learningV2State.skills = dbAdapter.getAllSkillsConfidence()
+      saveDomainStates()
+      return { ok: true, learningV2: learningV2State }
+    }
+    return { ok: false, reason: 'No prior version available.' }
+  })
+
   ipcMain.handle('paxion:trading:backtest', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to run trading backtest.' }
@@ -6031,6 +6212,108 @@ function registerIpcHandlers(mainWindow) {
         reason: `Failed to clear workspace state: ${err.message}`,
       }
     }
+  })
+
+  // ── Multi-Agent Swarm Orchestration ──
+  ipcMain.handle('paxion:swarm:start', async (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required.' }
+    }
+
+    const swarmId = `swarm-${Date.now()}`
+    const commands = Array.isArray(input?.commands) ? input.commands : []
+
+    const task = {
+      id: swarmId,
+      name: input?.name || 'Untitled Swarm',
+      status: 'running',
+      commandsTotal: commands.length,
+      commandsCompleted: 0,
+      logs: [],
+      startTime: new Date().toISOString()
+    }
+
+    swarmState.tasks.unshift(task)
+    swarmState.updatedAt = new Date().toISOString()
+
+    // Fire & Forget parallel execution
+    Promise.allSettled(commands.map(async (cmd) => {
+      try {
+        const res = await execCommand(cmd, { cwd: process.cwd(), timeout: 120000 })
+        const liveTask = swarmState.tasks.find(t => t.id === swarmId)
+        if (liveTask) {
+          liveTask.logs.push(`[OK] ${cmd}: ${String(res.stdout || '').slice(0, 100)}`)
+          liveTask.commandsCompleted++
+        }
+      } catch (err) {
+        const liveTask = swarmState.tasks.find(t => t.id === swarmId)
+        if (liveTask) {
+          liveTask.logs.push(`[ERR] ${cmd}: ${String(err.stderr || err.message || '').slice(0, 100)}`)
+          liveTask.commandsCompleted++
+        }
+      }
+    })).finally(() => {
+      const liveTask = swarmState.tasks.find(t => t.id === swarmId)
+      if (liveTask) liveTask.status = 'completed'
+    })
+
+    return { ok: true, task }
+  })
+
+  ipcMain.handle('paxion:swarm:status', () => {
+    return { ok: true, swarms: swarmState.tasks }
+  })
+
+  ipcMain.handle('paxion:notify', (_event, input) => {
+    if (Notification.isSupported()) {
+      new Notification({ title: input?.title || 'Paxion AI', body: input?.body || '' }).show()
+      return { ok: true }
+    }
+    return { ok: false, reason: 'Notifications not supported' }
+  })
+
+  // Checkpoint handlers
+  ipcMain.handle('paxion:checkpoint:create', async (_event, { scriptId, code }) => {
+    return dbAdapter.createCheckpoint(scriptId, code)
+  })
+
+  ipcMain.handle('paxion:checkpoint:list', async (_event, scriptId) => {
+    return dbAdapter.getCheckpoints(scriptId)
+  })
+
+  // Phase 2: Extensibility & Multimodal
+  ipcMain.handle('paxion:analytics:log', async (_event, { type, payload }) => {
+    return dbAdapter.createAnalyticsEvent(type, payload)
+  })
+
+  ipcMain.handle('paxion:ecosystem:register', async (_event, pluginData) => {
+    return dbAdapter.registerPlugin(pluginData)
+  })
+
+  ipcMain.handle('paxion:ecosystem:list', async () => {
+    return { ok: true, plugins: dbAdapter.listPlugins() }
+  })
+
+  ipcMain.handle('paxion:voiceQuality:update', async (_event, settings) => {
+    return dbAdapter.setVoiceSettings(settings)
+  })
+
+  ipcMain.handle('paxion:voiceQuality:get', async () => {
+    return dbAdapter.getVoiceSettings()
+  })
+
+  const { sendEmail } = require('./email-agent.cjs')
+
+  ipcMain.handle('paxion:automation:email:send', async (_event, emailData) => {
+    return sendEmail(emailData)
+  })
+
+  ipcMain.handle('paxion:automation:puppeteer', async (_event, input) => {
+    if (!isAdminUnlocked(adminSession)) {
+      return { ok: false, reason: 'Admin session required for headless automation.' }
+    }
+    const result = await runHeadlessAutomation(input)
+    return result
   })
 }
 

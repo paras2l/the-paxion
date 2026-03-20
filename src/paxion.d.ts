@@ -257,6 +257,7 @@ interface PaxionLearningLoadResult {
   logs: PaxionLearningEntry[]
   videoPlans: PaxionVideoLearningPlan[]
   updatedAt: string | null
+  stateV2?: Record<string, unknown>
 }
 
 interface PaxionLearningRecordResult {
@@ -520,6 +521,50 @@ type PaxionAutomationStepInput = {
 declare global {
   interface Window {
     readonly paxion?: {
+      notify(input: { title?: string; body?: string }): Promise<{ ok: boolean; reason?: string }>
+      ecosystem?: {
+        register(plugin: any): Promise<{ ok: boolean; id?: string; reason?: string }>
+        list(): Promise<{ ok: boolean; plugins: any[]; reason?: string }>
+      }
+      checkpoint?: {
+        list(scriptId: string): Promise<{ ok: boolean; checkpoints: Array<{ id: string; scriptId: string; code: string; createdAt: string }>; reason?: string }>
+        create(input: { scriptId: string; code: string }): Promise<{ ok: boolean; id?: string; reason?: string }>
+      }
+      medical?: {
+        review(input: { medications: string[] }): Promise<{ ok: boolean; safe?: boolean; findings?: any[]; reviewedAt?: string; reason?: string }>
+        adviceCheck(input: { confidence: number; threshold: number }): Promise<{ ok: boolean; allowed?: boolean; reason?: string }>
+      }
+      social?: {
+        schedule(input: { platform: string; content: string; scheduledAt?: string }): Promise<{ ok: boolean; post?: Record<string, unknown>; reason?: string }>
+        ideas(input: { topic: string; platform: string }): Promise<{ ok: boolean; ideas?: any[]; reason?: string }>
+        analyze(input: { posts: any[] }): Promise<{ ok: boolean; summary?: Record<string, unknown>; reason?: string }>
+        steps(input: { platform: string; content: string; mediaPath?: string }): Promise<{ ok: boolean; steps?: any[]; url?: string; reason?: string }>
+      }
+      voiceQuality?: {
+        get(): Promise<{ ok: boolean; voice?: string; pitch?: number; rate?: number }>
+        status(): Promise<{ ok: boolean; runtimeStatus?: string; reason?: string }>
+        update(input: { voice?: string; pitch?: number; rate?: number; duplexEnabled?: boolean; interruptionHandling?: string; personaMemory?: string; prosody?: string }): Promise<{ ok: boolean; reason?: string }>
+        evaluate(input: any): Promise<{ ok: boolean; reason?: string }>
+      }
+      automation: {
+        load(): Promise<any>
+        savePreset(input: any): Promise<any>
+        deletePreset(input: any): Promise<any>
+        previewReplay(input: any): Promise<any>
+        runAdapter(input: any): Promise<any>
+        observeLearn(input: any): Promise<any>
+        replayRecord(input: any): Promise<any>
+        suggestions(): Promise<any>
+        puppeteer(input: any): Promise<any>
+        email?: {
+          send(input: { to: string; subject: string; body: string; auth?: { user: string; pass: string } }): Promise<{ ok: boolean; reason?: string }>
+        }
+      }
+      swarm?: {
+        start(input: { name: string; commands: string[] }): Promise<{ ok: boolean; reason?: string }>
+        status(): Promise<{ ok: boolean; swarms: Array<Record<string, unknown>>; reason?: string }>
+        kill(id: string): Promise<{ ok: boolean; reason?: string }>
+      }
       admin: {
         unlock(codeword: string): Promise<PaxionAdminUnlockResult>
         status(): Promise<PaxionAdminStatusResult>
@@ -552,6 +597,19 @@ declare global {
         gptChat(input: {
           query: string
         }): Promise<PaxionGptChatEnvelope>
+      }
+      messaging: {
+        send(input: {
+          number: string
+          message: string
+          whatsapp?: boolean
+          emergency?: boolean
+          fromNumber?: string
+        }): Promise<{
+          ok: boolean
+          reason?: string
+          providerResult?: Record<string, unknown>
+        }>
       }
       learning: {
         load(): Promise<PaxionLearningLoadResult>
@@ -586,13 +644,24 @@ declare global {
           newSkills?: string[]
         }): Promise<
           | {
-              ok: true
-              videoPlans: PaxionVideoLearningPlan[]
-              skills: string[]
-              updatedAt: string | null
-            }
+            ok: true
+            videoPlans: PaxionVideoLearningPlan[]
+            skills: string[]
+            updatedAt: string | null
+          }
           | { ok: false; reason: string }
         >
+      }
+      learningV2: {
+        update(input: {
+          newSkills?: string[]
+          successful?: boolean
+          goal?: string
+        }): Promise<{
+          ok: boolean
+          reason?: string
+          state?: Record<string, unknown>
+        }>
       }
       automation: {
         load(): Promise<PaxionAutomationLoadResult>
@@ -602,24 +671,24 @@ declare global {
           variables: Record<string, string>
         }): Promise<
           | {
-              ok: true
-              preset: PaxionAutomationProfilePreset
-              presets: PaxionAutomationProfilePreset[]
-            }
+            ok: true
+            preset: PaxionAutomationProfilePreset
+            presets: PaxionAutomationProfilePreset[]
+          }
           | { ok: false; reason: string }
         >
         deletePreset(input: { presetId: string }): Promise<
           | {
-              ok: true
-              presets: PaxionAutomationProfilePreset[]
-            }
+            ok: true
+            presets: PaxionAutomationProfilePreset[]
+          }
           | { ok: false; reason: string }
         >
         previewReplay(input: { recordId: string }): Promise<
           | {
-              ok: true
-              preview: PaxionReplayPreview
-            }
+            ok: true
+            preview: PaxionReplayPreview
+          }
           | { ok: false; reason: string }
         >
         runAdapter(input: {
@@ -630,18 +699,18 @@ declare global {
           explicitPermission: boolean
         }): Promise<
           | {
-              ok: true
-              adapterId: string
-              targetUrl: string
-              records: PaxionExecutionRecord[]
-              templates: PaxionAutomationTemplate[]
-              profiles: PaxionAutomationProfile[]
-              presets: PaxionAutomationProfilePreset[]
-              executionRecords: PaxionExecutionRecord[]
-              suggestions: PaxionCapabilitySuggestion[]
-              skills: string[]
-              updatedAt: string | null
-            }
+            ok: true
+            adapterId: string
+            targetUrl: string
+            records: PaxionExecutionRecord[]
+            templates: PaxionAutomationTemplate[]
+            profiles: PaxionAutomationProfile[]
+            presets: PaxionAutomationProfilePreset[]
+            executionRecords: PaxionExecutionRecord[]
+            suggestions: PaxionCapabilitySuggestion[]
+            skills: string[]
+            updatedAt: string | null
+          }
           | { ok: false; reason: string }
         >
         observeLearn(input: {
@@ -649,17 +718,17 @@ declare global {
           sourceKnowledge: string
         }): Promise<
           | {
-              ok: true
-              template: PaxionAutomationTemplate
-              records: PaxionExecutionRecord[]
-              templates: PaxionAutomationTemplate[]
-              profiles: PaxionAutomationProfile[]
-              presets: PaxionAutomationProfilePreset[]
-              executionRecords: PaxionExecutionRecord[]
-              suggestions: PaxionCapabilitySuggestion[]
-              skills: string[]
-              updatedAt: string | null
-            }
+            ok: true
+            template: PaxionAutomationTemplate
+            records: PaxionExecutionRecord[]
+            templates: PaxionAutomationTemplate[]
+            profiles: PaxionAutomationProfile[]
+            presets: PaxionAutomationProfilePreset[]
+            executionRecords: PaxionExecutionRecord[]
+            suggestions: PaxionCapabilitySuggestion[]
+            skills: string[]
+            updatedAt: string | null
+          }
           | { ok: false; reason: string }
         >
         replayRecord(input: {
@@ -668,13 +737,13 @@ declare global {
           explicitPermission: boolean
         }): Promise<
           | {
-              ok: true
-              replayRecord: PaxionExecutionRecord | null
-              replayRecords: PaxionExecutionRecord[]
-              executionRecords: PaxionExecutionRecord[]
-              suggestions: PaxionCapabilitySuggestion[]
-              updatedAt: string | null
-            }
+            ok: true
+            replayRecord: PaxionExecutionRecord | null
+            replayRecords: PaxionExecutionRecord[]
+            executionRecords: PaxionExecutionRecord[]
+            suggestions: PaxionCapabilitySuggestion[]
+            updatedAt: string | null
+          }
           | { ok: false; reason: string }
         >
         suggestions(): Promise<
@@ -692,11 +761,11 @@ declare global {
           appVersion?: string
         }): Promise<
           | {
-              ok: true
-              session: PaxionExecutionSession
-              executionSessions: PaxionExecutionSession[]
-              learningGraph: PaxionLearningGraphSnapshot
-            }
+            ok: true
+            session: PaxionExecutionSession
+            executionSessions: PaxionExecutionSession[]
+            learningGraph: PaxionLearningGraphSnapshot
+          }
           | { ok: false; reason: string }
         >
         verifySession(input: {
@@ -706,30 +775,30 @@ declare global {
           outcome: string
         }): Promise<
           | {
-              ok: true
-              session: PaxionExecutionSession
-              executionSessions: PaxionExecutionSession[]
-              learningGraph: PaxionLearningGraphSnapshot
-            }
+            ok: true
+            session: PaxionExecutionSession
+            executionSessions: PaxionExecutionSession[]
+            learningGraph: PaxionLearningGraphSnapshot
+          }
           | { ok: false; reason: string }
         >
         rollbackSession(input: { sessionId: string; notes: string }): Promise<
           | {
-              ok: true
-              session: PaxionExecutionSession
-              executionSessions: PaxionExecutionSession[]
-              learningGraph: PaxionLearningGraphSnapshot
-            }
+            ok: true
+            session: PaxionExecutionSession
+            executionSessions: PaxionExecutionSession[]
+            learningGraph: PaxionLearningGraphSnapshot
+          }
           | { ok: false; reason: string }
         >
         executeRollback(input: { sessionId: string; notes?: string }): Promise<
           | {
-              ok: true
-              session: PaxionExecutionSession | null
-              transaction: Record<string, unknown>
-              executionSessions: PaxionExecutionSession[]
-              learningGraph: PaxionLearningGraphSnapshot
-            }
+            ok: true
+            session: PaxionExecutionSession | null
+            transaction: Record<string, unknown>
+            executionSessions: PaxionExecutionSession[]
+            learningGraph: PaxionLearningGraphSnapshot
+          }
           | { ok: false; reason: string }
         >
         executeNativeAction(input: {
@@ -757,12 +826,12 @@ declare global {
           metadata?: Record<string, unknown>
         }): Promise<
           | {
-              ok: true
-              session: PaxionExecutionSession | null
-              evidence: Record<string, unknown>
-              executionSessions: PaxionExecutionSession[]
-              learningGraph: PaxionLearningGraphSnapshot
-            }
+            ok: true
+            session: PaxionExecutionSession | null
+            evidence: Record<string, unknown>
+            executionSessions: PaxionExecutionSession[]
+            learningGraph: PaxionLearningGraphSnapshot
+          }
           | { ok: false; reason: string }
         >
         captureObservation(input: {
@@ -773,12 +842,12 @@ declare global {
           screenshotPath: string
         }): Promise<
           | {
-              ok: true
-              snapshot: PaxionObservationSnapshot
-              observations: PaxionObservationSnapshot[]
-              learningGraph: PaxionLearningGraphSnapshot
-              skills: string[]
-            }
+            ok: true
+            snapshot: PaxionObservationSnapshot
+            observations: PaxionObservationSnapshot[]
+            learningGraph: PaxionLearningGraphSnapshot
+            skills: string[]
+          }
           | { ok: false; reason: string }
         >
         planMission(input: { goal: string; surfaces: string[] }): Promise<
@@ -798,59 +867,59 @@ declare global {
           limit?: number
         }): Promise<
           | {
-              ok: true
-              learningGraph: PaxionLearningGraphSnapshot
-              page: {
-                cursor: number
-                nextCursor: number | null
-                limit: number
-                totalNodes: number
-                totalEdges: number
-              }
-              indexStats: {
-                totalSourceNodes: number
-                totalSourceEdges: number
-                distinctKinds: number
-              }
+            ok: true
+            learningGraph: PaxionLearningGraphSnapshot
+            page: {
+              cursor: number
+              nextCursor: number | null
+              limit: number
+              totalNodes: number
+              totalEdges: number
             }
+            indexStats: {
+              totalSourceNodes: number
+              totalSourceEdges: number
+              distinctKinds: number
+            }
+          }
           | {
-              ok: false
-              reason: string
-              learningGraph: PaxionLearningGraphSnapshot
-              page: {
-                cursor: number
-                nextCursor: number | null
-                limit: number
-                totalNodes: number
-                totalEdges: number
-              }
-              indexStats: {
-                totalSourceNodes: number
-                totalSourceEdges: number
-                distinctKinds: number
-              }
+            ok: false
+            reason: string
+            learningGraph: PaxionLearningGraphSnapshot
+            page: {
+              cursor: number
+              nextCursor: number | null
+              limit: number
+              totalNodes: number
+              totalEdges: number
             }
+            indexStats: {
+              totalSourceNodes: number
+              totalSourceEdges: number
+              distinctKinds: number
+            }
+          }
         >
         attestationStatus(): Promise<
           | {
-              ok: true
-              status: {
-                publicKeyFingerprint: string
-                lastEntryHash: string
-                hasChain: boolean
-              }
+            ok: true
+            status: {
+              publicKeyFingerprint: string
+              lastEntryHash: string
+              hasChain: boolean
             }
+          }
           | { ok: false; reason: string }
         >
         rotateAttestationKey(input: { reason?: string }): Promise<
           | {
-              ok: true
-              rotation: {
-                previousFingerprint: string
-                currentFingerprint: string
-                lastEntryHash: string
-              }
+            ok: true
+            rotation: {
+              previousFingerprint: string
+              currentFingerprint: string
+              lastEntryHash: string
             }
+          }
           | { ok: false; reason: string }
         >
         createEvolutionPipeline(input: {
@@ -873,14 +942,14 @@ declare global {
           buildPassed?: boolean
         }): Promise<
           | {
-              ok: true
-              pipeline: PaxionEvolutionPipeline
-              attestation: {
-                entryHash: string
-                publicKeyFingerprint: string
-              }
-              evolutionPipelines: PaxionEvolutionPipeline[]
+            ok: true
+            pipeline: PaxionEvolutionPipeline
+            attestation: {
+              entryHash: string
+              publicKeyFingerprint: string
             }
+            evolutionPipelines: PaxionEvolutionPipeline[]
+          }
           | { ok: false; reason: string }
         >
         createVisionJob(input: {
@@ -890,20 +959,20 @@ declare global {
           notes: string
         }): Promise<
           | {
-              ok: true
-              job: PaxionVisionJob
-              visionJobs: PaxionVisionJob[]
-              learningGraph: PaxionLearningGraphSnapshot
-            }
+            ok: true
+            job: PaxionVisionJob
+            visionJobs: PaxionVisionJob[]
+            learningGraph: PaxionLearningGraphSnapshot
+          }
           | { ok: false; reason: string }
         >
         reviewVisionJob(input: { jobId: string; notes: string }): Promise<
           | {
-              ok: true
-              job: PaxionVisionJob
-              visionJobs: PaxionVisionJob[]
-              learningGraph: PaxionLearningGraphSnapshot
-            }
+            ok: true
+            job: PaxionVisionJob
+            visionJobs: PaxionVisionJob[]
+            learningGraph: PaxionLearningGraphSnapshot
+          }
           | { ok: false; reason: string }
         >
         runOcr(input: {
@@ -915,15 +984,15 @@ declare global {
           sessionId?: string
         }): Promise<
           | {
-              ok: true
-              job: PaxionVisionJob | null
-              extractedText: string
-              confidence: number
-              language: string
-              visionJobs: PaxionVisionJob[]
-              learningGraph: PaxionLearningGraphSnapshot
-              skills: string[]
-            }
+            ok: true
+            job: PaxionVisionJob | null
+            extractedText: string
+            confidence: number
+            language: string
+            visionJobs: PaxionVisionJob[]
+            learningGraph: PaxionLearningGraphSnapshot
+            skills: string[]
+          }
           | { ok: false; reason: string }
         >
         createEvidenceArtifact(input: {
@@ -936,24 +1005,24 @@ declare global {
           screenshotPath?: string
         }): Promise<
           | {
-              ok: true
-              artifact: PaxionEvidenceArtifact
-              session: PaxionExecutionSession | null
-              executionSessions: PaxionExecutionSession[]
-              learningGraph: PaxionLearningGraphSnapshot
-            }
+            ok: true
+            artifact: PaxionEvidenceArtifact
+            session: PaxionExecutionSession | null
+            executionSessions: PaxionExecutionSession[]
+            learningGraph: PaxionLearningGraphSnapshot
+          }
           | { ok: false; reason: string }
         >
       }
       program: {
         status(): Promise<
           | {
-              ok: true
-              policySnapshotHash: string
-              complianceMode: string
-              domains: Record<string, boolean>
-              updatedAt: string
-            }
+            ok: true
+            policySnapshotHash: string
+            complianceMode: string
+            domains: Record<string, boolean>
+            updatedAt: string
+          }
           | { ok: false; reason: string }
         >
       }
@@ -1176,8 +1245,13 @@ declare global {
         save(input: { docs: LibraryDocument[] }): Promise<PaxionLibrarySaveResult>
         clear(): Promise<{ ok: boolean; reason?: string }>
       }
+      swarm: {
+        start(input: { name?: string; commands: string[] }): Promise<{ ok: boolean; reason?: string; task?: Record<string, unknown> }>
+        status(): Promise<{ ok: boolean; swarms?: Array<Record<string, unknown>> }>
+      }
+      notify(input: { title: string; body: string }): Promise<{ ok: boolean; reason?: string }>
     }
   }
 }
 
-export {}
+export { }

@@ -1,0 +1,172 @@
+.twofa-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    animation: twofaFade 0.2s ease;
+}
+
+@keyframes twofaFade {
+    from {
+        opacity: 0;
+        transform: scale(0.96);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.twofa-modal {
+    background: #0f172a;
+    border: 1px solid rgba(124, 58, 237, 0.4);
+    border-radius: 18px;
+    padding: 36px 40px;
+    max-width: 440px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(124, 58, 237, 0.15);
+}
+
+.twofa-icon {
+    font-size: 2.8rem;
+    margin-bottom: 12px;
+}
+
+.twofa-modal h2 {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #e2e8f0;
+    margin-bottom: 8px;
+}
+
+.twofa-desc {
+    color: #94a3b8;
+    font-size: 0.9rem;
+    margin-bottom: 4px;
+}
+
+.twofa-action-label {
+    background: rgba(124, 58, 237, 0.1);
+    border: 1px solid rgba(124, 58, 237, 0.3);
+    border-radius: 8px;
+    padding: 8px 16px;
+    color: #a78bfa;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin: 12px 0 20px;
+    word-break: break-word;
+}
+
+.twofa-instructions {
+    color: #64748b;
+    font-size: 0.85rem;
+    margin-bottom: 14px;
+}
+
+.twofa-code-display {
+    font-size: 2.5rem;
+    font-weight: 900;
+    letter-spacing: 0.3em;
+    color: #7c3aed;
+    background: rgba(124, 58, 237, 0.08);
+    border: 2px solid rgba(124, 58, 237, 0.3);
+    border-radius: 12px;
+    padding: 14px 24px;
+    margin: 0 auto 20px;
+    font-family: monospace;
+    cursor: default;
+    user-select: none;
+}
+
+.twofa-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(124, 58, 237, 0.35);
+    border-radius: 10px;
+    padding: 14px;
+    color: #e2e8f0;
+    font-size: 1.4rem;
+    font-weight: 700;
+    text-align: center;
+    letter-spacing: 0.35em;
+    font-family: monospace;
+    margin-bottom: 10px;
+    transition: border-color 0.2s;
+}
+
+.twofa-input:focus {
+    outline: none;
+    border-color: #7c3aed;
+}
+
+.twofa-input::placeholder {
+    font-size: 0.9rem;
+    letter-spacing: 0;
+    color: #475569;
+}
+
+.twofa-error {
+    color: #ef4444;
+    font-size: 0.85rem;
+    margin-bottom: 10px;
+    font-weight: 600;
+}
+
+.twofa-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.twofa-cancel-btn {
+    flex: 1;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: transparent;
+    color: #94a3b8;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.twofa-cancel-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: #e2e8f0;
+}
+
+.twofa-confirm-btn {
+    flex: 1;
+    padding: 12px;
+    border-radius: 10px;
+    border: none;
+    background: #7c3aed;
+    color: #fff;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+
+.twofa-confirm-btn:hover:not(:disabled) {
+    opacity: 0.88;
+}
+
+.twofa-confirm-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.twofa-footer {
+    color: #475569;
+    font-size: 0.78rem;
+    margin-top: 16px;
+}
