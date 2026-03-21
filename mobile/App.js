@@ -40,7 +40,7 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#05070a', // Matches Paxion Hacker Dark Theme
+    backgroundColor: '#05070a', // Matches Raizen Hacker Dark Theme
   },
   webview: {
     flex: 1,

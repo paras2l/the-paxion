@@ -34,11 +34,11 @@ export const EmailAutomation: React.FC = () => {
 
         try {
             // @ts-ignore
-            const res = await window.paxion.automation.email.send(email)
+            const res = await window.raizen.automation.email.send(email)
             if (res.ok) {
                 setStatus({ type: 'success', message: 'Email sent successfully!' })
                 // @ts-ignore
-                window.paxion.notify({ title: 'Email Sent', body: `Message to ${email.to} has been dispatched.` })
+                window.raizen.notify({ title: 'Email Sent', body: `Message to ${email.to} has been dispatched.` })
             } else {
                 setStatus({ type: 'error', message: res.reason || 'Failed to send email.' })
             }
@@ -54,7 +54,7 @@ export const EmailAutomation: React.FC = () => {
         <div className="email-automation-container">
             <header className="email-header">
                 <h1>Email Automation</h1>
-                <p>Send automated reports, notifications, or messages via Paxion.</p>
+                <p>Send automated reports, notifications, or messages via Raizen.</p>
             </header>
 
             <div className="email-layout">
@@ -131,7 +131,7 @@ export const EmailAutomation: React.FC = () => {
                     <ul>
                         <li>Use App Passwords for Gmail/Outlook.</li>
                         <li>Enable 2FA on your accounts for safety.</li>
-                        <li>Paxion can auto-parse and send Excel data via this tool.</li>
+                        <li>Raizen can auto-parse and send Excel data via this tool.</li>
                         <li>Scheduled emails can be set in the Swarm dashboard.</li>
                     </ul>
                 </aside>

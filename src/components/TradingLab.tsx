@@ -40,7 +40,7 @@ export const TradingLab: React.FC = () => {
             return
         }
         // @ts-ignore
-        const res = await window.paxion?.trading?.backtest?.({ prices })
+        const res = await window.raizen?.trading?.backtest?.({ prices })
         if (res) {
             setBacktestResult(res as unknown as BacktestResult)
             setStatus('')
@@ -57,7 +57,7 @@ export const TradingLab: React.FC = () => {
             return
         }
         // @ts-ignore
-        const order = await window.paxion?.trading?.paperOrder?.({
+        const order = await window.raizen?.trading?.paperOrder?.({
             symbol: orderSymbol.toUpperCase(),
             side: orderSide,
             quantity: qty,

@@ -6,8 +6,8 @@ import pngToIco from 'png-to-ico'
 const projectRoot = process.cwd()
 const publicDir = path.join(projectRoot, 'public')
 const sourceIconPath = path.join(publicDir, 'favicon.svg')
-const outputPngPath = path.join(publicDir, 'paxion-icon.png')
-const outputIcoPath = path.join(publicDir, 'paxion.ico')
+const outputPngPath = path.join(publicDir, 'raizen-icon.png')
+const outputIcoPath = path.join(publicDir, 'raizen.ico')
 
 const sourceIconSvg = await fs.readFile(sourceIconPath, 'utf8')
 

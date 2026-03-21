@@ -28,7 +28,7 @@ export const ComplianceMonitor: React.FC = () => {
             return
         }
         // @ts-ignore
-        const res = await window.paxion?.compliance?.evaluate?.({
+        const res = await window.raizen?.compliance?.evaluate?.({
             actionId: actionId.trim(),
             category,
             detail: detail.trim(),

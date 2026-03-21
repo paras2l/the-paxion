@@ -3,8 +3,8 @@
 const http = require('http')
 const crypto = require('crypto')
 
-const PORT = Number(process.env.PORT || process.env.PAXION_RELAY_PORT || 8787)
-const RELAY_TOKEN = String(process.env.PAXION_RELAY_TOKEN || '').trim()
+const PORT = Number(process.env.PORT || process.env.RAIZEN_RELAY_PORT || 8787)
+const RELAY_TOKEN = String(process.env.RAIZEN_RELAY_TOKEN || '').trim()
 const pending = new Map()
 
 function writeJson(res, statusCode, payload) {
@@ -31,10 +31,10 @@ function readBody(req) {
 
 function requireToken(req, res) {
   if (!RELAY_TOKEN) {
-    writeJson(res, 500, { ok: false, reason: 'PAXION_RELAY_TOKEN is not configured.' })
+    writeJson(res, 500, { ok: false, reason: 'RAIZEN_RELAY_TOKEN is not configured.' })
     return false
   }
-  const token = String(req.headers['x-paxion-relay-token'] || '')
+  const token = String(req.headers['x-raizen-relay-token'] || '')
   if (token !== RELAY_TOKEN) {
     writeJson(res, 401, { ok: false, reason: 'Invalid relay token.' })
     return false
@@ -46,7 +46,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
 
   if (req.method === 'GET' && url.pathname === '/health') {
-    writeJson(res, 200, { ok: true, service: 'paxion-cloud-relay' })
+    writeJson(res, 200, { ok: true, service: 'raizen-cloud-relay' })
     return
   }
 
@@ -98,5 +98,5 @@ const server = http.createServer(async (req, res) => {
 })
 
 server.listen(PORT, () => {
-  console.log(`[Paxion Relay] listening on :${PORT}`)
+  console.log(`[Raizen Relay] listening on :${PORT}`)
 })

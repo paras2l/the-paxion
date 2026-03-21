@@ -5,7 +5,7 @@ const path = require('path')
 const { app } = require('electron')
 
 // Initialize DB in userData folder
-const dbPath = path.join(app.getPath('userData'), 'paxion-memory.db')
+const dbPath = path.join(app.getPath('userData'), 'raizen-memory.db')
 const db = new Database(dbPath)
 db.pragma('journal_mode = WAL')
 
@@ -163,14 +163,29 @@ function getVoiceSettings() {
 
 // Plugin Marketplace API
 function registerPlugin({ id, name, description, manifest }) {
+    // Ensure manifest.version is set if available at top level
+    let manifestObj = manifest || {};
+    if (!manifestObj.version && typeof manifestObj === 'object' && manifestObj) {
+        if (typeof arguments[0].version === 'string') {
+            manifestObj.version = arguments[0].version;
+        }
+    }
     const stmt = db.prepare('INSERT OR REPLACE INTO plugins (id, name, description, manifest) VALUES (?, ?, ?, ?)');
-    stmt.run(id, name, description || '', JSON.stringify(manifest || {}));
+    stmt.run(id, name, description || '', JSON.stringify(manifestObj));
     return { ok: true, id };
 }
 
 function listPlugins() {
     const stmt = db.prepare('SELECT id, name, description, manifest FROM plugins');
-    return stmt.all().map(row => ({ ...row, manifest: JSON.parse(row.manifest) }));
+    return stmt.all().map(row => {
+        const manifest = JSON.parse(row.manifest);
+        // Expose version at top level for UI convenience
+        return {
+            ...row,
+            manifest,
+            version: manifest.version || undefined,
+        };
+    });
 }
 
 
@@ -225,6 +240,17 @@ function getAuditLogs(limit = 1000) {
     }))
 }
 
+const fs = require('fs')
+
+function getDatabaseFileSize() {
+    try {
+        const stats = fs.statSync(dbPath)
+        return stats.size // in bytes
+    } catch (err) {
+        return 0
+    }
+}
+
 module.exports = {
     db,
     insertLearningLog,
@@ -243,5 +269,6 @@ module.exports = {
     registerPlugin,
     listPlugins,
     createCheckpoint,
-    getCheckpoints
+    getCheckpoints,
+    getDatabaseFileSize
 };

@@ -46,5 +46,5 @@ test('medical safety returns contraindications and confidence gate', () => {
 test('media generation queue returns completed artifact with watermark', () => {
   const result = enqueueMediaJob({ jobs: [] }, { type: 'image', prompt: 'futuristic dashboard' })
   assert.equal(result.job.status, 'completed')
-  assert.equal(result.job.watermark.includes('Paxion'), true)
+  assert.equal(result.job.watermark.includes('Raizen'), true)
 })

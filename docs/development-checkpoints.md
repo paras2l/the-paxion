@@ -3,7 +3,7 @@
 Use this file to protect continuity and prevent missing work.
 
 ## Repository
-- Remote: https://github.com/paras2l/the-paxion.git
+- Remote: https://github.com/paras2l/the-raizen.git
 - Default branch: main
 
 ## Push policy
@@ -32,10 +32,10 @@ Use this file to protect continuity and prevent missing work.
 - v0.2.0-security-core: immutable policy guardrails, approval ticketing, and hash-chained audit logs wired into Access and Logs tabs.
 - v0.3.0-library: persistent audit via IPC + Library document ingestion UI.
 - v0.4.0-chat: local-first chat tab with Library retrieval context.
-- v0.5.0-paxion-brain: no external API model path; local PaxionBrain and dark mission UI.
+- v0.5.0-raizen-brain: no external API model path; local RaizenBrain and dark mission UI.
 - v0.6.0-workspace-mvp: admin session hardening, atomic main-process decision+execution+audit flow, persisted approvals, and workspace mission executor queue.
 - v0.7.0-access-voice: persisted capability registry in Access tab with policy blocking, plus local voice input/output controls in Chat.
-- v0.8.0-knowledge-growth: persisted Library memory state and chunk-indexed PaxionBrain retrieval so capability scales with ingested books/documents.
+- v0.8.0-knowledge-growth: persisted Library memory state and chunk-indexed RaizenBrain retrieval so capability scales with ingested books/documents.
 - v0.9.0-desktop-relay: no-API ChatGPT/Google desktop relay added with admin session + capability gating.
 - v0.10.0-skill-growth: learning timeline persistence, inferred skill acquisition, relay capture ingestion, and admin-gated growth capabilities.
 - v0.11.0-video-and-bridges: allowlisted workspace tool runner, VS Code command bridge, media adapter job artifacts, and YouTube segmented learning planner with parallel batch opening.

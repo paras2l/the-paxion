@@ -32,7 +32,7 @@ export const RoboticsControl: React.FC = () => {
             return
         }
         // @ts-ignore
-        const res = await window.paxion?.robotics?.register?.({
+        const res = await window.raizen?.robotics?.register?.({
             id: actuatorId.trim() || undefined,
             kind: actuatorKind.trim(),
             workspace: actuatorWorkspace.trim(),
@@ -52,7 +52,7 @@ export const RoboticsControl: React.FC = () => {
             return
         }
         // @ts-ignore
-        const res = await window.paxion?.robotics?.plan?.({
+        const res = await window.raizen?.robotics?.plan?.({
             target: planTarget.trim(),
             command: planCommand.trim(),
         })

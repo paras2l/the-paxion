@@ -1,8 +1,8 @@
 {
-  "name": "the-paxion",
+  "name": "the-raizen",
   "private": true,
   "version": "0.22.0",
-  "description": "The Paxion - Personal AI Desktop Assistant",
+  "description": "The Raizen - Personal AI Desktop Assistant",
   "author": "Paro the Chief",
   "main": "electron/main.cjs",
   "type": "module",
@@ -17,8 +17,8 @@
     "preview": "vite preview"
   },
   "build": {
-    "appId": "ai.paxion.desktop",
-    "productName": "The Paxion",
+    "appId": "ai.raizen.desktop",
+    "productName": "The Raizen",
     "directories": {
       "output": "release"
     },
@@ -30,14 +30,14 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "public/paxion.ico"
+      "icon": "public/raizen.ico"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "installerIcon": "public/paxion.ico",
-      "uninstallerIcon": "public/paxion.ico",
-      "installerHeaderIcon": "public/paxion.ico"
+      "installerIcon": "public/raizen.ico",
+      "uninstallerIcon": "public/raizen.ico",
+      "installerHeaderIcon": "public/raizen.ico"
     }
   },
   "dependencies": {

@@ -32,7 +32,7 @@ export const CheckpointHistory: React.FC<Props> = ({ scriptId: propScriptId }) =
         setRestoreStatus('')
         try {
             // @ts-ignore
-            const res = await window.paxion?.checkpoint?.list?.(target.trim())
+            const res = await window.raizen?.checkpoint?.list?.(target.trim())
             if (res?.ok && Array.isArray(res.checkpoints)) {
                 setCheckpoints(res.checkpoints)
                 if (res.checkpoints.length === 0) setRestoreStatus('No checkpoints found for this script.')
@@ -53,7 +53,7 @@ export const CheckpointHistory: React.FC<Props> = ({ scriptId: propScriptId }) =
             return
         }
         // @ts-ignore
-        const res = await window.paxion?.checkpoint?.create?.({
+        const res = await window.raizen?.checkpoint?.create?.({
             scriptId: createScriptId.trim(),
             code: createCode.trim(),
         })
@@ -79,7 +79,7 @@ export const CheckpointHistory: React.FC<Props> = ({ scriptId: propScriptId }) =
         <div className="checkpoint-container">
             <header className="checkpoint-header">
                 <h1>Script Checkpoint History</h1>
-                <p>Browse and restore previous versions of any script Paxion has edited.</p>
+                <p>Browse and restore previous versions of any script Raizen has edited.</p>
             </header>
 
             <div className="checkpoint-grid">

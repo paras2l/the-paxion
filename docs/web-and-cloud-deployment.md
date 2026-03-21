@@ -1,4 +1,4 @@
-# Paxion Web And Cloud Deployment
+# Raizen Web And Cloud Deployment
 
 ## Recommended free deployment
 
@@ -77,7 +77,7 @@ Steps:
 3. Root directory: `relay`
 4. Build command: `npm install`
 5. Start command: `npm start`
-6. Set env var `PAXION_RELAY_TOKEN` to a long random secret
+6. Set env var `RAIZEN_RELAY_TOKEN` to a long random secret
 7. Deploy
 
 The relay service also supports platform `PORT` automatically.
@@ -89,14 +89,14 @@ Optional:
 Health check:
 
 1. Open `https://your-render-service.onrender.com/health`
-2. Expected response: `{ "ok": true, "service": "paxion-cloud-relay" }`
+2. Expected response: `{ "ok": true, "service": "raizen-cloud-relay" }`
 
 ## Connect the hosted app to the relay
 
-In Paxion Access tab:
+In Raizen Access tab:
 
 1. Set Relay endpoint to your Render URL
-2. Set Relay token to the same `PAXION_RELAY_TOKEN`
+2. Set Relay token to the same `RAIZEN_RELAY_TOKEN`
 3. Set Mode to `cloud`
 4. Enable queue polling if desired
 5. Save config
@@ -107,7 +107,7 @@ If you want true full power even while your PC is off, the next architecture ste
 
 1. Keep the current Vercel PWA frontend
 2. Keep the Render relay
-3. Add a real hosted Paxion API service for library/workspace/access/admin persistence and actions
+3. Add a real hosted Raizen API service for library/workspace/access/admin persistence and actions
 4. Add hosted database/storage
 
 That would move the Electron-only intelligence and persistence surfaces into the cloud and make phone usage first-class.

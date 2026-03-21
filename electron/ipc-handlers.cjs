@@ -1,3 +1,7 @@
+  // Memory/Database stats handler
+  ipcMain.handle('raizen:stats:databaseSize', () => {
+    return { ok: true, size: dbAdapter.getDatabaseFileSize() }
+  })
 'use strict'
 
 const { ipcMain, dialog, app, shell, desktopCapturer, safeStorage, Notification } = require('electron')
@@ -609,25 +613,44 @@ function slugifyName(input, fallback = 'target') {
 // ── IPC handler registration ──
 
 function registerIpcHandlers(mainWindow) {
-  const auditFilePath = path.join(app.getPath('userData'), 'paxion-audit.jsonl')
-  const approvalsFilePath = path.join(app.getPath('userData'), 'paxion-approvals.json')
-  const workspaceStateFilePath = path.join(app.getPath('userData'), 'paxion-workspace-state.json')
-  const capabilityStateFilePath = path.join(app.getPath('userData'), 'paxion-capabilities.json')
-  const libraryStateFilePath = path.join(app.getPath('userData'), 'paxion-library-state.json')
-  const learningStateFilePath = path.join(app.getPath('userData'), 'paxion-learning-state.json')
-  const attestationStateFilePath = path.join(app.getPath('userData'), 'paxion-attestation-state.json')
-  const attestationChainFilePath = path.join(app.getPath('userData'), 'paxion-attestation-chain.jsonl')
-  const deviceStateFilePath = path.join(app.getPath('userData'), 'paxion-devices.json')
-  const learningV2StateFilePath = path.join(app.getPath('userData'), 'paxion-learning-v2.json')
-  const tradingStateFilePath = path.join(app.getPath('userData'), 'paxion-trading.json')
-  const medicalStateFilePath = path.join(app.getPath('userData'), 'paxion-medical.json')
-  const mediaStateFilePath = path.join(app.getPath('userData'), 'paxion-media.json')
-  const callProviderStateFilePath = path.join(app.getPath('userData'), 'paxion-call-provider.json')
-  const voiceSecretsFilePath = path.join(app.getPath('userData'), 'paxion-voice-secrets.json')
-  const relaySecretsFilePath = path.join(app.getPath('userData'), 'paxion-relay-secrets.json')
-  const terminalPackStateFilePath = path.join(app.getPath('userData'), 'paxion-terminal-command-packs.json')
-  const bridgeStateFilePath = path.join(app.getPath('userData'), 'paxion-bridge-state.json')
-  const advancedStateFilePath = path.join(app.getPath('userData'), 'paxion-advanced-domains.json')
+    // Plugin/Agent Marketplace: List installed plugins/agents
+    ipcMain.handle('raizen:ecosystem:list', () => {
+      try {
+        return dbAdapter.listPlugins();
+      } catch (e) {
+        return { ok: false, reason: e.message, plugins: [] };
+      }
+    });
+
+    // Plugin/Agent Marketplace: Remove/uninstall plugin/agent
+    ipcMain.handle('raizen:ecosystem:remove', (_event, id) => {
+      try {
+        const stmt = dbAdapter.db.prepare('DELETE FROM plugins WHERE id = ?');
+        stmt.run(id);
+        return { ok: true, id };
+      } catch (e) {
+        return { ok: false, reason: e.message };
+      }
+    });
+  const auditFilePath = path.join(app.getPath('userData'), 'raizen-audit.jsonl')
+  const approvalsFilePath = path.join(app.getPath('userData'), 'raizen-approvals.json')
+  const workspaceStateFilePath = path.join(app.getPath('userData'), 'raizen-workspace-state.json')
+  const capabilityStateFilePath = path.join(app.getPath('userData'), 'raizen-capabilities.json')
+  const libraryStateFilePath = path.join(app.getPath('userData'), 'raizen-library-state.json')
+  const learningStateFilePath = path.join(app.getPath('userData'), 'raizen-learning-state.json')
+  const attestationStateFilePath = path.join(app.getPath('userData'), 'raizen-attestation-state.json')
+  const attestationChainFilePath = path.join(app.getPath('userData'), 'raizen-attestation-chain.jsonl')
+  const deviceStateFilePath = path.join(app.getPath('userData'), 'raizen-devices.json')
+  const learningV2StateFilePath = path.join(app.getPath('userData'), 'raizen-learning-v2.json')
+  const tradingStateFilePath = path.join(app.getPath('userData'), 'raizen-trading.json')
+  const medicalStateFilePath = path.join(app.getPath('userData'), 'raizen-medical.json')
+  const mediaStateFilePath = path.join(app.getPath('userData'), 'raizen-media.json')
+  const callProviderStateFilePath = path.join(app.getPath('userData'), 'raizen-call-provider.json')
+  const voiceSecretsFilePath = path.join(app.getPath('userData'), 'raizen-voice-secrets.json')
+  const relaySecretsFilePath = path.join(app.getPath('userData'), 'raizen-relay-secrets.json')
+  const terminalPackStateFilePath = path.join(app.getPath('userData'), 'raizen-terminal-command-packs.json')
+  const bridgeStateFilePath = path.join(app.getPath('userData'), 'raizen-bridge-state.json')
+  const advancedStateFilePath = path.join(app.getPath('userData'), 'raizen-advanced-domains.json')
   const adminSession = buildAdminSessionState()
   const approvalTickets = new Map()
   const replayPreviewApprovals = new Map()
@@ -715,7 +738,7 @@ function registerIpcHandlers(mainWindow) {
     science: { theoremPlans: [], simulationPlans: [], programs: [], updatedAt: null },
     voiceQuality: { profile: null, sessions: [], updatedAt: null },
     relay: {
-      config: { mode: 'disabled', endpoint: '', deviceId: 'paxion-primary', pollingEnabled: false },
+      config: { mode: 'disabled', endpoint: '', deviceId: 'raizen-primary', pollingEnabled: false },
       oneTimeTokens: [],
       envelopes: [],
       requests: [],
@@ -794,7 +817,7 @@ function registerIpcHandlers(mainWindow) {
       const data = JSON.stringify(Array.from(approvalTickets.values()), null, 2)
       fs.writeFileSync(approvalsFilePath, data, 'utf8')
     } catch (err) {
-      console.error('[Paxion] approval save failed:', err)
+      console.error('[Raizen] approval save failed:', err)
     }
   }
 
@@ -845,7 +868,7 @@ function registerIpcHandlers(mainWindow) {
 
       cleanupExpiredApprovalTickets()
     } catch (err) {
-      console.error('[Paxion] approval load failed:', err)
+      console.error('[Raizen] approval load failed:', err)
     }
   }
 
@@ -1216,7 +1239,7 @@ function registerIpcHandlers(mainWindow) {
         config: {
           mode: String(advancedState?.relay?.config?.mode || 'disabled'),
           endpoint: String(advancedState?.relay?.config?.endpoint || ''),
-          deviceId: String(advancedState?.relay?.config?.deviceId || 'paxion-primary'),
+          deviceId: String(advancedState?.relay?.config?.deviceId || 'raizen-primary'),
           pollingEnabled: Boolean(advancedState?.relay?.config?.pollingEnabled),
         },
         oneTimeTokens: Array.isArray(advancedState?.relay?.oneTimeTokens) ? advancedState.relay.oneTimeTokens : [],
@@ -1249,7 +1272,7 @@ function registerIpcHandlers(mainWindow) {
   }
 
   function workspaceRootPath() {
-    return path.join(app.getPath('userData'), 'paxion-workspace')
+    return path.join(app.getPath('userData'), 'raizen-workspace')
   }
 
   function ensureAttestationState() {
@@ -1332,7 +1355,7 @@ function registerIpcHandlers(mainWindow) {
     const signature = sign.sign(attestationState.privateKeyPem, 'base64')
     const entry = {
       ...baseEntry,
-      signer: 'paxion-attestor',
+      signer: 'raizen-attestor',
       signature,
       publicKeyFingerprint: attestationState.publicKeyFingerprint,
     }
@@ -1389,7 +1412,7 @@ function registerIpcHandlers(mainWindow) {
       attestationChainFilePath,
       JSON.stringify({
         ...rotationAnchor,
-        signer: 'paxion-attestor',
+        signer: 'raizen-attestor',
         signature: null,
         publicKeyFingerprint: attestationState.publicKeyFingerprint,
       }) + '\n',
@@ -2383,17 +2406,17 @@ function registerIpcHandlers(mainWindow) {
     if (actionId === 'workspace.generateComponent') {
       const targetPath = String(request?.targetPath || '/workspace/generated-component.tsx')
       const rel = sanitizeRelativePath(targetPath.replace(/^\/workspace\/?/i, ''))
-      const workspaceRoot = path.join(app.getPath('userData'), 'paxion-workspace')
+      const workspaceRoot = path.join(app.getPath('userData'), 'raizen-workspace')
       const outputPath = path.join(workspaceRoot, rel || 'generated-component.tsx')
 
       fs.mkdirSync(path.dirname(outputPath), { recursive: true })
 
-      const componentName = 'PaxionGeneratedComponent'
+      const componentName = 'RaizenGeneratedComponent'
       const code = [
         "import React from 'react'",
         '',
         `export function ${componentName}() {`,
-        "  return <section>Generated by Paxion under guarded execution flow.</section>",
+        "  return <section>Generated by Raizen under guarded execution flow.</section>",
         '}',
         '',
       ].join('\n')
@@ -2486,7 +2509,7 @@ function registerIpcHandlers(mainWindow) {
     }
 
     if (actionId === 'media.generateAsset') {
-      const workspaceRoot = path.join(app.getPath('userData'), 'paxion-workspace')
+      const workspaceRoot = path.join(app.getPath('userData'), 'raizen-workspace')
       const baseName = `asset-${Date.now()}`
       const outputPath = path.join(workspaceRoot, 'media', `${baseName}.prompt.txt`)
       const manifestPath = path.join(workspaceRoot, 'media', `${baseName}.job.json`)
@@ -2495,7 +2518,7 @@ function registerIpcHandlers(mainWindow) {
       fs.writeFileSync(
         outputPath,
         [
-          'Paxion Media Generation Prompt',
+          'Raizen Media Generation Prompt',
           `Created: ${new Date().toISOString()}`,
           '',
           prompt,
@@ -2531,7 +2554,7 @@ function registerIpcHandlers(mainWindow) {
     if (actionId === 'automation.desktopAppEdit') {
       const appName = parseDetailValue(request?.detail, 'app') || 'unknown desktop app'
       const intent = parseDetailValue(request?.detail, 'intent') || String(request?.detail || '')
-      const workspaceRoot = path.join(app.getPath('userData'), 'paxion-workspace')
+      const workspaceRoot = path.join(app.getPath('userData'), 'raizen-workspace')
       const safeName = slugifyName(appName, 'desktop-app')
       const outputPath = path.join(
         workspaceRoot,
@@ -2553,7 +2576,7 @@ function registerIpcHandlers(mainWindow) {
           '- Open target app manually with admin confirmation.',
           '- Navigate to target editor/screen.',
           '- Apply deterministic edit checklist from this playbook.',
-          '- Validate output and log result in Paxion.',
+          '- Validate output and log result in Raizen.',
         ].join('\n'),
         'utf8',
       )
@@ -2569,7 +2592,7 @@ function registerIpcHandlers(mainWindow) {
     if (actionId === 'automation.webAppEdit') {
       const url = parseDetailValue(request?.detail, 'url')
       const intent = parseDetailValue(request?.detail, 'intent') || String(request?.detail || '')
-      const workspaceRoot = path.join(app.getPath('userData'), 'paxion-workspace')
+      const workspaceRoot = path.join(app.getPath('userData'), 'raizen-workspace')
       const outputPath = path.join(
         workspaceRoot,
         'automation',
@@ -2599,7 +2622,7 @@ function registerIpcHandlers(mainWindow) {
           '- Open web app session with user-approved credentials.',
           '- Navigate to target workspace/page.',
           '- Execute checklist edits from mission instructions.',
-          '- Capture final diff/summary and log in Paxion.',
+          '- Capture final diff/summary and log in Raizen.',
         ].join('\n'),
         'utf8',
       )
@@ -2615,13 +2638,13 @@ function registerIpcHandlers(mainWindow) {
     }
 
     if (actionId === 'workspace.selfEvolve') {
-      const workspaceRoot = path.join(app.getPath('userData'), 'paxion-workspace')
+      const workspaceRoot = path.join(app.getPath('userData'), 'raizen-workspace')
       const outputPath = path.join(workspaceRoot, 'evolution', `skill-proposal-${Date.now()}.md`)
       fs.mkdirSync(path.dirname(outputPath), { recursive: true })
       fs.writeFileSync(
         outputPath,
         [
-          '# Paxion Skill Evolution Proposal',
+          '# Raizen Skill Evolution Proposal',
           `Created: ${new Date().toISOString()}`,
           '',
           `Mission detail: ${String(request?.detail || 'N/A')}`,
@@ -2666,7 +2689,7 @@ function registerIpcHandlers(mainWindow) {
   }
 
   // Legacy endpoint for compatibility with existing renderer logging calls.
-  ipcMain.handle('paxion:audit:append', (_event, input) => {
+  ipcMain.handle('raizen:audit:append', (_event, input) => {
     try {
       const type = typeof input?.type === 'string' ? input.type : 'action_result'
       const payload =
@@ -2676,14 +2699,14 @@ function registerIpcHandlers(mainWindow) {
 
       return appendAuditEntry(type, payload)
     } catch (err) {
-      console.error('[Paxion] audit append failed:', err)
+      console.error('[Raizen] audit append failed:', err)
       return null
     }
   })
 
   // Load the full persisted audit log on startup.
   // This endpoint is privileged and requires an active admin session.
-  ipcMain.handle('paxion:audit:load', () => {
+  ipcMain.handle('raizen:audit:load', () => {
     if (!isAdminUnlocked(adminSession)) {
       return {
         ok: false,
@@ -2700,7 +2723,7 @@ function registerIpcHandlers(mainWindow) {
         entries,
       }
     } catch (err) {
-      console.error('[Paxion] audit load failed:', err)
+      console.error('[Raizen] audit load failed:', err)
       return {
         ok: false,
         reason: 'Failed to read audit log.',
@@ -2709,7 +2732,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:admin:unlock', (_event, codeword) => {
+  ipcMain.handle('raizen:admin:unlock', (_event, codeword) => {
     const valid = isAdminCodewordValid(codeword)
     if (!valid) {
       return {
@@ -2730,14 +2753,14 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:admin:status', () => {
+  ipcMain.handle('raizen:admin:status', () => {
     return {
       unlocked: isAdminUnlocked(adminSession),
       expiresAt: adminSession.expiresAt,
     }
   })
 
-  ipcMain.handle('paxion:admin:lock', () => {
+  ipcMain.handle('raizen:admin:lock', () => {
     adminSession.unlocked = false
     adminSession.unlockedAt = null
     adminSession.expiresAt = null
@@ -2748,25 +2771,25 @@ function registerIpcHandlers(mainWindow) {
   })
 
   // Authoritative main-process policy evaluation.
-  ipcMain.handle('paxion:policy:evaluate', (_event, request) => {
+  ipcMain.handle('raizen:policy:evaluate', (_event, request) => {
     return enforcePolicy(request)
   })
 
-  ipcMain.handle('paxion:access:load', () => {
+  ipcMain.handle('raizen:access:load', () => {
     return {
       ok: true,
       capabilities: capabilityState,
     }
   })
 
-  ipcMain.handle('paxion:integrations:getStatus', () => {
+  ipcMain.handle('raizen:integrations:getStatus', () => {
     return {
       ok: true,
       ...integrationsStatus(),
     }
   })
 
-  ipcMain.handle('paxion:learning:load', () => {
+  ipcMain.handle('raizen:learning:load', () => {
     if (!isAdminUnlocked(adminSession)) {
       return {
         ok: false,
@@ -2796,7 +2819,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:learning:record', (_event, input) => {
+  ipcMain.handle('raizen:learning:record', (_event, input) => {
     const entry = appendLearningLog(input)
     return {
       ok: true,
@@ -2807,7 +2830,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:automation:load', () => {
+  ipcMain.handle('raizen:automation:load', () => {
     if (!isAdminUnlocked(adminSession)) {
       return {
         ok: false,
@@ -2832,7 +2855,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:automation:savePreset', (_event, input) => {
+  ipcMain.handle('raizen:automation:savePreset', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return {
         ok: false,
@@ -2914,7 +2937,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:automation:deletePreset', (_event, input) => {
+  ipcMain.handle('raizen:automation:deletePreset', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return {
         ok: false,
@@ -2948,7 +2971,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:automation:previewReplay', (_event, input) => {
+  ipcMain.handle('raizen:automation:previewReplay', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return {
         ok: false,
@@ -2972,7 +2995,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:automation:runAdapter', async (_event, input) => {
+  ipcMain.handle('raizen:automation:runAdapter', async (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return {
         ok: false,
@@ -3069,7 +3092,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:automation:observeLearn', (_event, input) => {
+  ipcMain.handle('raizen:automation:observeLearn', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return {
         ok: false,
@@ -3157,7 +3180,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:automation:replayRecord', async (_event, input) => {
+  ipcMain.handle('raizen:automation:replayRecord', async (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return {
         ok: false,
@@ -3232,7 +3255,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:automation:suggestions', () => {
+  ipcMain.handle('raizen:automation:suggestions', () => {
     if (!isAdminUnlocked(adminSession)) {
       return {
         ok: false,
@@ -3247,7 +3270,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:readiness:load', () => {
+  ipcMain.handle('raizen:readiness:load', () => {
     if (!isAdminUnlocked(adminSession)) {
       return {
         ok: false,
@@ -3274,7 +3297,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:readiness:runTargetPack', async (_event, input) => {
+  ipcMain.handle('raizen:readiness:runTargetPack', async (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to run target workflow pack.' }
     }
@@ -3400,7 +3423,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:readiness:verifySession', async (_event, input) => {
+  ipcMain.handle('raizen:readiness:verifySession', async (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to verify execution session.' }
     }
@@ -3442,7 +3465,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, session, executionSessions: learningState.executionSessions || [], learningGraph: buildLearningGraph() }
   })
 
-  ipcMain.handle('paxion:readiness:rollbackSession', async (_event, input) => {
+  ipcMain.handle('raizen:readiness:rollbackSession', async (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to rollback execution session.' }
     }
@@ -3477,7 +3500,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, session, executionSessions: learningState.executionSessions || [], learningGraph: buildLearningGraph() }
   })
 
-  ipcMain.handle('paxion:readiness:captureStepEvidence', async (_event, input) => {
+  ipcMain.handle('raizen:readiness:captureStepEvidence', async (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to capture step evidence.' }
     }
@@ -3496,7 +3519,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:readiness:executeNativeAction', async (_event, input) => {
+  ipcMain.handle('raizen:readiness:executeNativeAction', async (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required for native action execution.' }
     }
@@ -3586,7 +3609,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:readiness:executeRollback', async (_event, input) => {
+  ipcMain.handle('raizen:readiness:executeRollback', async (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required for rollback execution.' }
     }
@@ -3662,7 +3685,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:readiness:captureObservation', (_event, input) => {
+  ipcMain.handle('raizen:readiness:captureObservation', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to capture observation.' }
     }
@@ -3690,7 +3713,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, snapshot, observations: learningState.observationSnapshots || [], learningGraph: buildLearningGraph(), skills: learningState.skills }
   })
 
-  ipcMain.handle('paxion:readiness:planMission', (_event, input) => {
+  ipcMain.handle('raizen:readiness:planMission', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to plan cross-app mission.' }
     }
@@ -3704,7 +3727,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, mission, missions: learningState.crossAppMissions || [] }
   })
 
-  ipcMain.handle('paxion:readiness:graph', () => {
+  ipcMain.handle('raizen:readiness:graph', () => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to inspect learning graph.', learningGraph: { nodes: [], edges: [], updatedAt: null } }
     }
@@ -3712,7 +3735,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, learningGraph: buildLearningGraph() }
   })
 
-  ipcMain.handle('paxion:readiness:queryGraph', (_event, input) => {
+  ipcMain.handle('raizen:readiness:queryGraph', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return {
         ok: false,
@@ -3745,7 +3768,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:readiness:createEvolutionPipeline', (_event, input) => {
+  ipcMain.handle('raizen:readiness:createEvolutionPipeline', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to create evolution pipeline.' }
     }
@@ -3754,13 +3777,13 @@ function registerIpcHandlers(mainWindow) {
       return { ok: false, reason: 'selfEvolution capability is disabled in Access tab.' }
     }
 
-    const workspaceRoot = path.join(app.getPath('userData'), 'paxion-workspace')
+    const workspaceRoot = path.join(app.getPath('userData'), 'raizen-workspace')
     const artifactPath = path.join(workspaceRoot, 'evolution', `pipeline-${Date.now()}.md`)
     fs.mkdirSync(path.dirname(artifactPath), { recursive: true })
     fs.writeFileSync(
       artifactPath,
       [
-        '# Paxion Evolution Pipeline',
+        '# Raizen Evolution Pipeline',
         `Title: ${String(input?.title || 'Evolution pipeline')}`,
         '',
         'Stages:',
@@ -3785,7 +3808,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, pipeline, evolutionPipelines: learningState.evolutionPipelines || [] }
   })
 
-  ipcMain.handle('paxion:readiness:advanceEvolutionPipeline', (_event, input) => {
+  ipcMain.handle('raizen:readiness:advanceEvolutionPipeline', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to advance evolution pipeline.' }
     }
@@ -3849,7 +3872,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, pipeline, evolutionPipelines: learningState.evolutionPipelines || [] }
   })
 
-  ipcMain.handle('paxion:readiness:signGovernancePolicy', (_event, input) => {
+  ipcMain.handle('raizen:readiness:signGovernancePolicy', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to sign governance policy.' }
     }
@@ -3896,7 +3919,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:readiness:attestationStatus', () => {
+  ipcMain.handle('raizen:readiness:attestationStatus', () => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to inspect attestation status.' }
     }
@@ -3906,7 +3929,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:readiness:rotateAttestationKey', (_event, input) => {
+  ipcMain.handle('raizen:readiness:rotateAttestationKey', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to rotate attestation key.' }
     }
@@ -3924,7 +3947,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:readiness:createVisionJob', (_event, input) => {
+  ipcMain.handle('raizen:readiness:createVisionJob', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to create vision/OCR job.' }
     }
@@ -3956,7 +3979,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, job, visionJobs: learningState.visionJobs || [], learningGraph: buildLearningGraph() }
   })
 
-  ipcMain.handle('paxion:readiness:reviewVisionJob', (_event, input) => {
+  ipcMain.handle('raizen:readiness:reviewVisionJob', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to review vision/OCR job.' }
     }
@@ -3975,7 +3998,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, job, visionJobs: learningState.visionJobs || [], learningGraph: buildLearningGraph() }
   })
 
-  ipcMain.handle('paxion:readiness:runOcr', async (_event, input) => {
+  ipcMain.handle('raizen:readiness:runOcr', async (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to run OCR.' }
     }
@@ -4071,7 +4094,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:readiness:createEvidenceArtifact', (_event, input) => {
+  ipcMain.handle('raizen:readiness:createEvidenceArtifact', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to create evidence artifact.' }
     }
@@ -4151,7 +4174,7 @@ function registerIpcHandlers(mainWindow) {
     fs.writeFileSync(
       mdPath,
       [
-        '# Paxion Evidence Artifact',
+        '# Raizen Evidence Artifact',
         `Session ID: ${sessionId}`,
         `Pack: ${session.packName}`,
         `Status: ${session.status}`,
@@ -4214,7 +4237,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:learning:youtubePlanCreate', (_event, input) => {
+  ipcMain.handle('raizen:learning:youtubePlanCreate', (_event, input) => {
     if (capabilityState.videoLearning === false) {
       return {
         ok: false,
@@ -4264,7 +4287,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:learning:youtubeSegmentOpen', async (_event, input) => {
+  ipcMain.handle('raizen:learning:youtubeSegmentOpen', async (_event, input) => {
     if (capabilityState.videoLearning === false) {
       return {
         ok: false,
@@ -4319,7 +4342,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:learning:youtubeSegmentComplete', (_event, input) => {
+  ipcMain.handle('raizen:learning:youtubeSegmentComplete', (_event, input) => {
     const planId = String(input?.planId || '')
     const segmentId = String(input?.segmentId || '')
     const summary = String(input?.summary || '').trim()
@@ -4364,7 +4387,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:integrations:googleSearch', async (_event, input) => {
+  ipcMain.handle('raizen:integrations:googleSearch', async (_event, input) => {
     if (capabilityState.libraryIngestWeb === false) {
       return {
         ok: false,
@@ -4405,7 +4428,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:integrations:gptChat', async (_event, input) => {
+  ipcMain.handle('raizen:integrations:gptChat', async (_event, input) => {
     if (capabilityState.chatExternalModel === false) {
       return {
         ok: false,
@@ -4448,7 +4471,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:voice:call', async (_event, input) => {
+  ipcMain.handle('raizen:voice:call', async (_event, input) => {
     if (capabilityState.emergencyCallRelay === false) {
       return {
         ok: false,
@@ -4485,7 +4508,7 @@ function registerIpcHandlers(mainWindow) {
         fromNumber: String(input?.fromNumber || callProviderState.fromNumber || secrets.twilioFromNumber || ''),
         accountSid: secrets.twilioAccountSid,
         authToken: secrets.twilioAuthToken,
-        message: String(input?.message || (emergency ? 'Emergency call initiated by Paxion.' : 'Paxion call initiated.')),
+        message: String(input?.message || (emergency ? 'Emergency call initiated by Raizen.' : 'Raizen call initiated.')),
       })
       if (!providerResult?.ok) {
         return {
@@ -4558,7 +4581,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:messaging:send', async (_event, input) => {
+  ipcMain.handle('raizen:messaging:send', async (_event, input) => {
     if (capabilityState.emergencyCallRelay === false) {
       return {
         ok: false,
@@ -4610,7 +4633,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:learning:v2:update', async (_event, input) => {
+  ipcMain.handle('raizen:learning:v2:update', async (_event, input) => {
     if (!learningV2State) {
       learningV2State = { skills: [], confidence: {}, hypotheses: [], timeline: [] }
     }
@@ -4636,7 +4659,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:voiceQuality:get', () => {
+  ipcMain.handle('raizen:voiceQuality:get', () => {
     try {
       return { ok: true, ...dbAdapter.getVoiceSettings() }
     } catch (e) {
@@ -4644,7 +4667,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:ecosystem:register', (_event, input) => {
+  ipcMain.handle('raizen:ecosystem:register', (_event, input) => {
     try {
       return dbAdapter.registerPlugin(input)
     } catch (e) {
@@ -4652,7 +4675,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:automation:email:send', async (_event, input) => {
+  ipcMain.handle('raizen:automation:email:send', async (_event, input) => {
     try {
       const { sendEmail } = require('./email-agent.cjs')
       return await sendEmail(input)
@@ -4661,7 +4684,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:checkpoint:list', (_event, scriptId) => {
+  ipcMain.handle('raizen:checkpoint:list', (_event, scriptId) => {
     try {
       const checkpoints = dbAdapter.getCheckpoints(String(scriptId || ''))
       return { ok: true, checkpoints }
@@ -4670,7 +4693,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:checkpoint:create', (_event, input) => {
+  ipcMain.handle('raizen:checkpoint:create', (_event, input) => {
     try {
       const scriptId = String(input?.scriptId || '').trim()
       const code = String(input?.code || '').trim()
@@ -4684,7 +4707,7 @@ function registerIpcHandlers(mainWindow) {
   // ─── Social Media Automation ──────────────────────────────────────────────
   const socialAgent = require('./social-media-agent.cjs')
 
-  ipcMain.handle('paxion:social:schedule', (_event, input) => {
+  ipcMain.handle('raizen:social:schedule', (_event, input) => {
     try {
       return socialAgent.schedulePost(input)
     } catch (e) {
@@ -4692,7 +4715,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:social:ideas', (_event, input) => {
+  ipcMain.handle('raizen:social:ideas', (_event, input) => {
     try {
       return socialAgent.generatePostIdeas(input)
     } catch (e) {
@@ -4700,7 +4723,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:social:analyze', (_event, input) => {
+  ipcMain.handle('raizen:social:analyze', (_event, input) => {
     try {
       return socialAgent.analyzeEngagement(input)
     } catch (e) {
@@ -4708,7 +4731,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:social:steps', (_event, input) => {
+  ipcMain.handle('raizen:social:steps', (_event, input) => {
     try {
       const { platform, content, mediaPath } = input || {}
       return { ok: true, ...socialAgent.buildPostSteps(String(platform || 'twitter'), String(content || ''), mediaPath) }
@@ -4717,7 +4740,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:voice:provider:get', () => {
+  ipcMain.handle('raizen:voice:provider:get', () => {
     return {
       ok: true,
       provider: callProviderState.provider,
@@ -4726,7 +4749,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:voice:provider:set', (_event, input) => {
+  ipcMain.handle('raizen:voice:provider:set', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to update call provider.' }
     }
@@ -4743,7 +4766,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, provider: callProviderState.provider, fromNumber: callProviderState.fromNumber, updatedAt: callProviderState.updatedAt }
   })
 
-  ipcMain.handle('paxion:voice:secrets:get', () => {
+  ipcMain.handle('raizen:voice:secrets:get', () => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to read provider secret status.' }
     }
@@ -4763,7 +4786,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:voice:secrets:set', (_event, input) => {
+  ipcMain.handle('raizen:voice:secrets:set', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to update provider secrets.' }
     }
@@ -4795,7 +4818,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:terminal:pack:list', () => {
+  ipcMain.handle('raizen:terminal:pack:list', () => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to view terminal command packs.', packs: [] }
     }
@@ -4806,7 +4829,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:terminal:pack:create', (_event, input) => {
+  ipcMain.handle('raizen:terminal:pack:create', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to create command packs.' }
     }
@@ -4854,7 +4877,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, pack, packs: terminalPackState.packs, updatedAt: terminalPackState.updatedAt }
   })
 
-  ipcMain.handle('paxion:terminal:pack:simulate', (_event, input) => {
+  ipcMain.handle('raizen:terminal:pack:simulate', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to simulate command pack policy.' }
     }
@@ -4878,7 +4901,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:terminal:pack:activate', (_event, input) => {
+  ipcMain.handle('raizen:terminal:pack:activate', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to change command pack activation.' }
     }
@@ -4965,7 +4988,7 @@ function registerIpcHandlers(mainWindow) {
     bridgeServer = http.createServer(async (req, res) => {
       const urlObj = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
       if (req.method === 'GET' && urlObj.pathname === '/api/bridge/ping') {
-        writeBridgeJson(res, 200, { ok: true, name: 'paxion-bridge' })
+        writeBridgeJson(res, 200, { ok: true, name: 'raizen-bridge' })
         return
       }
 
@@ -5053,7 +5076,7 @@ function registerIpcHandlers(mainWindow) {
     bridgeServer.listen(Number(bridgeState.port || 8731), String(bridgeState.host || '0.0.0.0'))
   }
 
-  ipcMain.handle('paxion:bridge:status', () => {
+  ipcMain.handle('raizen:bridge:status', () => {
     cleanupBridgePendingRequests()
     return {
       ok: true,
@@ -5066,7 +5089,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:bridge:start', (_event, input) => {
+  ipcMain.handle('raizen:bridge:start', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to start mobile bridge.' }
     }
@@ -5093,7 +5116,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:bridge:rotateSecret', () => {
+  ipcMain.handle('raizen:bridge:rotateSecret', () => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to rotate bridge secret.' }
     }
@@ -5110,7 +5133,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:bridge:issueToken', (_event, input) => {
+  ipcMain.handle('raizen:bridge:issueToken', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to issue one-time bridge token.' }
     }
@@ -5126,7 +5149,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:bridge:stop', () => {
+  ipcMain.handle('raizen:bridge:stop', () => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to stop mobile bridge.' }
     }
@@ -5144,7 +5167,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:bridge:approve', async (_event, input) => {
+  ipcMain.handle('raizen:bridge:approve', async (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to approve bridge command.' }
     }
@@ -5201,14 +5224,14 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, request: row }
   })
 
-  ipcMain.handle('paxion:security:threatDashboard', (_event, input) => {
+  ipcMain.handle('raizen:security:threatDashboard', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to view threat dashboard.' }
     }
     return buildThreatDashboard(input)
   })
 
-  ipcMain.handle('paxion:governance:simulatePolicyDiff', (_event, input) => {
+  ipcMain.handle('raizen:governance:simulatePolicyDiff', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required for policy diff simulation.' }
     }
@@ -5219,7 +5242,7 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:governance:buildCanaryPlan', (_event, input) => {
+  ipcMain.handle('raizen:governance:buildCanaryPlan', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required for canary planning.' }
     }
@@ -5230,7 +5253,7 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:governance:checkAnomalies', (_event, input) => {
+  ipcMain.handle('raizen:governance:checkAnomalies', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required for anomaly analysis.' }
     }
@@ -5241,7 +5264,7 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:broker:configure', (_event, input) => {
+  ipcMain.handle('raizen:broker:configure', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to configure live broker.' }
     }
@@ -5251,14 +5274,14 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:broker:previewOrder', (_event, input) => {
+  ipcMain.handle('raizen:broker:previewOrder', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to preview live order.' }
     }
     return previewLiveOrder(input)
   })
 
-  ipcMain.handle('paxion:broker:executeOrder', (_event, input) => {
+  ipcMain.handle('raizen:broker:executeOrder', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to execute live order.' }
     }
@@ -5268,7 +5291,7 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:clinical:buildEvidence', (_event, input) => {
+  ipcMain.handle('raizen:clinical:buildEvidence', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required for clinical evidence generation.' }
     }
@@ -5279,7 +5302,7 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:clinical:validateEvidence', (_event, input) => {
+  ipcMain.handle('raizen:clinical:validateEvidence', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required for clinical evidence validation.' }
     }
@@ -5290,7 +5313,7 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:science:theoremPlan', (_event, input) => {
+  ipcMain.handle('raizen:science:theoremPlan', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required for theorem planning.' }
     }
@@ -5301,7 +5324,7 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:science:simulationPlan', (_event, input) => {
+  ipcMain.handle('raizen:science:simulationPlan', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required for simulation planning.' }
     }
@@ -5312,7 +5335,7 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:science:researchProgram', (_event, input) => {
+  ipcMain.handle('raizen:science:researchProgram', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required for research program synthesis.' }
     }
@@ -5323,11 +5346,11 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:voiceQuality:status', () => {
+  ipcMain.handle('raizen:voiceQuality:status', () => {
     return { ok: true, state: advancedState.voiceQuality }
   })
 
-  ipcMain.handle('paxion:voiceQuality:update', (_event, input) => {
+  ipcMain.handle('raizen:voiceQuality:update', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to update voice quality profile.' }
     }
@@ -5337,11 +5360,11 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:voiceQuality:evaluate', (_event, input) => {
+  ipcMain.handle('raizen:voiceQuality:evaluate', (_event, input) => {
     return evaluateDuplexSession(input)
   })
 
-  ipcMain.handle('paxion:optimization:status', () => {
+  ipcMain.handle('raizen:optimization:status', () => {
     return {
       ok: true,
       optimization: advancedState.optimization || {
@@ -5353,7 +5376,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:optimization:run', (_event, input) => {
+  ipcMain.handle('raizen:optimization:run', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to run weekly optimization.' }
     }
@@ -5376,7 +5399,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:relay:status', () => {
+  ipcMain.handle('raizen:relay:status', () => {
     const relaySecrets = loadRelaySecrets()
     return {
       ok: true,
@@ -5390,7 +5413,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:relay:configure', (_event, input) => {
+  ipcMain.handle('raizen:relay:configure', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to configure secure relay.' }
     }
@@ -5413,7 +5436,7 @@ function registerIpcHandlers(mainWindow) {
       config: {
         mode: String(input?.mode || 'disabled').trim() || 'disabled',
         endpoint: String(input?.endpoint || '').trim(),
-        deviceId: String(input?.deviceId || advancedState?.relay?.config?.deviceId || 'paxion-primary').trim() || 'paxion-primary',
+        deviceId: String(input?.deviceId || advancedState?.relay?.config?.deviceId || 'raizen-primary').trim() || 'raizen-primary',
         pollingEnabled: Boolean(input?.pollingEnabled),
       },
       updatedAt: new Date().toISOString(),
@@ -5431,7 +5454,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:relay:submit', async (_event, input) => {
+  ipcMain.handle('raizen:relay:submit', async (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to submit cloud relay request.' }
     }
@@ -5466,7 +5489,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, relay: advancedState.relay, request: requestRow }
   })
 
-  ipcMain.handle('paxion:relay:sync', async () => {
+  ipcMain.handle('raizen:relay:sync', async () => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to sync cloud relay queue.' }
     }
@@ -5493,7 +5516,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, relay: advancedState.relay }
   })
 
-  ipcMain.handle('paxion:relay:complete', async (_event, input) => {
+  ipcMain.handle('raizen:relay:complete', async (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to resolve cloud relay request.' }
     }
@@ -5528,7 +5551,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, relay: advancedState.relay, request: completedRequest }
   })
 
-  ipcMain.handle('paxion:relay:envelope', (_event, input) => {
+  ipcMain.handle('raizen:relay:envelope', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to build relay envelope.' }
     }
@@ -5542,11 +5565,11 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:wakeword:status', () => {
+  ipcMain.handle('raizen:wakeword:status', () => {
     return getNativeWakewordStatus(advancedState.wakeword)
   })
 
-  ipcMain.handle('paxion:wakeword:configure', (_event, input) => {
+  ipcMain.handle('raizen:wakeword:configure', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to configure native wake-word adapter.' }
     }
@@ -5556,7 +5579,7 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:planner:create', (_event, input) => {
+  ipcMain.handle('raizen:planner:create', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to create long-horizon plan.' }
     }
@@ -5567,7 +5590,7 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:planner:advance', (_event, input) => {
+  ipcMain.handle('raizen:planner:advance', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to advance validation loop.' }
     }
@@ -5577,7 +5600,7 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:ecosystem:register', (_event, input) => {
+  ipcMain.handle('raizen:ecosystem:register', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to register device ecosystem adapter.' }
     }
@@ -5587,7 +5610,7 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:ecosystem:plan', (_event, input) => {
+  ipcMain.handle('raizen:ecosystem:plan', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to plan device ecosystem action.' }
     }
@@ -5598,7 +5621,7 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:robotics:register', (_event, input) => {
+  ipcMain.handle('raizen:robotics:register', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to register actuator.' }
     }
@@ -5608,7 +5631,7 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:robotics:plan', (_event, input) => {
+  ipcMain.handle('raizen:robotics:plan', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to plan actuation.' }
     }
@@ -5619,11 +5642,11 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:vault:status', () => {
+  ipcMain.handle('raizen:vault:status', () => {
     return summarizeVaultProviders(advancedState.vault)
   })
 
-  ipcMain.handle('paxion:vault:configure', (_event, input) => {
+  ipcMain.handle('raizen:vault:configure', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to configure vault provider.' }
     }
@@ -5633,7 +5656,7 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:perception:sceneGraph', (_event, input) => {
+  ipcMain.handle('raizen:perception:sceneGraph', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required for multimodal scene graph generation.' }
     }
@@ -5644,7 +5667,7 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:perception:groundFrame', (_event, input) => {
+  ipcMain.handle('raizen:perception:groundFrame', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required for realtime grounding.' }
     }
@@ -5655,7 +5678,7 @@ function registerIpcHandlers(mainWindow) {
     return result
   })
 
-  ipcMain.handle('paxion:workflow:generate', (_event, input) => {
+  ipcMain.handle('raizen:workflow:generate', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to generate AI workflows.' }
     }
@@ -5673,14 +5696,14 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:terminal:plan', (_event, input) => {
+  ipcMain.handle('raizen:terminal:plan', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required for terminal planning.' }
     }
     return buildCommandPlan(input)
   })
 
-  ipcMain.handle('paxion:terminal:run', async (_event, input) => {
+  ipcMain.handle('raizen:terminal:run', async (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required for terminal execution.' }
     }
@@ -5716,7 +5739,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:creative:ideate', (_event, input) => {
+  ipcMain.handle('raizen:creative:ideate', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required for creative ideation.' }
     }
@@ -5734,7 +5757,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:access:set', (_event, input) => {
+  ipcMain.handle('raizen:access:set', (_event, input) => {
     const key = String(input?.key || '')
     const enabled = Boolean(input?.enabled)
 
@@ -5765,14 +5788,14 @@ function registerIpcHandlers(mainWindow) {
   })
 
   // Full decision endpoint: policy evaluate + admin verify + approval ticket consume.
-  ipcMain.handle('paxion:policy:decide', (_event, input) => {
+  ipcMain.handle('raizen:policy:decide', (_event, input) => {
     const request = input?.request
     const adminCodeword = input?.adminCodeword
     return decideRequest(request, adminCodeword)
   })
 
   // Atomic endpoint: decision and execution are coupled in main process.
-  ipcMain.handle('paxion:action:execute', async (_event, input) => {
+  ipcMain.handle('raizen:action:execute', async (_event, input) => {
     const request = input?.request
     const adminCodeword = input?.adminCodeword
     const decision = decideRequest(request, adminCodeword)
@@ -5823,7 +5846,7 @@ function registerIpcHandlers(mainWindow) {
   })
 
   // Native file picker for Library ingestion.
-  ipcMain.handle('paxion:library:pickFile', async () => {
+  ipcMain.handle('raizen:library:pickFile', async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Add Document to Library',
       filters: [
@@ -5866,7 +5889,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:library:load', () => {
+  ipcMain.handle('raizen:library:load', () => {
     try {
       if (!fs.existsSync(libraryStateFilePath)) {
         return {
@@ -5895,7 +5918,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:library:save', (_event, input) => {
+  ipcMain.handle('raizen:library:save', (_event, input) => {
     try {
       const docs = Array.isArray(input?.docs)
         ? input.docs.map(normalizeLibraryDoc).filter(Boolean)
@@ -5918,7 +5941,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:library:clear', () => {
+  ipcMain.handle('raizen:library:clear', () => {
     try {
       if (fs.existsSync(libraryStateFilePath)) {
         fs.unlinkSync(libraryStateFilePath)
@@ -5934,7 +5957,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:program:status', () => {
+  ipcMain.handle('raizen:program:status', () => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to inspect program status.' }
     }
@@ -5955,14 +5978,14 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:devices:list', () => {
+  ipcMain.handle('raizen:devices:list', () => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to list devices.', devices: [] }
     }
     return { ok: true, devices: Array.isArray(deviceState.devices) ? deviceState.devices : [] }
   })
 
-  ipcMain.handle('paxion:devices:register', (_event, input) => {
+  ipcMain.handle('raizen:devices:register', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to register device.' }
     }
@@ -5984,7 +6007,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, device: result.device, devices: deviceState.devices }
   })
 
-  ipcMain.handle('paxion:devices:revoke', (_event, input) => {
+  ipcMain.handle('raizen:devices:revoke', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to revoke device.' }
     }
@@ -6005,7 +6028,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, device: result.device, devices: deviceState.devices }
   })
 
-  ipcMain.handle('paxion:learning:v2:update', (_event, input) => {
+  ipcMain.handle('raizen:learning:v2:update', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to update learning v2.' }
     }
@@ -6027,7 +6050,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:learning:v2:rollback', (_event, input) => {
+  ipcMain.handle('raizen:learning:v2:rollback', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to rollback skill.' }
     }
@@ -6040,7 +6063,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: false, reason: 'No prior version available.' }
   })
 
-  ipcMain.handle('paxion:trading:backtest', (_event, input) => {
+  ipcMain.handle('raizen:trading:backtest', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to run trading backtest.' }
     }
@@ -6061,7 +6084,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, backtest, tradingState }
   })
 
-  ipcMain.handle('paxion:trading:paperOrder', (_event, input) => {
+  ipcMain.handle('raizen:trading:paperOrder', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to place paper order.' }
     }
@@ -6084,7 +6107,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, order, tradingState }
   })
 
-  ipcMain.handle('paxion:medical:review', (_event, input) => {
+  ipcMain.handle('raizen:medical:review', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to run medical review.' }
     }
@@ -6113,7 +6136,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, safety, confidence, medicalState }
   })
 
-  ipcMain.handle('paxion:media:generate', (_event, input) => {
+  ipcMain.handle('raizen:media:generate', (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required to generate media.' }
     }
@@ -6139,7 +6162,7 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, job: result.job, mediaState }
   })
 
-  ipcMain.handle('paxion:workspace:load', () => {
+  ipcMain.handle('raizen:workspace:load', () => {
     try {
       if (!fs.existsSync(workspaceStateFilePath)) {
         return {
@@ -6177,7 +6200,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:workspace:save', (_event, input) => {
+  ipcMain.handle('raizen:workspace:save', (_event, input) => {
     try {
       const state = {
         goal: typeof input?.goal === 'string' ? input.goal : '',
@@ -6198,7 +6221,7 @@ function registerIpcHandlers(mainWindow) {
     }
   })
 
-  ipcMain.handle('paxion:workspace:clear', () => {
+  ipcMain.handle('raizen:workspace:clear', () => {
     try {
       if (fs.existsSync(workspaceStateFilePath)) {
         fs.unlinkSync(workspaceStateFilePath)
@@ -6215,7 +6238,7 @@ function registerIpcHandlers(mainWindow) {
   })
 
   // ── Multi-Agent Swarm Orchestration ──
-  ipcMain.handle('paxion:swarm:start', async (_event, input) => {
+  ipcMain.handle('raizen:swarm:start', async (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required.' }
     }
@@ -6260,55 +6283,55 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, task }
   })
 
-  ipcMain.handle('paxion:swarm:status', () => {
+  ipcMain.handle('raizen:swarm:status', () => {
     return { ok: true, swarms: swarmState.tasks }
   })
 
-  ipcMain.handle('paxion:notify', (_event, input) => {
+  ipcMain.handle('raizen:notify', (_event, input) => {
     if (Notification.isSupported()) {
-      new Notification({ title: input?.title || 'Paxion AI', body: input?.body || '' }).show()
+      new Notification({ title: input?.title || 'Raizen AI', body: input?.body || '' }).show()
       return { ok: true }
     }
     return { ok: false, reason: 'Notifications not supported' }
   })
 
   // Checkpoint handlers
-  ipcMain.handle('paxion:checkpoint:create', async (_event, { scriptId, code }) => {
+  ipcMain.handle('raizen:checkpoint:create', async (_event, { scriptId, code }) => {
     return dbAdapter.createCheckpoint(scriptId, code)
   })
 
-  ipcMain.handle('paxion:checkpoint:list', async (_event, scriptId) => {
+  ipcMain.handle('raizen:checkpoint:list', async (_event, scriptId) => {
     return dbAdapter.getCheckpoints(scriptId)
   })
 
   // Phase 2: Extensibility & Multimodal
-  ipcMain.handle('paxion:analytics:log', async (_event, { type, payload }) => {
+  ipcMain.handle('raizen:analytics:log', async (_event, { type, payload }) => {
     return dbAdapter.createAnalyticsEvent(type, payload)
   })
 
-  ipcMain.handle('paxion:ecosystem:register', async (_event, pluginData) => {
+  ipcMain.handle('raizen:ecosystem:register', async (_event, pluginData) => {
     return dbAdapter.registerPlugin(pluginData)
   })
 
-  ipcMain.handle('paxion:ecosystem:list', async () => {
+  ipcMain.handle('raizen:ecosystem:list', async () => {
     return { ok: true, plugins: dbAdapter.listPlugins() }
   })
 
-  ipcMain.handle('paxion:voiceQuality:update', async (_event, settings) => {
+  ipcMain.handle('raizen:voiceQuality:update', async (_event, settings) => {
     return dbAdapter.setVoiceSettings(settings)
   })
 
-  ipcMain.handle('paxion:voiceQuality:get', async () => {
+  ipcMain.handle('raizen:voiceQuality:get', async () => {
     return dbAdapter.getVoiceSettings()
   })
 
   const { sendEmail } = require('./email-agent.cjs')
 
-  ipcMain.handle('paxion:automation:email:send', async (_event, emailData) => {
+  ipcMain.handle('raizen:automation:email:send', async (_event, emailData) => {
     return sendEmail(emailData)
   })
 
-  ipcMain.handle('paxion:automation:puppeteer', async (_event, input) => {
+  ipcMain.handle('raizen:automation:puppeteer', async (_event, input) => {
     if (!isAdminUnlocked(adminSession)) {
       return { ok: false, reason: 'Admin session required for headless automation.' }
     }

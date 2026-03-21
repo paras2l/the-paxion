@@ -1,36 +1,36 @@
 import type { AuditEntry, ActionRequest, PolicyDecision } from './security/types'
 import type { LibraryDocument } from './library/types'
 
-interface PaxionLibraryFileResult {
+interface RaizenLibraryFileResult {
   name: string
   content: string
   path: string
   pageCount?: number
 }
 
-interface PaxionLibraryFileError {
+interface RaizenLibraryFileError {
   error: string
 }
 
-interface PaxionAdminUnlockResult {
+interface RaizenAdminUnlockResult {
   ok: boolean
   reason?: string
   unlocked?: boolean
   expiresAt?: number | null
 }
 
-interface PaxionAdminStatusResult {
+interface RaizenAdminStatusResult {
   unlocked: boolean
   expiresAt: number | null
 }
 
-interface PaxionAuditLoadResult {
+interface RaizenAuditLoadResult {
   ok: boolean
   reason?: string
   entries: AuditEntry[]
 }
 
-interface PaxionPolicyDecisionEnvelope {
+interface RaizenPolicyDecisionEnvelope {
   baseDecision: PolicyDecision
   finalDecision: PolicyDecision
   context: {
@@ -42,7 +42,7 @@ interface PaxionPolicyDecisionEnvelope {
   }
 }
 
-interface PaxionActionExecutionEnvelope extends PaxionPolicyDecisionEnvelope {
+interface RaizenActionExecutionEnvelope extends RaizenPolicyDecisionEnvelope {
   execution: {
     executed: boolean
     mode: string
@@ -51,38 +51,38 @@ interface PaxionActionExecutionEnvelope extends PaxionPolicyDecisionEnvelope {
   }
 }
 
-interface PaxionWorkspaceState {
+interface RaizenWorkspaceState {
   goal: string
   plan: Array<Record<string, unknown>>
   updatedAt: string | null
 }
 
-interface PaxionWorkspaceLoadResult {
+interface RaizenWorkspaceLoadResult {
   ok: boolean
   reason?: string
-  state: PaxionWorkspaceState
+  state: RaizenWorkspaceState
 }
 
-interface PaxionWorkspaceSaveResult {
+interface RaizenWorkspaceSaveResult {
   ok: boolean
   reason?: string
   updatedAt?: string
 }
 
-interface PaxionLibraryLoadResult {
+interface RaizenLibraryLoadResult {
   ok: boolean
   reason?: string
   docs: LibraryDocument[]
   updatedAt: string | null
 }
 
-interface PaxionLibrarySaveResult {
+interface RaizenLibrarySaveResult {
   ok: boolean
   reason?: string
   updatedAt?: string
 }
 
-type PaxionCapabilityState = {
+type RaizenCapabilityState = {
   workspaceExecution: boolean
   workspaceFileWrite: boolean
   workspaceTooling: boolean
@@ -100,12 +100,12 @@ type PaxionCapabilityState = {
   emergencyCallRelay: boolean
 }
 
-interface PaxionAssistantRuntimeResult {
+interface RaizenAssistantRuntimeResult {
   ok?: boolean
   closeToTrayEnabled: boolean
 }
 
-interface PaxionVoiceCallResult {
+interface RaizenVoiceCallResult {
   ok: boolean
   reason?: string
   emergency?: boolean
@@ -114,7 +114,7 @@ interface PaxionVoiceCallResult {
   providerResult?: Record<string, unknown>
 }
 
-interface PaxionVoiceProviderResult {
+interface RaizenVoiceProviderResult {
   ok: boolean
   reason?: string
   provider?: string
@@ -122,7 +122,7 @@ interface PaxionVoiceProviderResult {
   updatedAt?: string | null
 }
 
-interface PaxionVoiceSecretStatusResult {
+interface RaizenVoiceSecretStatusResult {
   ok: boolean
   reason?: string
   hasTwilioSid?: boolean
@@ -137,7 +137,7 @@ interface PaxionVoiceSecretStatusResult {
   updatedAt?: string | null
 }
 
-interface PaxionTerminalPackResult {
+interface RaizenTerminalPackResult {
   ok: boolean
   reason?: string
   pack?: Record<string, unknown>
@@ -145,7 +145,7 @@ interface PaxionTerminalPackResult {
   updatedAt?: string | null
 }
 
-interface PaxionBridgeStatusResult {
+interface RaizenBridgeStatusResult {
   ok: boolean
   reason?: string
   enabled?: boolean
@@ -157,20 +157,20 @@ interface PaxionBridgeStatusResult {
   updatedAt?: string | null
 }
 
-interface PaxionThreatDashboardResult {
+interface RaizenThreatDashboardResult {
   ok: boolean
   reason?: string
   dashboard?: Record<string, unknown>
 }
 
-interface PaxionRelayResult {
+interface RaizenRelayResult {
   ok: boolean
   reason?: string
   relay?: Record<string, unknown>
   request?: Record<string, unknown>
 }
 
-interface PaxionOptimizationResult {
+interface RaizenOptimizationResult {
   ok: boolean
   reason?: string
   optimization?: Record<string, unknown>
@@ -178,13 +178,13 @@ interface PaxionOptimizationResult {
   state?: Record<string, unknown>
 }
 
-interface PaxionTerminalPlanResult {
+interface RaizenTerminalPlanResult {
   ok: boolean
   reason?: string
   plan?: Record<string, unknown>
 }
 
-interface PaxionTerminalRunResult {
+interface RaizenTerminalRunResult {
   ok: boolean
   reason?: string
   command?: string
@@ -192,13 +192,13 @@ interface PaxionTerminalRunResult {
   execution?: Record<string, unknown>
 }
 
-interface PaxionAccessResult {
+interface RaizenAccessResult {
   ok: boolean
   reason?: string
-  capabilities: PaxionCapabilityState
+  capabilities: RaizenCapabilityState
 }
 
-interface PaxionIntegrationsStatus {
+interface RaizenIntegrationsStatus {
   ok: boolean
   reason?: string
   desktopRelay: boolean
@@ -207,21 +207,21 @@ interface PaxionIntegrationsStatus {
   requiresAdminApproval: boolean
 }
 
-interface PaxionGoogleSearchEnvelope {
+interface RaizenGoogleSearchEnvelope {
   ok: boolean
   reason?: string
   opened?: boolean
   url?: string
 }
 
-interface PaxionGptChatEnvelope {
+interface RaizenGptChatEnvelope {
   ok: boolean
   reason?: string
   opened?: boolean
   url?: string
 }
 
-interface PaxionLearningEntry {
+interface RaizenLearningEntry {
   id: string
   timestamp: string
   title: string
@@ -230,7 +230,7 @@ interface PaxionLearningEntry {
   newSkills: string[]
 }
 
-interface PaxionVideoLearningSegment {
+interface RaizenVideoLearningSegment {
   id: string
   label: string
   startMinute: number
@@ -239,7 +239,7 @@ interface PaxionVideoLearningSegment {
   notes: string
 }
 
-interface PaxionVideoLearningPlan {
+interface RaizenVideoLearningPlan {
   id: string
   topic: string
   videoUrl: string
@@ -247,28 +247,30 @@ interface PaxionVideoLearningPlan {
   segmentMinutes: number
   parallelSlots: number
   createdAt: string
-  segments: PaxionVideoLearningSegment[]
+  segments: RaizenVideoLearningSegment[]
 }
 
-interface PaxionLearningLoadResult {
+interface RaizenLearningLoadResult {
   ok: boolean
   reason?: string
   skills: string[]
-  logs: PaxionLearningEntry[]
-  videoPlans: PaxionVideoLearningPlan[]
+  logs: RaizenLearningEntry[]
+  videoPlans: RaizenVideoLearningPlan[]
   updatedAt: string | null
   stateV2?: Record<string, unknown>
 }
 
-interface PaxionLearningRecordResult {
+
+interface RaizenLearningRecordResult {
   ok: boolean
-  entry?: PaxionLearningEntry
+  entry?: RaizenLearningEntry
   skills: string[]
-  videoPlans?: PaxionVideoLearningPlan[]
+  videoPlans?: RaizenVideoLearningPlan[]
   updatedAt: string | null
 }
 
-interface PaxionAutomationTemplate {
+
+interface RaizenAutomationTemplate {
   id: string
   appType: string
   name: string
@@ -277,7 +279,8 @@ interface PaxionAutomationTemplate {
   skillSignals: string[]
 }
 
-interface PaxionExecutionRecord {
+
+interface RaizenExecutionRecord {
   id: string
   timestamp: string
   domain: string
@@ -292,7 +295,8 @@ interface PaxionExecutionRecord {
   simpleLog: string
 }
 
-interface PaxionAutomationProfile {
+
+interface RaizenAutomationProfile {
   id: string
   name: string
   appType: string
@@ -304,7 +308,8 @@ interface PaxionAutomationProfile {
   variableHints?: string[]
 }
 
-interface PaxionAutomationProfilePreset {
+
+interface RaizenAutomationProfilePreset {
   id: string
   profileId: string
   name: string
@@ -312,7 +317,8 @@ interface PaxionAutomationProfilePreset {
   updatedAt: string
 }
 
-interface PaxionCapabilitySuggestion {
+
+interface RaizenCapabilitySuggestion {
   capability: string
   reason: string
   recommendedAction: string
@@ -322,7 +328,8 @@ interface PaxionCapabilitySuggestion {
   readyToEnable: boolean
 }
 
-interface PaxionReplayStepDiff {
+
+interface RaizenReplayStepDiff {
   recordId: string
   originalIntendedStep: string
   replayIntendedStep: string
@@ -332,28 +339,31 @@ interface PaxionReplayStepDiff {
   replayResult: string
 }
 
-interface PaxionReplayPreview {
+
+interface RaizenReplayPreview {
   previewToken: string
-  sourceRecord: PaxionExecutionRecord
-  relatedRecords: PaxionExecutionRecord[]
+  sourceRecord: RaizenExecutionRecord
+  relatedRecords: RaizenExecutionRecord[]
   targetUrl: string | null
   intent: string | null
-  stepDiffs: PaxionReplayStepDiff[]
+  stepDiffs: RaizenReplayStepDiff[]
   expiresAt: number
 }
 
-interface PaxionAutomationLoadResult {
+
+interface RaizenAutomationLoadResult {
   ok: boolean
   reason?: string
-  templates: PaxionAutomationTemplate[]
-  profiles: PaxionAutomationProfile[]
-  presets: PaxionAutomationProfilePreset[]
-  records: PaxionExecutionRecord[]
-  suggestions: PaxionCapabilitySuggestion[]
+  templates: RaizenAutomationTemplate[]
+  profiles: RaizenAutomationProfile[]
+  presets: RaizenAutomationProfilePreset[]
+  records: RaizenExecutionRecord[]
+  suggestions: RaizenCapabilitySuggestion[]
   updatedAt: string | null
 }
 
-interface PaxionTargetWorkflowPack {
+
+interface RaizenTargetWorkflowPack {
   id: string
   name: string
   surface: string
@@ -367,7 +377,8 @@ interface PaxionTargetWorkflowPack {
   variableHints?: string[]
 }
 
-interface PaxionExecutionSession {
+
+interface RaizenExecutionSession {
   id: string
   createdAt: string
   updatedAt: string
@@ -402,7 +413,8 @@ interface PaxionExecutionSession {
   latestAttestationHash?: string | null
 }
 
-interface PaxionObservationSnapshot {
+
+interface RaizenObservationSnapshot {
   id: string
   createdAt: string
   title: string
@@ -413,48 +425,55 @@ interface PaxionObservationSnapshot {
   inferredSkills: string[]
 }
 
-interface PaxionCrossAppMissionPhase {
+
+interface RaizenCrossAppMissionPhase {
   id: string
   title: string
   surface: string
   objective: string
 }
 
-interface PaxionCrossAppMission {
+
+interface RaizenCrossAppMission {
   id: string
   goal: string
   surfaces: string[]
   recommendedPacks: Array<{ id: string; name: string; surface: string }>
-  phases: PaxionCrossAppMissionPhase[]
+  phases: RaizenCrossAppMissionPhase[]
   createdAt: string
   status: string
 }
 
-interface PaxionLearningGraphNode {
+
+interface RaizenLearningGraphNode {
   id: string
   kind: string
   label: string
 }
 
-interface PaxionLearningGraphEdge {
+
+interface RaizenLearningGraphEdge {
   from: string
   to: string
   kind: string
 }
 
-interface PaxionLearningGraphSnapshot {
-  nodes: PaxionLearningGraphNode[]
-  edges: PaxionLearningGraphEdge[]
+
+interface RaizenLearningGraphSnapshot {
+  nodes: RaizenLearningGraphNode[]
+  edges: RaizenLearningGraphEdge[]
   updatedAt: string | null
 }
 
-interface PaxionEvolutionPipelineHistoryEntry {
+
+interface RaizenEvolutionPipelineHistoryEntry {
   stage: string
   note: string
   timestamp: string
 }
 
-interface PaxionEvolutionPipeline {
+
+interface RaizenEvolutionPipeline {
   id: string
   title: string
   objective: string
@@ -462,11 +481,12 @@ interface PaxionEvolutionPipeline {
   updatedAt: string
   currentStage: string
   stages: string[]
-  history: PaxionEvolutionPipelineHistoryEntry[]
+  history: RaizenEvolutionPipelineHistoryEntry[]
   artifactPath: string
 }
 
-interface PaxionVisionJob {
+
+interface RaizenVisionJob {
   id: string
   objective: string
   screenshotPath: string
@@ -478,7 +498,8 @@ interface PaxionVisionJob {
   inferredSkills: string[]
 }
 
-interface PaxionEvidenceArtifact {
+
+interface RaizenEvidenceArtifact {
   sessionId: string
   payloadHash: string
   jsonPath: string
@@ -488,30 +509,33 @@ interface PaxionEvidenceArtifact {
   signerFingerprint?: string
 }
 
-interface PaxionNativeActionResult {
+
+interface RaizenNativeActionResult {
   ok: boolean
   reason?: string
-  record?: PaxionExecutionRecord
+  record?: RaizenExecutionRecord
   commandOutput?: string
-  executionSessions?: PaxionExecutionSession[]
-  learningGraph?: PaxionLearningGraphSnapshot
+  executionSessions?: RaizenExecutionSession[]
+  learningGraph?: RaizenLearningGraphSnapshot
   evidence?: Record<string, unknown> | null
   warnings?: string[]
 }
 
-interface PaxionReadinessLoadResult {
+
+interface RaizenReadinessLoadResult {
   ok: boolean
   reason?: string
-  targetPacks: PaxionTargetWorkflowPack[]
-  executionSessions: PaxionExecutionSession[]
-  observations: PaxionObservationSnapshot[]
-  missions: PaxionCrossAppMission[]
-  learningGraph: PaxionLearningGraphSnapshot
-  evolutionPipelines: PaxionEvolutionPipeline[]
-  visionJobs: PaxionVisionJob[]
+  targetPacks: RaizenTargetWorkflowPack[]
+  executionSessions: RaizenExecutionSession[]
+  observations: RaizenObservationSnapshot[]
+  missions: RaizenCrossAppMission[]
+  learningGraph: RaizenLearningGraphSnapshot
+  evolutionPipelines: RaizenEvolutionPipeline[]
+  visionJobs: RaizenVisionJob[]
 }
 
-type PaxionAutomationStepInput = {
+
+type RaizenAutomationStepInput = {
   action: 'fill' | 'click' | 'select' | 'wait' | 'extractText'
   selector?: string
   value?: string
@@ -520,7 +544,7 @@ type PaxionAutomationStepInput = {
 
 declare global {
   interface Window {
-    readonly paxion?: {
+    readonly raizen?: {
       notify(input: { title?: string; body?: string }): Promise<{ ok: boolean; reason?: string }>
       ecosystem?: {
         register(plugin: any): Promise<{ ok: boolean; id?: string; reason?: string }>
@@ -566,37 +590,37 @@ declare global {
         kill(id: string): Promise<{ ok: boolean; reason?: string }>
       }
       admin: {
-        unlock(codeword: string): Promise<PaxionAdminUnlockResult>
-        status(): Promise<PaxionAdminStatusResult>
-        lock(): Promise<PaxionAdminUnlockResult>
+        unlock(codeword: string): Promise<RaizenAdminUnlockResult>
+        status(): Promise<RaizenAdminStatusResult>
+        lock(): Promise<RaizenAdminUnlockResult>
       }
       audit: {
         append(entry: AuditEntry): Promise<void>
-        load(): Promise<PaxionAuditLoadResult>
+        load(): Promise<RaizenAuditLoadResult>
       }
       policy: {
         evaluate(request: ActionRequest): Promise<PolicyDecision>
         decide(input: {
           request: ActionRequest
           adminCodeword?: string
-        }): Promise<PaxionPolicyDecisionEnvelope>
+        }): Promise<RaizenPolicyDecisionEnvelope>
       }
       action: {
         execute(input: {
           request: ActionRequest
           adminCodeword?: string
-        }): Promise<PaxionActionExecutionEnvelope>
+        }): Promise<RaizenActionExecutionEnvelope>
       }
       access: {
-        load(): Promise<PaxionAccessResult>
-        set(input: { key: keyof PaxionCapabilityState; enabled: boolean }): Promise<PaxionAccessResult>
+        load(): Promise<RaizenAccessResult>
+        set(input: { key: keyof RaizenCapabilityState; enabled: boolean }): Promise<RaizenAccessResult>
       }
       integrations: {
-        getStatus(): Promise<PaxionIntegrationsStatus>
-        googleSearch(input: { query: string }): Promise<PaxionGoogleSearchEnvelope>
+        getStatus(): Promise<RaizenIntegrationsStatus>
+        googleSearch(input: { query: string }): Promise<RaizenGoogleSearchEnvelope>
         gptChat(input: {
           query: string
-        }): Promise<PaxionGptChatEnvelope>
+        }): Promise<RaizenGptChatEnvelope>
       }
       messaging: {
         send(input: {
@@ -612,13 +636,13 @@ declare global {
         }>
       }
       learning: {
-        load(): Promise<PaxionLearningLoadResult>
+        load(): Promise<RaizenLearningLoadResult>
         record(input: {
           title: string
           detail: string
           source?: string
           newSkills?: string[]
-        }): Promise<PaxionLearningRecordResult>
+        }): Promise<RaizenLearningRecordResult>
         youtubePlanCreate(input: {
           topic: string
           videoUrl: string
@@ -627,14 +651,14 @@ declare global {
           parallelSlots: number
           explicitPermission: boolean
         }): Promise<
-          | { ok: true; plan: PaxionVideoLearningPlan; videoPlans: PaxionVideoLearningPlan[] }
+          | { ok: true; plan: RaizenVideoLearningPlan; videoPlans: RaizenVideoLearningPlan[] }
           | { ok: false; reason: string }
         >
         youtubeSegmentOpen(input: {
           planId: string
           segmentId: string
         }): Promise<
-          | { ok: true; url: string; videoPlans: PaxionVideoLearningPlan[] }
+          | { ok: true; url: string; videoPlans: RaizenVideoLearningPlan[] }
           | { ok: false; reason: string }
         >
         youtubeSegmentComplete(input: {
@@ -645,7 +669,7 @@ declare global {
         }): Promise<
           | {
             ok: true
-            videoPlans: PaxionVideoLearningPlan[]
+            videoPlans: RaizenVideoLearningPlan[]
             skills: string[]
             updatedAt: string | null
           }
@@ -664,7 +688,7 @@ declare global {
         }>
       }
       automation: {
-        load(): Promise<PaxionAutomationLoadResult>
+        load(): Promise<RaizenAutomationLoadResult>
         savePreset(input: {
           profileId: string
           name: string
@@ -672,22 +696,22 @@ declare global {
         }): Promise<
           | {
             ok: true
-            preset: PaxionAutomationProfilePreset
-            presets: PaxionAutomationProfilePreset[]
+            preset: RaizenAutomationProfilePreset
+            presets: RaizenAutomationProfilePreset[]
           }
           | { ok: false; reason: string }
         >
         deletePreset(input: { presetId: string }): Promise<
           | {
             ok: true
-            presets: PaxionAutomationProfilePreset[]
+            presets: RaizenAutomationProfilePreset[]
           }
           | { ok: false; reason: string }
         >
         previewReplay(input: { recordId: string }): Promise<
           | {
             ok: true
-            preview: PaxionReplayPreview
+            preview: RaizenReplayPreview
           }
           | { ok: false; reason: string }
         >
@@ -695,19 +719,19 @@ declare global {
           adapterId: 'browser.formFill.basic' | 'browser.clickFlow.basic'
           targetUrl: string
           intent: string
-          steps: PaxionAutomationStepInput[]
+          steps: RaizenAutomationStepInput[]
           explicitPermission: boolean
         }): Promise<
           | {
             ok: true
             adapterId: string
             targetUrl: string
-            records: PaxionExecutionRecord[]
-            templates: PaxionAutomationTemplate[]
-            profiles: PaxionAutomationProfile[]
-            presets: PaxionAutomationProfilePreset[]
-            executionRecords: PaxionExecutionRecord[]
-            suggestions: PaxionCapabilitySuggestion[]
+            records: RaizenExecutionRecord[]
+            templates: RaizenAutomationTemplate[]
+            profiles: RaizenAutomationProfile[]
+            presets: RaizenAutomationProfilePreset[]
+            executionRecords: RaizenExecutionRecord[]
+            suggestions: RaizenCapabilitySuggestion[]
             skills: string[]
             updatedAt: string | null
           }
@@ -719,13 +743,13 @@ declare global {
         }): Promise<
           | {
             ok: true
-            template: PaxionAutomationTemplate
-            records: PaxionExecutionRecord[]
-            templates: PaxionAutomationTemplate[]
-            profiles: PaxionAutomationProfile[]
-            presets: PaxionAutomationProfilePreset[]
-            executionRecords: PaxionExecutionRecord[]
-            suggestions: PaxionCapabilitySuggestion[]
+            template: RaizenAutomationTemplate
+            records: RaizenExecutionRecord[]
+            templates: RaizenAutomationTemplate[]
+            profiles: RaizenAutomationProfile[]
+            presets: RaizenAutomationProfilePreset[]
+            executionRecords: RaizenExecutionRecord[]
+            suggestions: RaizenCapabilitySuggestion[]
             skills: string[]
             updatedAt: string | null
           }
@@ -738,21 +762,21 @@ declare global {
         }): Promise<
           | {
             ok: true
-            replayRecord: PaxionExecutionRecord | null
-            replayRecords: PaxionExecutionRecord[]
-            executionRecords: PaxionExecutionRecord[]
-            suggestions: PaxionCapabilitySuggestion[]
+            replayRecord: RaizenExecutionRecord | null
+            replayRecords: RaizenExecutionRecord[]
+            executionRecords: RaizenExecutionRecord[]
+            suggestions: RaizenCapabilitySuggestion[]
             updatedAt: string | null
           }
           | { ok: false; reason: string }
         >
         suggestions(): Promise<
-          | { ok: true; suggestions: PaxionCapabilitySuggestion[] }
-          | { ok: false; reason: string; suggestions: PaxionCapabilitySuggestion[] }
+          | { ok: true; suggestions: RaizenCapabilitySuggestion[] }
+          | { ok: false; reason: string; suggestions: RaizenCapabilitySuggestion[] }
         >
       }
       readiness: {
-        load(): Promise<PaxionReadinessLoadResult>
+        load(): Promise<RaizenReadinessLoadResult>
         runTargetPack(input: {
           packId: string
           variables: Record<string, string>
@@ -762,9 +786,9 @@ declare global {
         }): Promise<
           | {
             ok: true
-            session: PaxionExecutionSession
-            executionSessions: PaxionExecutionSession[]
-            learningGraph: PaxionLearningGraphSnapshot
+            session: RaizenExecutionSession
+            executionSessions: RaizenExecutionSession[]
+            learningGraph: RaizenLearningGraphSnapshot
           }
           | { ok: false; reason: string }
         >
@@ -776,28 +800,28 @@ declare global {
         }): Promise<
           | {
             ok: true
-            session: PaxionExecutionSession
-            executionSessions: PaxionExecutionSession[]
-            learningGraph: PaxionLearningGraphSnapshot
+            session: RaizenExecutionSession
+            executionSessions: RaizenExecutionSession[]
+            learningGraph: RaizenLearningGraphSnapshot
           }
           | { ok: false; reason: string }
         >
         rollbackSession(input: { sessionId: string; notes: string }): Promise<
           | {
             ok: true
-            session: PaxionExecutionSession
-            executionSessions: PaxionExecutionSession[]
-            learningGraph: PaxionLearningGraphSnapshot
+            session: RaizenExecutionSession
+            executionSessions: RaizenExecutionSession[]
+            learningGraph: RaizenLearningGraphSnapshot
           }
           | { ok: false; reason: string }
         >
         executeRollback(input: { sessionId: string; notes?: string }): Promise<
           | {
             ok: true
-            session: PaxionExecutionSession | null
+            session: RaizenExecutionSession | null
             transaction: Record<string, unknown>
-            executionSessions: PaxionExecutionSession[]
-            learningGraph: PaxionLearningGraphSnapshot
+            executionSessions: RaizenExecutionSession[]
+            learningGraph: RaizenLearningGraphSnapshot
           }
           | { ok: false; reason: string }
         >
@@ -814,7 +838,7 @@ declare global {
           intendedStep?: string
           domSnapshot?: string
           explicitPermission: boolean
-        }): Promise<PaxionNativeActionResult>
+        }): Promise<RaizenNativeActionResult>
         captureStepEvidence(input: {
           sessionId: string
           stepId: string
@@ -827,10 +851,10 @@ declare global {
         }): Promise<
           | {
             ok: true
-            session: PaxionExecutionSession | null
+            session: RaizenExecutionSession | null
             evidence: Record<string, unknown>
-            executionSessions: PaxionExecutionSession[]
-            learningGraph: PaxionLearningGraphSnapshot
+            executionSessions: RaizenExecutionSession[]
+            learningGraph: RaizenLearningGraphSnapshot
           }
           | { ok: false; reason: string }
         >
@@ -843,20 +867,20 @@ declare global {
         }): Promise<
           | {
             ok: true
-            snapshot: PaxionObservationSnapshot
-            observations: PaxionObservationSnapshot[]
-            learningGraph: PaxionLearningGraphSnapshot
+            snapshot: RaizenObservationSnapshot
+            observations: RaizenObservationSnapshot[]
+            learningGraph: RaizenLearningGraphSnapshot
             skills: string[]
           }
           | { ok: false; reason: string }
         >
         planMission(input: { goal: string; surfaces: string[] }): Promise<
-          | { ok: true; mission: PaxionCrossAppMission; missions: PaxionCrossAppMission[] }
+          | { ok: true; mission: RaizenCrossAppMission; missions: RaizenCrossAppMission[] }
           | { ok: false; reason: string }
         >
         graph(): Promise<
-          | { ok: true; learningGraph: PaxionLearningGraphSnapshot }
-          | { ok: false; reason: string; learningGraph: PaxionLearningGraphSnapshot }
+          | { ok: true; learningGraph: RaizenLearningGraphSnapshot }
+          | { ok: false; reason: string; learningGraph: RaizenLearningGraphSnapshot }
         >
         queryGraph(input: {
           text?: string
@@ -868,7 +892,7 @@ declare global {
         }): Promise<
           | {
             ok: true
-            learningGraph: PaxionLearningGraphSnapshot
+            learningGraph: RaizenLearningGraphSnapshot
             page: {
               cursor: number
               nextCursor: number | null
@@ -885,7 +909,7 @@ declare global {
           | {
             ok: false
             reason: string
-            learningGraph: PaxionLearningGraphSnapshot
+            learningGraph: RaizenLearningGraphSnapshot
             page: {
               cursor: number
               nextCursor: number | null
@@ -927,11 +951,11 @@ declare global {
           objective: string
           note: string
         }): Promise<
-          | { ok: true; pipeline: PaxionEvolutionPipeline; evolutionPipelines: PaxionEvolutionPipeline[] }
+          | { ok: true; pipeline: RaizenEvolutionPipeline; evolutionPipelines: RaizenEvolutionPipeline[] }
           | { ok: false; reason: string }
         >
         advanceEvolutionPipeline(input: { pipelineId: string; note: string }): Promise<
-          | { ok: true; pipeline: PaxionEvolutionPipeline; evolutionPipelines: PaxionEvolutionPipeline[] }
+          | { ok: true; pipeline: RaizenEvolutionPipeline; evolutionPipelines: RaizenEvolutionPipeline[] }
           | { ok: false; reason: string }
         >
         signGovernancePolicy(input: {
@@ -943,12 +967,12 @@ declare global {
         }): Promise<
           | {
             ok: true
-            pipeline: PaxionEvolutionPipeline
+            pipeline: RaizenEvolutionPipeline
             attestation: {
               entryHash: string
               publicKeyFingerprint: string
             }
-            evolutionPipelines: PaxionEvolutionPipeline[]
+            evolutionPipelines: RaizenEvolutionPipeline[]
           }
           | { ok: false; reason: string }
         >
@@ -960,18 +984,18 @@ declare global {
         }): Promise<
           | {
             ok: true
-            job: PaxionVisionJob
-            visionJobs: PaxionVisionJob[]
-            learningGraph: PaxionLearningGraphSnapshot
+            job: RaizenVisionJob
+            visionJobs: RaizenVisionJob[]
+            learningGraph: RaizenLearningGraphSnapshot
           }
           | { ok: false; reason: string }
         >
         reviewVisionJob(input: { jobId: string; notes: string }): Promise<
           | {
             ok: true
-            job: PaxionVisionJob
-            visionJobs: PaxionVisionJob[]
-            learningGraph: PaxionLearningGraphSnapshot
+            job: RaizenVisionJob
+            visionJobs: RaizenVisionJob[]
+            learningGraph: RaizenLearningGraphSnapshot
           }
           | { ok: false; reason: string }
         >
@@ -985,12 +1009,12 @@ declare global {
         }): Promise<
           | {
             ok: true
-            job: PaxionVisionJob | null
+            job: RaizenVisionJob | null
             extractedText: string
             confidence: number
             language: string
-            visionJobs: PaxionVisionJob[]
-            learningGraph: PaxionLearningGraphSnapshot
+            visionJobs: RaizenVisionJob[]
+            learningGraph: RaizenLearningGraphSnapshot
             skills: string[]
           }
           | { ok: false; reason: string }
@@ -1006,10 +1030,10 @@ declare global {
         }): Promise<
           | {
             ok: true
-            artifact: PaxionEvidenceArtifact
-            session: PaxionExecutionSession | null
-            executionSessions: PaxionExecutionSession[]
-            learningGraph: PaxionLearningGraphSnapshot
+            artifact: RaizenEvidenceArtifact
+            session: RaizenExecutionSession | null
+            executionSessions: RaizenExecutionSession[]
+            learningGraph: RaizenLearningGraphSnapshot
           }
           | { ok: false; reason: string }
         >
@@ -1073,8 +1097,8 @@ declare global {
         }): Promise<{ ok: boolean; reason?: string; job?: Record<string, unknown>; mediaState?: Record<string, unknown> }>
       }
       assistant: {
-        getRuntime(): Promise<PaxionAssistantRuntimeResult>
-        setRuntime(input: { closeToTrayEnabled: boolean }): Promise<PaxionAssistantRuntimeResult>
+        getRuntime(): Promise<RaizenAssistantRuntimeResult>
+        setRuntime(input: { closeToTrayEnabled: boolean }): Promise<RaizenAssistantRuntimeResult>
         showWindow(): Promise<{ ok: boolean }>
       }
       voice: {
@@ -1085,13 +1109,13 @@ declare global {
           provider?: 'desktop-relay' | 'twilio' | 'sip'
           fromNumber?: string
           message?: string
-        }): Promise<PaxionVoiceCallResult>
-        getProvider(): Promise<PaxionVoiceProviderResult>
+        }): Promise<RaizenVoiceCallResult>
+        getProvider(): Promise<RaizenVoiceProviderResult>
         setProvider(input: {
           provider: 'desktop-relay' | 'twilio' | 'sip'
           fromNumber?: string
-        }): Promise<PaxionVoiceProviderResult>
-        getSecrets(): Promise<PaxionVoiceSecretStatusResult>
+        }): Promise<RaizenVoiceProviderResult>
+        getSecrets(): Promise<RaizenVoiceSecretStatusResult>
         setSecrets(input: {
           twilioAccountSid?: string
           twilioAuthToken?: string
@@ -1099,7 +1123,7 @@ declare global {
           sipUri?: string
           sipUsername?: string
           sipPassword?: string
-        }): Promise<PaxionVoiceSecretStatusResult>
+        }): Promise<RaizenVoiceSecretStatusResult>
       }
       workflow: {
         generate(input: {
@@ -1110,20 +1134,21 @@ declare global {
       terminal: {
         plan(input: {
           command: string
-        }): Promise<PaxionTerminalPlanResult>
+        }): Promise<RaizenTerminalPlanResult>
         run(input: {
           command: string
-        }): Promise<PaxionTerminalRunResult>
-        listPacks(): Promise<PaxionTerminalPackResult>
+        }): Promise<RaizenTerminalRunResult>
+        listPacks(): Promise<RaizenTerminalPackResult>
+          listPacks(): Promise<RaizenTerminalPackResult>
         createPack(input: {
           name: string
           commands: string[]
           active?: boolean
-        }): Promise<PaxionTerminalPackResult>
+        }): Promise<RaizenTerminalPackResult>
         activatePack(input: {
           packId: string
           active: boolean
-        }): Promise<PaxionTerminalPackResult>
+        }): Promise<RaizenTerminalPackResult>
         simulatePack(input: {
           commands: string[]
         }): Promise<{ ok: boolean; reason?: string; simulation?: Record<string, unknown> }>
@@ -1136,19 +1161,22 @@ declare global {
         }): Promise<{ ok: boolean; reason?: string; lab?: Record<string, unknown>; learningGraph?: Record<string, unknown>; skills?: string[] }>
       }
       bridge: {
-        status(): Promise<PaxionBridgeStatusResult>
+        status(): Promise<RaizenBridgeStatusResult>
+          status(): Promise<RaizenBridgeStatusResult>
         start(input: {
           host?: string
           port?: number
           secret?: string
-        }): Promise<PaxionBridgeStatusResult>
-        stop(): Promise<PaxionBridgeStatusResult>
+        }): Promise<RaizenBridgeStatusResult>
+        stop(): Promise<RaizenBridgeStatusResult>
+          stop(): Promise<RaizenBridgeStatusResult>
         approve(input: {
           requestId: string
           approved: boolean
           adminCodeword: string
         }): Promise<{ ok: boolean; reason?: string; request?: Record<string, unknown> }>
-        rotateSecret(): Promise<PaxionBridgeStatusResult>
+        rotateSecret(): Promise<RaizenBridgeStatusResult>
+          rotateSecret(): Promise<RaizenBridgeStatusResult>
         issueToken(input: {
           purpose?: string
           ttlMs?: number
@@ -1157,7 +1185,7 @@ declare global {
       security: {
         threatDashboard(input?: {
           request?: ActionRequest
-        }): Promise<PaxionThreatDashboardResult>
+        }): Promise<RaizenThreatDashboardResult>
       }
       voiceQuality: {
         status(): Promise<{ ok: boolean; state?: Record<string, unknown> }>
@@ -1173,15 +1201,17 @@ declare global {
         }): Promise<{ ok: boolean; session?: Record<string, unknown> }>
       }
       optimization: {
-        status(): Promise<PaxionOptimizationResult>
+        status(): Promise<RaizenOptimizationResult>
+          status(): Promise<RaizenOptimizationResult>
         run(input?: {
           autoTune?: boolean
           falseWakeCount?: number
           missedWakeCount?: number
-        }): Promise<PaxionOptimizationResult>
+        }): Promise<RaizenOptimizationResult>
       }
       relay: {
-        status(): Promise<PaxionRelayResult>
+        status(): Promise<RaizenRelayResult>
+          status(): Promise<RaizenRelayResult>
         configure(input: {
           mode?: string
           endpoint?: string
@@ -1189,16 +1219,16 @@ declare global {
           pollingEnabled?: boolean
           token?: string
           clearToken?: boolean
-        }): Promise<PaxionRelayResult>
+        }): Promise<RaizenRelayResult>
         submit(input: {
           request?: Record<string, unknown>
-        }): Promise<PaxionRelayResult>
-        sync(): Promise<PaxionRelayResult>
+        }): Promise<RaizenRelayResult>
+        sync(): Promise<RaizenRelayResult>
         complete(input: {
           requestId: string
           state?: string
           result?: Record<string, unknown>
-        }): Promise<PaxionRelayResult>
+        }): Promise<RaizenRelayResult>
         envelope(input: {
           requestId?: string
           actionId?: string
@@ -1235,14 +1265,14 @@ declare global {
         }): Promise<{ ok: boolean; reason?: string; frame?: Record<string, unknown> }>
       }
       workspace: {
-        load(): Promise<PaxionWorkspaceLoadResult>
-        save(input: { goal: string; plan: Array<Record<string, unknown>> }): Promise<PaxionWorkspaceSaveResult>
+        load(): Promise<RaizenWorkspaceLoadResult>
+        save(input: { goal: string; plan: Array<Record<string, unknown>> }): Promise<RaizenWorkspaceSaveResult>
         clear(): Promise<{ ok: boolean; reason?: string }>
       }
       library: {
-        pickFile(): Promise<PaxionLibraryFileResult | PaxionLibraryFileError | null>
-        load(): Promise<PaxionLibraryLoadResult>
-        save(input: { docs: LibraryDocument[] }): Promise<PaxionLibrarySaveResult>
+        pickFile(): Promise<RaizenLibraryFileResult | RaizenLibraryFileError | null>
+        load(): Promise<RaizenLibraryLoadResult>
+        save(input: { docs: LibraryDocument[] }): Promise<RaizenLibrarySaveResult>
         clear(): Promise<{ ok: boolean; reason?: string }>
       }
       swarm: {

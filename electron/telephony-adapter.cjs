@@ -10,9 +10,9 @@ function normalizePhoneNumber(input) {
 }
 
 function callViaTwilio(input) {
-  const accountSid = String(input?.accountSid || process.env.PAXION_TWILIO_ACCOUNT_SID || '').trim()
-  const authToken = String(input?.authToken || process.env.PAXION_TWILIO_AUTH_TOKEN || '').trim()
-  const fromNumber = normalizePhoneNumber(input?.fromNumber || process.env.PAXION_TWILIO_FROM_NUMBER)
+  const accountSid = String(input?.accountSid || process.env.RAIZEN_TWILIO_ACCOUNT_SID || '').trim()
+  const authToken = String(input?.authToken || process.env.RAIZEN_TWILIO_AUTH_TOKEN || '').trim()
+  const fromNumber = normalizePhoneNumber(input?.fromNumber || process.env.RAIZEN_TWILIO_FROM_NUMBER)
   const toNumber = normalizePhoneNumber(input?.toNumber)
 
   if (!accountSid || !authToken || !fromNumber || !toNumber) {
@@ -22,7 +22,7 @@ function callViaTwilio(input) {
     })
   }
 
-  const twimlSay = String(input?.message || 'Emergency call from Paxion. Please respond.').trim()
+  const twimlSay = String(input?.message || 'Emergency call from Raizen. Please respond.').trim()
   const body = new URLSearchParams({
     To: toNumber,
     From: fromNumber,
@@ -84,9 +84,9 @@ function callViaTwilio(input) {
 }
 
 function sendMessageViaTwilio(input) {
-  const accountSid = String(input?.accountSid || process.env.PAXION_TWILIO_ACCOUNT_SID || '').trim()
-  const authToken = String(input?.authToken || process.env.PAXION_TWILIO_AUTH_TOKEN || '').trim()
-  let fromNumber = normalizePhoneNumber(input?.fromNumber || process.env.PAXION_TWILIO_FROM_NUMBER)
+  const accountSid = String(input?.accountSid || process.env.RAIZEN_TWILIO_ACCOUNT_SID || '').trim()
+  const authToken = String(input?.authToken || process.env.RAIZEN_TWILIO_AUTH_TOKEN || '').trim()
+  let fromNumber = normalizePhoneNumber(input?.fromNumber || process.env.RAIZEN_TWILIO_FROM_NUMBER)
   let toNumber = normalizePhoneNumber(input?.toNumber)
   const isWhatsapp = Boolean(input?.whatsapp)
 
@@ -102,7 +102,7 @@ function sendMessageViaTwilio(input) {
     if (!toNumber.startsWith('whatsapp:')) toNumber = `whatsapp:${toNumber}`
   }
 
-  const messageBody = String(input?.message || 'Hello from Paxion.').trim()
+  const messageBody = String(input?.message || 'Hello from Raizen.').trim()
   const body = new URLSearchParams({
     To: toNumber,
     From: fromNumber,

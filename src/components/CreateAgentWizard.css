@@ -1,0 +1,123 @@
+.create-agent-wizard {
+  background: var(--wizard-bg, #23272f);
+  color: var(--wizard-fg, #f3f3f3);
+  border-radius: 16px;
+  box-shadow: 0 4px 32px #0006;
+  max-width: 420px;
+  margin: 2em auto;
+  padding: 2em 2.5em 1.5em 2.5em;
+  font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+  transition: background 0.3s, color 0.3s;
+}
+.create-agent-wizard.dark {
+  --wizard-bg: #23272f;
+  --wizard-fg: #f3f3f3;
+}
+.create-agent-wizard:not(.dark) {
+  --wizard-bg: #f7f7fa;
+  --wizard-fg: #23272f;
+}
+.wizard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.2em;
+}
+.wizard-header h2 {
+  font-weight: 700;
+  font-size: 1.5em;
+  margin: 0;
+}
+.mode-toggle {
+  background: none;
+  border: none;
+  font-size: 1.3em;
+  cursor: pointer;
+  color: inherit;
+}
+.wizard-steps {
+  display: flex;
+  gap: 1em;
+  margin-bottom: 1.5em;
+}
+.wizard-step {
+  flex: 1;
+  text-align: center;
+  padding: 0.3em 0.2em;
+  border-radius: 8px;
+  background: #4442;
+  color: #aaa;
+  font-size: 0.98em;
+  font-weight: 500;
+  transition: background 0.2s, color 0.2s;
+}
+.wizard-step.active {
+  background: var(--wizard-fg, #f3f3f3);
+  color: var(--wizard-bg, #23272f);
+  font-weight: 700;
+}
+.wizard-body label {
+  display: block;
+  margin-bottom: 1em;
+  font-size: 1em;
+}
+.wizard-body input,
+.wizard-body textarea,
+.wizard-body select {
+  width: 100%;
+  margin-top: 0.3em;
+  padding: 0.5em;
+  border-radius: 6px;
+  border: 1px solid #8883;
+  background: var(--wizard-fg, #f3f3f3);
+  color: var(--wizard-bg, #23272f);
+  font-size: 1em;
+  transition: background 0.2s, color 0.2s;
+}
+.create-agent-wizard.dark .wizard-body input,
+.create-agent-wizard.dark .wizard-body textarea,
+.create-agent-wizard.dark .wizard-body select {
+  background: #23272f;
+  color: #f3f3f3;
+  border: 1px solid #444;
+}
+.wizard-summary {
+  background: #4442;
+  border-radius: 8px;
+  padding: 1em;
+  font-size: 0.98em;
+}
+.wizard-summary pre {
+  background: #222;
+  color: #f3f3f3;
+  padding: 0.5em 1em;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.wizard-error {
+  color: #ff4d4f;
+  margin-top: 0.5em;
+  font-size: 0.98em;
+}
+.wizard-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1em;
+  margin-top: 1.5em;
+}
+.wizard-footer button {
+  background: var(--wizard-fg, #f3f3f3);
+  color: var(--wizard-bg, #23272f);
+  border: none;
+  border-radius: 6px;
+  padding: 0.6em 1.3em;
+  font-size: 1em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 2px 8px #0002;
+}
+.wizard-footer button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

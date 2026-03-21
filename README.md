@@ -1,4 +1,4 @@
-# The Paxion
+# The Raizen
 
 Desktop-first personal AI assistant foundation.
 
@@ -8,7 +8,7 @@ Desktop-first personal AI assistant foundation.
 - Included: five-tab shell (Chat, Library, Logs, Workspace, Access), policy framing, continuity docs
 
 ## Required source-of-truth docs
-- `docs/paxion-master-brief.md`
+- `docs/raizen-master-brief.md`
 - `docs/development-checkpoints.md`
 
 ## Local development
@@ -43,7 +43,7 @@ Recommended free setup:
 Start Vite, then in another terminal run:
 
 ```bash
-set PAXION_DEV_SERVER_URL=http://localhost:5173 && electron .
+set RAIZEN_DEV_SERVER_URL=http://localhost:5173 && electron .
 ```
 
 ## Checkpoint workflow

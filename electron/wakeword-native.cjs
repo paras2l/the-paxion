@@ -4,7 +4,7 @@ function configureWakewordAdapter(state, input) {
   const adapter = {
     provider: String(input?.provider || 'browser-fallback').trim() || 'browser-fallback',
     modelPath: String(input?.modelPath || '').trim(),
-    keyword: String(input?.keyword || 'paxion wakeup').trim().toLowerCase(),
+    keyword: String(input?.keyword || 'raizen wakeup').trim().toLowerCase(),
     status: 'configured',
     updatedAt: new Date().toISOString(),
   }
@@ -24,7 +24,7 @@ function getNativeWakewordStatus(state) {
     ok: true,
     status: state?.adapter || {
       provider: 'browser-fallback',
-      keyword: 'paxion wakeup',
+      keyword: 'raizen wakeup',
       status: 'not-configured',
       updatedAt: null,
     },

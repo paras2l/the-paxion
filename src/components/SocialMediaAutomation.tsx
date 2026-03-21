@@ -57,7 +57,7 @@ export const SocialMediaAutomation: React.FC = () => {
             return
         }
         // @ts-ignore
-        const res = await window.paxion?.social?.schedule?.({
+        const res = await window.raizen?.social?.schedule?.({
             platform,
             content: postContent.trim(),
             scheduledAt: scheduledAt || undefined,
@@ -79,7 +79,7 @@ export const SocialMediaAutomation: React.FC = () => {
             return
         }
         // @ts-ignore
-        const res = await window.paxion?.social?.ideas?.({ topic: ideaTopic.trim(), platform })
+        const res = await window.raizen?.social?.ideas?.({ topic: ideaTopic.trim(), platform })
         if (res?.ok && Array.isArray(res.ideas)) {
             setIdeas(res.ideas)
             setStatus('')
@@ -97,7 +97,7 @@ export const SocialMediaAutomation: React.FC = () => {
             return
         }
         // @ts-ignore
-        const res = await window.paxion?.social?.analyze?.({ posts })
+        const res = await window.raizen?.social?.analyze?.({ posts })
         if (res?.ok && res.summary) {
             setEngagementReport(res.summary as Record<string, unknown>)
             setStatus('')

@@ -29,7 +29,7 @@ function generateWorkflow(input) {
         id: `wf-step-${idx + 1}`,
         title: `Knowledge action ${idx + 1}`,
         objective: line,
-        owner: 'paxion',
+        owner: 'raizen',
         status: 'planned',
       }))
     : [
@@ -37,7 +37,7 @@ function generateWorkflow(input) {
           id: 'wf-step-1',
           title: 'Clarify objective',
           objective: 'Convert the goal into measurable deliverables and constraints.',
-          owner: 'paxion',
+          owner: 'raizen',
           status: 'planned',
         },
       ]
@@ -47,14 +47,14 @@ function generateWorkflow(input) {
       id: `wf-step-${seedSteps.length + 1}`,
       title: 'Risk and policy gate',
       objective: 'Run policy preview, check approvals, and attach audit-safe execution plan.',
-      owner: 'paxion',
+      owner: 'raizen',
       status: 'planned',
     },
     {
       id: `wf-step-${seedSteps.length + 2}`,
       title: 'Validation loop',
       objective: 'Execute tests/lint/verification and generate fallback rollback notes.',
-      owner: 'paxion',
+      owner: 'raizen',
       status: 'planned',
     },
   ]

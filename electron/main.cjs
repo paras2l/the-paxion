@@ -2,7 +2,7 @@ const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain } = require('electr
 const path = require('path')
 const { registerIpcHandlers } = require('./ipc-handlers.cjs')
 
-const devServerUrl = process.env.PAXION_DEV_SERVER_URL
+const devServerUrl = process.env.RAIZEN_DEV_SERVER_URL
 let tray = null
 let mainWindowRef = null
 let closeToTrayEnabled = true
@@ -17,7 +17,7 @@ function createTray() {
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/w8AAgMBAQEA7VsAAAAASUVORK5CYII=',
   )
   tray = new Tray(icon)
-  tray.setToolTip('The Paxion')
+  tray.setToolTip('The Raizen')
   tray.on('double-click', () => {
     if (mainWindowRef) {
       mainWindowRef.show()
@@ -27,7 +27,7 @@ function createTray() {
 
   const menu = Menu.buildFromTemplate([
     {
-      label: 'Show Paxion',
+      label: 'Show Raizen',
       click: () => {
         if (mainWindowRef) {
           mainWindowRef.show()
@@ -46,7 +46,7 @@ function createTray() {
     },
     { type: 'separator' },
     {
-      label: 'Quit Paxion',
+      label: 'Quit Raizen',
       click: () => {
         forceQuit = true
         app.quit()
@@ -63,7 +63,7 @@ function createTrayMenu() {
   }
   const menu = Menu.buildFromTemplate([
     {
-      label: 'Show Paxion',
+      label: 'Show Raizen',
       click: () => {
         if (mainWindowRef) {
           mainWindowRef.show()
@@ -80,7 +80,7 @@ function createTrayMenu() {
     },
     { type: 'separator' },
     {
-      label: 'Quit Paxion',
+      label: 'Quit Raizen',
       click: () => {
         forceQuit = true
         app.quit()
@@ -131,17 +131,17 @@ function createWindow() {
 app.whenReady().then(() => {
   createTray()
 
-  ipcMain.removeHandler('paxion:assistant:getRuntime')
-  ipcMain.removeHandler('paxion:assistant:setRuntime')
-  ipcMain.removeHandler('paxion:assistant:showWindow')
+  ipcMain.removeHandler('raizen:assistant:getRuntime')
+  ipcMain.removeHandler('raizen:assistant:setRuntime')
+  ipcMain.removeHandler('raizen:assistant:showWindow')
 
-  ipcMain.handle('paxion:assistant:getRuntime', () => {
+  ipcMain.handle('raizen:assistant:getRuntime', () => {
     return {
       closeToTrayEnabled,
     }
   })
 
-  ipcMain.handle('paxion:assistant:setRuntime', (_event, input) => {
+  ipcMain.handle('raizen:assistant:setRuntime', (_event, input) => {
     closeToTrayEnabled = Boolean(input?.closeToTrayEnabled)
     createTrayMenu()
     return {
@@ -150,7 +150,7 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('paxion:assistant:showWindow', () => {
+  ipcMain.handle('raizen:assistant:showWindow', () => {
     if (mainWindowRef) {
       mainWindowRef.show()
       mainWindowRef.focus()

@@ -28,7 +28,7 @@ export const MedicalAdvisor: React.FC = () => {
             return
         }
         // @ts-ignore
-        const res = await window.paxion?.medical?.review?.({ medications })
+        const res = await window.raizen?.medical?.review?.({ medications })
         if (res) {
             setResult(res as unknown as SafetyResult)
             setStatus('')
@@ -45,7 +45,7 @@ export const MedicalAdvisor: React.FC = () => {
             return
         }
         // @ts-ignore
-        const res = await window.paxion?.medical?.adviceCheck?.({ confidence: conf, threshold: thresh })
+        const res = await window.raizen?.medical?.adviceCheck?.({ confidence: conf, threshold: thresh })
         if (res) {
             setAdviceResult(res)
             setStatus('')

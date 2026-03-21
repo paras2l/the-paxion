@@ -4,7 +4,7 @@ import {
   CORE_IDENTITY,
   GREETING_PATTERNS,
   IDENTITY_PATTERNS,
-  PAXION_REPLIES,
+  RAIZEN_REPLIES,
   STATUS_PATTERNS,
 } from './knowledge'
 import type { BrainResponse, ConfidenceLevel } from './types'
@@ -131,9 +131,9 @@ function totalWords(library: LibraryDocument[]): number {
   return library.reduce((acc, d) => acc + d.wordCount, 0)
 }
 
-// ── PaxionBrain ──
+// ── RaizenBrain ──
 
-export class PaxionBrain {
+export class RaizenBrain {
   think(query: string, library: LibraryDocument[]): BrainResponse {
     const steps: string[] = []
     const q = query.toLowerCase().trim()
@@ -141,7 +141,7 @@ export class PaxionBrain {
     // ── Greeting ──
     if (GREETING_PATTERNS.some((p) => q === p || q.startsWith(p + ' ') || q.endsWith(` ${p}`))) {
       return {
-        reply: pick(PAXION_REPLIES.greeting),
+        reply: pick(RAIZEN_REPLIES.greeting),
         contextDocs: [],
         reasoningSteps: ['Greeting pattern detected. Core response activated.'],
         confidence: 'high',
@@ -151,7 +151,7 @@ export class PaxionBrain {
     // ── Identity / self-description ──
     if (IDENTITY_PATTERNS.some((p) => q.includes(p))) {
       return {
-        reply: PAXION_REPLIES.identity(library.length, totalWords(library)),
+        reply: RAIZEN_REPLIES.identity(library.length, totalWords(library)),
         contextDocs: [],
         reasoningSteps: ['Identity query detected. Core knowledge invoked.'],
         confidence: 'high',
@@ -161,7 +161,7 @@ export class PaxionBrain {
     // ── Status / knowledge report ──
     if (STATUS_PATTERNS.some((p) => q.includes(p))) {
       return {
-        reply: PAXION_REPLIES.status(library.length, totalWords(library)),
+        reply: RAIZEN_REPLIES.status(library.length, totalWords(library)),
         contextDocs: [],
         reasoningSteps: ['Status query detected. Reporting Neural Index state.'],
         confidence: 'high',
@@ -183,7 +183,7 @@ export class PaxionBrain {
 
     if (library.length === 0) {
       return {
-        reply: pick(PAXION_REPLIES.emptyLibrary),
+        reply: pick(RAIZEN_REPLIES.emptyLibrary),
         contextDocs: [],
         reasoningSteps: steps,
         confidence: 'none',
@@ -199,7 +199,7 @@ export class PaxionBrain {
 
     if (keywords.length === 0) {
       return {
-        reply: pick(PAXION_REPLIES.unknown),
+        reply: pick(RAIZEN_REPLIES.unknown),
         contextDocs: [],
         reasoningSteps: steps,
         confidence: 'none',
@@ -214,7 +214,7 @@ export class PaxionBrain {
     if (scored.length === 0) {
       steps.push('Library scan: no relevant documents found.')
       return {
-        reply: pick(PAXION_REPLIES.notFound),
+        reply: pick(RAIZEN_REPLIES.notFound),
         contextDocs: [],
         reasoningSteps: steps,
         confidence: 'none',
@@ -244,7 +244,7 @@ export class PaxionBrain {
     if (allPassages.length === 0) {
       steps.push('Documents were matched but no relevant passages could be isolated.')
       return {
-        reply: pick(PAXION_REPLIES.notFound),
+        reply: pick(RAIZEN_REPLIES.notFound),
         contextDocs: topDocs.map((x) => x.doc.name),
         reasoningSteps: steps,
         confidence: 'low',
@@ -252,7 +252,7 @@ export class PaxionBrain {
     }
 
     const passageBlock = allPassages.slice(0, 5).join('\n\n')
-    const reply = `${pick(PAXION_REPLIES.found)}\n\n${passageBlock}`
+    const reply = `${pick(RAIZEN_REPLIES.found)}\n\n${passageBlock}`
 
     const topScore = topDocs[0].score
     const confidence: ConfidenceLevel =

@@ -28,7 +28,7 @@ async function submitRelayRequest(input) {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      'x-paxion-relay-token': token,
+      'x-raizen-relay-token': token,
     },
     body: JSON.stringify({ request: input?.request || null }),
   })

@@ -1,9 +1,9 @@
-# The Paxion Master Brief
+# The Raizen Master Brief
 
-This file is the single source of truth for what The Paxion is and what it is being built to become.
+This file is the single source of truth for what The Raizen is and what it is being built to become.
 
 ## Product identity
-- Name: The Paxion
+- Name: The Raizen
 - Owner/Admin profile: Paro the Chief
 - Format: Desktop-first personal AI assistant with controlled web and local integrations
 - Goal: Build a Jarvis-like personal system in phases, starting with a secure foundation
@@ -61,13 +61,13 @@ This file is the single source of truth for what The Paxion is and what it is be
 - Chat includes local voice input/output controls (no external API dependency).
 - Voice features respect Access capability toggles.
 - New assistant runtime controls now include Chat Mode <-> Voice Mode switching.
-- Voice mode now supports continuous wake-driven command flow with configurable wake phrase (default: "paxion wakeup").
-- Close-to-tray runtime keeps Paxion alive in background so wake phrase listening continues when window is closed.
+	- Voice mode now supports continuous wake-driven command flow with configurable wake phrase (default: "raizen wakeup").
+	- Close-to-tray runtime keeps Raizen alive in background so wake phrase listening continues when window is closed.
 - Emergency call relay capability is now available for voice commands (desktop dialer relay first; provider-backed telephony can be added later).
 - Voice command execution still passes through admin/policy gates for sensitive actions.
 
 ## Mobile companion baseline
-- Paxion can now run as a browser-based companion on mobile devices (responsive web runtime).
+	- Raizen can now run as a browser-based companion on mobile devices (responsive web runtime).
 - Mobile companion supports voice/chat interactions where browser speech APIs are available.
 - Desktop-only capabilities (tray runtime, native automation, system dialer relay) stay in Electron runtime for safety and OS integration.
 - Mobile installability baseline is now enabled through a web manifest + service worker companion profile.
@@ -109,19 +109,19 @@ This file is the single source of truth for what The Paxion is and what it is be
 
 ## Optional external connectors
 - No API connector mode: ChatGPT and Google access run through desktop browser relay only.
-- Paxion opens ChatGPT/Google pages with explicit permission and active admin session.
+	- Raizen opens ChatGPT/Google pages with explicit permission and active admin session.
 - User performs the same human flow (read/search/chat), then pastes approved knowledge back into Library/Chat.
 - Local mode remains primary and always available.
 
 ## Skill growth and evolution baseline
-- Paxion tracks learned skills from documents, relay captures, and research actions.
+	- Raizen tracks learned skills from documents, relay captures, and research actions.
 - Learning timeline is logged in simple language (example: acquired skill, learned from source).
 - Growth capabilities are admin-gated (workspace tooling, VS Code bridge, media generation, self-evolution).
 - Self-evolution currently creates controlled capability proposals/artifacts under approved workspace paths.
 
 ## Video learning baseline
 - YouTube learning is permission-gated and admin-session gated.
-- Paxion can split a recommended video into configurable segments (for example 2, 5, 10 minutes, or custom).
+	- Raizen can split a recommended video into configurable segments (for example 2, 5, 10 minutes, or custom).
 - Workspace can open segment batches in parallel slots for faster supervised study flow.
 - Each segment can be marked learned with simple summary + skill tags, then stored in learning logs.
 

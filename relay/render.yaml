@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: paxion-cloud-relay
+    name: raizen-cloud-relay
     runtime: node
     rootDir: relay
     buildCommand: npm install
@@ -8,5 +8,5 @@ services:
     plan: free
     healthCheckPath: /health
     envVars:
-      - key: PAXION_RELAY_TOKEN
+      - key: RAIZEN_RELAY_TOKEN
         sync: false

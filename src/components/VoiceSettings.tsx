@@ -25,7 +25,7 @@ export const VoiceSettings: React.FC = () => {
         const loadPersistedSettings = async () => {
             try {
                 // @ts-ignore
-                const saved = await window.paxion.voiceQuality.get()
+                const saved = await window.raizen.voiceQuality.get()
                 if (saved && saved.voice) {
                     setSettings({
                         voice: saved.voice,
@@ -52,16 +52,16 @@ export const VoiceSettings: React.FC = () => {
     const handleSave = async () => {
         try {
             // @ts-ignore
-            await window.paxion.voiceQuality.update(settings)
+            await window.raizen.voiceQuality.update(settings)
             // @ts-ignore
-            window.paxion.notify({ title: 'Voice Settings Saved', body: 'Paxion personality has been updated.' })
+            window.raizen.notify({ title: 'Voice Settings Saved', body: 'Raizen personality has been updated.' })
         } catch (err) {
             console.error('Failed to save voice settings:', err)
         }
     }
 
     const handleTest = () => {
-        const utterance = new SpeechSynthesisUtterance('Hello, I am Paxion. How can I assist you today?')
+        const utterance = new SpeechSynthesisUtterance('Hello, I am Raizen. How can I assist you today?')
         const voice = availableVoices.find(v => v.name === settings.voice)
         if (voice) utterance.voice = voice
         utterance.pitch = settings.pitch
@@ -75,7 +75,7 @@ export const VoiceSettings: React.FC = () => {
         <div className="voice-settings-container">
             <header className="voice-header">
                 <h1>Voice Personality</h1>
-                <p>Customize how Paxion sounds and speaks to you.</p>
+                <p>Customize how Raizen sounds and speaks to you.</p>
             </header>
 
             <div className="voice-form">
