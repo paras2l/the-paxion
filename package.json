@@ -1,8 +1,11 @@
 {
   "dependencies": {
+    "@sentry/browser": "^10.45.0",
+    "@supabase/supabase-js": "^2.99.3",
     "@types/file-saver": "^2.0.7",
     "@types/react": "^19.2.14",
     "file-saver": "^2.0.5",
-    "react": "^19.2.4"
+    "react": "^19.2.4",
+    "zod": "^4.3.6"
   }
 }
