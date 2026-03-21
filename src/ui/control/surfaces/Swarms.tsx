@@ -1128,7 +1128,7 @@ const DistributedCognitionSection: React.FC<DistributedCognitionSectionProps> = 
 				return prev;
 			});
 			setShowLearned(true);
-			logAction(`Paxion learned from action: ${action}`);
+			logAction(`Raizen learned from action: ${action}`);
 		};
 
 		// User feedback handler
@@ -1662,7 +1662,7 @@ const Swarms: React.FC = () => {
 				</div>
 				{showLearned && (
 					<div style={{ marginTop: 16, background: '#e0ffe0', border: '1px solid #2a7', borderRadius: 4, padding: 8 }}>
-						<strong>Paxion learned this:</strong>
+						<strong>Raizen learned this:</strong>
 						<ul style={{ margin: 0, paddingLeft: 16 }}>
 							{suggestions.slice(-1).map((s, idx) => (
 								<li key={idx}>{s}</li>
