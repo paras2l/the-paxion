@@ -1,0 +1,195 @@
+body {
+  background: #000;
+  color: #e0e6ff;
+  font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+  margin: 0;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+.centered {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  z-index: 1;
+}
+
+.landing {
+  text-align: center;
+  margin-bottom: 2.5rem;
+  position: relative;
+}
+.title {
+  font-size: 3.2rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #7f7fff;
+  text-shadow: 0 0 16px #7f7fff, 0 0 32px #0ff;
+  margin-bottom: 0.5rem;
+  animation: glow 2.5s infinite alternate;
+}
+.subtitle {
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: #b0b8ff;
+  margin-bottom: 0.5rem;
+}
+.tagline {
+  font-size: 1.1rem;
+  color: #a0a0ff;
+  margin-bottom: 1.5rem;
+}
+.glow-pulse {
+  width: 120px;
+  height: 24px;
+  margin: 0 auto;
+  border-radius: 50%;
+  background: radial-gradient(circle, #7f7fff 0%, #000 80%);
+  filter: blur(12px);
+  animation: pulse 2s infinite alternate;
+}
+@keyframes glow {
+  from { text-shadow: 0 0 8px #7f7fff, 0 0 16px #0ff; }
+  to { text-shadow: 0 0 32px #7f7fff, 0 0 64px #0ff; }
+}
+@keyframes pulse {
+  from { opacity: 0.7; }
+  to { opacity: 1; }
+}
+.download-section {
+  margin-bottom: 2.5rem;
+  text-align: center;
+}
+.download-btn {
+  background: linear-gradient(90deg, #0ff 0%, #7f7fff 100%);
+  color: #fff;
+  font-size: 1.2rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 1.5rem;
+  padding: 1rem 2.5rem;
+  margin: 0.5rem 0.5rem 1rem 0.5rem;
+  box-shadow: 0 0 16px #0ff, 0 0 32px #7f7fff44;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.2s, background 0.2s;
+  outline: none;
+  position: relative;
+  z-index: 2;
+}
+.download-btn.primary {
+  font-size: 1.4rem;
+  background: linear-gradient(90deg, #7f7fff 0%, #0ff 100%);
+  box-shadow: 0 0 32px #7f7fff, 0 0 64px #0ff44;
+}
+.download-btn:active {
+  transform: scale(0.97);
+  box-shadow: 0 0 8px #0ff, 0 0 16px #7f7fff44;
+}
+.download-btn.selected, .download-btn:hover {
+  background: linear-gradient(90deg, #0ff 0%, #7f7fff 100%);
+  box-shadow: 0 0 32px #0ff, 0 0 64px #7f7fff44;
+  filter: brightness(1.1);
+}
+.feedback {
+  min-height: 1.2em;
+  color: #0ff;
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+  transition: opacity 0.3s;
+}
+.manual-downloads {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+}
+.install-guide {
+  background: rgba(30, 30, 60, 0.25);
+  border-radius: 1.2rem;
+  padding: 1.5rem 2rem;
+  margin-bottom: 2.5rem;
+  box-shadow: 0 2px 24px #0ff2, 0 0 32px #7f7fff11;
+  max-width: 600px;
+}
+.guides {
+  display: flex;
+  gap: 2.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.guide h4 {
+  color: #7f7fff;
+  margin-bottom: 0.5rem;
+}
+.guide ol {
+  margin: 0;
+  padding-left: 1.2em;
+  color: #e0e6ff;
+}
+.sync-info {
+  margin-bottom: 2.5rem;
+  text-align: center;
+}
+.version-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 2.5rem;
+}
+#version {
+  color: #0ff;
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+#last-updated {
+  color: #b0b8ff;
+  font-size: 0.95rem;
+}
+.update-btn {
+  background: rgba(0,0,0,0.7);
+  color: #7f7fff;
+  border: 1px solid #0ff;
+  border-radius: 1.2rem;
+  padding: 0.5rem 1.5rem;
+  font-size: 1rem;
+  margin-top: 0.5rem;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 0 8px #0ff44;
+}
+.update-btn:hover {
+  background: #0ff;
+  color: #000;
+  box-shadow: 0 0 24px #0ff88;
+}
+footer {
+  width: 100vw;
+  text-align: center;
+  color: #b0b8ff;
+  background: rgba(0,0,0,0.95);
+  padding: 1.2rem 0 0.7rem 0;
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  border-top: 1px solid #222;
+  position: relative;
+  z-index: 2;
+}
+#particles {
+  position: fixed;
+  top: 0; left: 0; width: 100vw; height: 100vh;
+  pointer-events: none;
+  z-index: 0;
+  background: transparent;
+}
+/* Glassmorphism effect */
+.install-guide, .version-info {
+  backdrop-filter: blur(8px) saturate(1.2);
+  background: rgba(20, 20, 40, 0.35);
+  border: 1px solid #222244;
+}
+@media (max-width: 700px) {
+  .guides { flex-direction: column; gap: 1.2rem; }
+  .install-guide { padding: 1rem 0.5rem; }
+}

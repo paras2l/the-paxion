@@ -1,0 +1,6 @@
+{
+  "name": "raizen-website",
+  "version": "1.0.0",
+  "description": "Raizen download and landing page for Android APK and Windows EXE.",
+  "private": true
+}
