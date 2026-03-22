@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 
 export function SyncStatus({ isOnline, lastSync }: { isOnline: boolean; lastSync: Date | null }) {
   return (

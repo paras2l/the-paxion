@@ -77,19 +77,19 @@ export function handleIncomingEvent(event: any) {
 }
 
 // Stub implementations (replace with real logic or imports)
-function installPluginLocal(payload: any) {
+function installPluginLocal(_payload: any) {
   // ...implement plugin installation logic
 }
-function removePluginLocal(payload: any) {
+function removePluginLocal(_payload: any) {
   // ...implement plugin removal logic
 }
-function runAutomationLocal(payload: any) {
+function runAutomationLocal(_payload: any) {
   // ...implement automation logic
 }
-function processCommand(payload: any) {
+function processCommand(_payload: any) {
   // ...implement chat command logic
 }
-function updateLocalState(payload: any) {
+function updateLocalState(_payload: any) {
   // ...implement state update logic
 }
 

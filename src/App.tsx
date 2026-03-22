@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
+import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 
 // Engine & Logic
 import { RaizenBrain } from './brain/engine'
@@ -2197,6 +2198,7 @@ function App() {
 
 
 
+  /*
   function compactKnowledgeForPrompt(maxChars = 3600): string {
     const merged = libDocs
       .slice(0, 8)
@@ -2204,6 +2206,7 @@ function App() {
       .join('\n')
     return merged.slice(0, maxChars)
   }
+  */
 
   // Removed unused: async function runAdvancedVoiceCommand(commandText: string): Promise<boolean> { ... }
 
@@ -2234,7 +2237,7 @@ function App() {
       recognition.onresult = (event: SpeechRecognitionEventLike) => {
         const results = Array.isArray(event?.results) ? event.results : []
         const lastResult = results.length > 0 ? results[results.length - 1] : null
-        const transcript = String((lastResult as unknown as Array<{ transcript?: string }>)?.[0]?.transcript || '').trim()
+        /* const transcript = */ String((lastResult as unknown as Array<{ transcript?: string }>)?.[0]?.transcript || '').trim()
         // void handleVoiceTranscript(transcript) // Disabled: handleVoiceTranscript is undefined
       }
 
@@ -6617,7 +6620,7 @@ function App() {
       </header>
 
       <section className="grid-shell" style={{ height: 'calc(100vh - 100px)', padding: '0 1rem 1rem' }}>
-        <PanelGroup direction="horizontal">
+        <PanelGroup orientation="horizontal">
           <Panel defaultSize={20} minSize={15} maxSize={30}>
             <aside className="panel nav-panel" style={{ height: '100%', margin: 0, padding: '1rem', overflowY: 'auto' }}>
               <h2 style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.7, marginBottom: '1rem' }}>Menu</h2>

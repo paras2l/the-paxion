@@ -38,7 +38,7 @@ export async function getUser() {
   return data.user;
 }
 
-supabase.auth.onAuthStateChange((event, session) => {
+supabase.auth.onAuthStateChange((_event, session) => {
   if (session) {
     console.log("User logged in:", session.user.id);
   } else {

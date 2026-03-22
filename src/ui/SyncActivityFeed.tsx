@@ -1,4 +1,4 @@
-import React from "react";
+// import React from "react";
 
 export function SyncActivityFeed({ events }: { events: Array<{ type: string; timestamp: string; details?: string }> }) {
   return (

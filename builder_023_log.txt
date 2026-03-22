@@ -1,0 +1,45 @@
+﻿  ΓÇó electron-builder  version=26.8.1 os=10.0.26200
+  ΓÇó loaded configuration  file=package.json ("build" field)
+  ΓÇó executing @electron/rebuild  electronVersion=41.0.2 arch=x64 buildFromSource=false workspaceRoot=D:\Antigravity\amazing\the-paxion projectDir=./ appDir=./
+  ΓÇó installing native dependencies  arch=x64
+  ΓÇó preparing       moduleName=better-sqlite3 arch=x64
+  ΓÇó finished        moduleName=better-sqlite3 arch=x64
+  ΓÇó completed installing native dependencies
+  ΓÇó packaging       platform=win32 arch=x64 electron=41.0.2 appOutDir=release\win-unpacked
+  ΓÇó searching for node modules  pm=npm searchDir=D:\Antigravity\amazing\the-paxion
+node.exe : 
+(node:12388) [DEP0190] 
+DeprecationWarning: 
+Passing args to a 
+child process with 
+shell option true can 
+lead to security 
+vulnerabilities, as 
+the arguments are not 
+escaped, only 
+concatenated.
+At line:1 char:1
++ & "C:\Program 
+Files\nodejs/node.exe" 
+"C:\Program 
+Files\nodejs/node_mo 
+...
++ ~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~
+~~
+    + CategoryInfo     
+         : NotSpecifi  
+  ed: ((node:12388)    
+ [D...y concatenate    
+d.:String) [], Rem    
+oteException
+    + FullyQualifiedEr 
+   rorId : NativeComm  
+  andError
+ 
+(Use `node 
+--trace-deprecation 
+...` to show where the 
+warning was created)
+  ΓÇó duplicate dependency references  dependencies=["@capacitor/core@8.2.0","@ionic/utils-terminal@2.3.5","debug@4.4.3","debug@4.4.3","debug@4.4.3","debug@4.4.3","@ionic/utils-terminal@2.3.5","debug@4.4.3","debug@4.4.3","@ionic/utils-terminal@2.3.5","debug@4.4.3","debug@4.4.3","strip-ansi@6.0.1","ansi-styles@4.3.0","string-width@4.2.3","strip-ansi@6.0.1","@ionic/utils-fs@3.1.7","@ionic/utils-terminal@2.3.5","debug@4.4.3","plist@3.1.0","once@1.4.0","once@1.4.0","pump@3.0.4","readable-stream@3.6.2","end-of-stream@1.4.5","readable-stream@3.6.2","debug@4.4.3","@napi-rs/canvas@0.1.80","debug@4.4.3","@types/node@24.12.0","debug@4.4.3","pump@3.0.4","yauzl@2.10.0","debug@4.4.3","debug@4.4.3","debug@4.4.3","debug@4.4.3","debug@4.4.3","http-proxy-agent@7.0.2","https-proxy-agent@7.0.6","socks-proxy-agent@8.0.5","debug@4.4.3","bare-path@3.0.0","streamx@2.25.0","streamx@2.25.0","bare-path@3.0.0","pump@3.0.4","bare-fs@4.5.6","string-width@4.2.3","strip-ansi@6.0.1","wrap-ansi@7.0.0","string-width@4.2.3","debug@4.4.3","react-dom@19.2.4"]

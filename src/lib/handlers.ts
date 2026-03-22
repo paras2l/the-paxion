@@ -35,9 +35,9 @@ export async function handleCommand(input: any) {
 }
 
 // Stub implementations (replace with real logic or imports)
-function installPluginLocal(plugin: any) {
+function installPluginLocal(_plugin: any) {
   // ...implement plugin installation logic
 }
-function processCommand(input: any) {
+function processCommand(_input: any) {
   // ...implement chat command logic
 }
