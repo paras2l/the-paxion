@@ -2,8 +2,16 @@
   "cleanUrls": true,
   "rewrites": [
     {
-      "source": "/downloads/(.*)",
-      "destination": "/downloads/$1"
+      "source": "/downloads/raizen.zip",
+      "destination": "https://github.com/paras2l/the-paxion/releases/latest/download/raizen.zip"
+    },
+    {
+      "source": "/downloads/raizen.apk",
+      "destination": "https://github.com/paras2l/the-paxion/releases/latest/download/raizen.apk"
+    },
+    {
+      "source": "/downloads/raizen-setup.exe",
+      "destination": "https://github.com/paras2l/the-paxion/releases/latest/download/raizen-setup.exe"
     }
   ]
 }
