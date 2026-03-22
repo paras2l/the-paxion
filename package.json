@@ -1,7 +1,7 @@
 {
   "name": "the-raizen",
   "private": true,
-  "version": "0.23.0",
+  "version": "0.23.4",
   "description": "The Raizen - Personal AI Desktop Assistant",
   "author": "Paro the Chief",
   "main": "electron/main.cjs",
@@ -15,6 +15,7 @@
     "lint": "eslint .",
     "test": "node --test electron/readiness-utils.test.cjs electron/readiness-integration.test.cjs electron/compliance-engine.test.cjs electron/domain-engines.test.cjs electron/advanced-systems.test.cjs",
     "preview": "vite preview",
+    "deploy": "node scripts/deploy.mjs",
     "publish-builds": "node scripts/publish.mjs"
   },
   "build": {
@@ -27,11 +28,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "public/raizen.ico",
@@ -48,7 +53,8 @@
     "publish": {
       "provider": "github",
       "owner": "paras2l",
-      "repo": "the-paxion"
+      "repo": "the-paxion",
+      "releaseType": "release"
     }
   },
   "dependencies": {
