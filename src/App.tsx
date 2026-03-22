@@ -1,46 +1,10 @@
-// Removed unused imports from './lib/memory'
-// ── CONTROL PANEL UI ──
-// RaizenControlPanel is unused, so it is removed to fix TS error
-// Example: Controlled Autonomy for Task Execution
-// Removed unused import 'planTask'
-
-// handleUserInput is unused, so it is removed to fix TS error
-
-// Dummy implementations for illustration
-// Removed unused functions executeTask and showSuggestion
-// Plugin type (copied from Marketplace for type safety)
-type Plugin = {
-  id: string
-  name: string
-  description: string
-  manifest: any
-  version?: string
-  installed?: boolean
-  creator: string
-  versions?: any[]
-}
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-// Auto-execution mode toggle
-// Removed unused state autoMode/setAutoMode
-
-// Persist autoMode toggle
-useEffect(() => {
-  try {
-    // @ts-expect-error: autoMode may be undefined
-    localStorage.setItem('raizen-auto-mode', (autoMode as any) ? 'true' : 'false');
-  } catch {}
-// @ts-expect-error: autoMode may be undefined
-}, [(autoMode as any)]);
-
-// UI: AutoMode toggle
-// renderAutoModeToggle is unused, so it is removed to fix TS error
-// @ts-ignore: Importing CSS for React styles
 import './App.css'
+
+// Engine & Logic
 import { RaizenBrain } from './brain/engine'
 import { rankFromDocs } from './brain/knowledge'
-import type { ChatMessage } from './chat/types'
 import { LibraryStore } from './library/libraryStore'
-import type { LibraryDocument } from './library/types'
 import { ApprovalStore } from './security/approvals'
 import { AuditLedger } from './security/audit'
 import {
@@ -50,65 +14,21 @@ import {
   verifyAdminCodeword,
   checkCodewordObedience,
 } from './security/policy'
+
+// Types
+import type { ChatMessage } from './chat/types'
+import type { LibraryDocument } from './library/types'
 import type { ActionCategory, ActionRequest, AuditEntry, AuditEventType } from './security/types'
+
+// Components
 import { AvatarCore, type AvatarStatus } from './components/Avatar'
-import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
-import Marketplace from './components/Marketplace.tsx'
+import Marketplace from './components/Marketplace'
 import { PaymentsPanel } from './components/PaymentsPanel'
 import { ReferralsPanel } from './components/ReferralsPanel'
 import { SharingPanel } from './components/SharingPanel'
 import { QuickStartWizard } from './components/QuickStartWizard'
 import PluginCertificationPanel from './ui/control/PluginCertificationPanel'
 import CommunityPanel from './components/CommunityPanel'
-  // Onboarding state for Quick Start Wizard
-  const [showQuickStart, setShowQuickStart] = useState(() => {
-    // Only show on first launch or if not completed
-    try {
-      return !localStorage.getItem('raizen-onboarding-complete')
-    } catch {
-      return true
-    }
-  })
-  // quickStartChoice is not used, removed to fix TS error
-
-  // Move this to the top of the component, before any usage
-  // Move activeTab and setActiveTab above handleQuickStartComplete for correct scope
-  const [activeTab, setActiveTab] = useState<TabId>('home')
-  // Unified plugin state for Run/Explore
-  const [plugins, setPlugins] = useState<Plugin[]>([])
-  // Run suggestions (plugin ids)
-  // runSuggestions is unused, so it is removed to fix TS error
-  // Unified plugin install handler
-  const handlePluginInstall = async (plugin: Plugin) => {
-    // Register plugin (simulate or call backend)
-    setPlugins(prev => {
-      const exists = prev.find(p => p.id === plugin.id)
-      if (exists) return prev.map(p => p.id === plugin.id ? { ...p, installed: true } : p)
-      return [...prev, { ...plugin, installed: true }]
-    })
-    // Add to Run suggestions
-    // Removed setRunSuggestions (undefined)
-    // Track in Analytics (simulate)
-    // window.raizen.analytics and window.raizen.audit.record do not exist, so skip these calls
-    if (window.raizen?.notify) {
-      window.raizen.notify({ title: 'Plugin Installed', body: `${plugin.name} is now ready to use.` })
-    }
-  }
-
-  function handleQuickStartComplete(selected: string) {
-    setShowQuickStart(false)
-    try {
-      localStorage.setItem('raizen-onboarding-complete', '1')
-      localStorage.setItem('raizen-quickstart-choice', selected)
-    } catch {}
-    // Optionally, trigger a default tab or workflow based on selection
-    if (selected === 'social') setActiveTab('social')
-    else if (selected === 'study') setActiveTab('library')
-    else if (selected === 'work') setActiveTab('workspace')
-    else if (selected === 'build') setActiveTab('manage-agents')
-    {/* Hidden div to use activeTab and avoid TS unused variable error */}
-    <div style={{ display: 'none' }}>{activeTab}</div>
-  }
 import { TaskFeedback } from './components/TaskFeedback'
 import { ManageAgentsPanel } from './components/ManageAgentsPanel'
 import { InstallSkillPanel } from './components/InstallSkillPanel'
@@ -122,6 +42,18 @@ import { RoboticsControl } from './components/RoboticsControl'
 import { CheckpointHistory } from './components/CheckpointHistory'
 import { TwoFAChallenge } from './components/TwoFAChallenge'
 import { SocialMediaAutomation } from './components/SocialMediaAutomation'
+
+type Plugin = {
+  id: string
+  name: string
+  description: string
+  manifest: any
+  version?: string
+  installed?: boolean
+  creator: string
+  versions?: any[]
+}
+
 
 type TabId = 'chat' | 'library' | 'logs' | 'workspace' | 'access' | 'plugins' | 'automations' | 'settings' | 'analytics' | 'trading' | 'compliance' | 'medical' | 'robotics' | 'checkpoints' | 'social' | 'install-skills' | 'manage-agents' | 'payments' | 'referrals' | 'sharing' | 'plugin-certification' | 'community' | 'home' | 'run' | 'explore' | 'build' | 'admin'
 
@@ -688,116 +620,122 @@ function buildWorkspacePlan(goal: string): WorkspaceStep[] {
 // GlobalStatusBar is unused, so it is removed to fix TS error
 
 function App() {
-        // Real-time learning updates: poll learning state when learning tab is active and adminUnlocked
-        useEffect(() => {
-          // Removed invalid comparison to 'learning' as it's not a valid TabId
-          if (!adminUnlocked) return;
-          let inter: ReturnType<typeof setInterval>;
-          inter = setInterval(() => {
-            loadLearningState();
-          }, 3000);
-          return () => clearInterval(inter);
-        }, []);
-    // --- STARTUP FLOW ---
-    useEffect(() => {
-      (async () => {
-        // 1. Load user
-        let user = null;
-        try {
-          if (typeof window !== 'undefined' && window.localStorage) {
-            // getUser is async, imported from supabase
-            const mod = await import('./lib/supabase');
-            user = await mod.getUser();
-          }
-        } catch (err) {
-          // eslint-disable-next-line no-console
-          console.error('Startup: Failed to load user', err);
-        }
-
-        // 2. Load snapshot (global state snapshot)
-        try {
-          if (user) {
-            await import('./lib/memory'); // mod is unused, so just import for side effects
-            // Try to load the latest snapshot from Supabase
-            // (Stub: just fetch and log, could hydrate state if needed)
-            const { supabase } = await import('./lib/supabase');
-            const { data, error } = await supabase
-              .from('state_snapshot')
-              .select('*')
-              .eq('user_id', user.id)
-              .order('id', { ascending: false })
-              .limit(1);
-            if (error) {
-              console.error('Startup: Failed to load snapshot', error);
-            } else if (data && data.length > 0) {
-              // Optionally hydrate state here
-              // console.log('Startup: Loaded snapshot', data[0]);
-            }
-          }
-        } catch (err) {
-          console.error('Startup: Failed to load snapshot', err);
-        }
-
-        // 3. Sync events (stub: could be learning/automation events)
-        try {
-          // If you have a loadEvents or similar, call it here
-          // For now, just log
-          // console.log('Startup: Sync events (stub)');
-        } catch (err) {
-          console.error('Startup: Failed to sync events', err);
-        }
-
-        // 4. Sync memory
-        try {
-          const mod = await import('./lib/memory');
-          if (mod.loadMemory) {
-            await mod.loadMemory();
-          }
-        } catch (err) {
-          console.error('Startup: Failed to sync memory', err);
-        }
-
-        // 5. Resume task (if any)
-        try {
-          // If workspaceGoal/plan exist, resume
-          // This logic is already handled by loadWorkspaceState/useEffect
-          // Optionally, you could trigger a UI update or notification here
-          // console.log('Startup: Resume active task (handled by workspace state)');
-        } catch (err) {
-          console.error('Startup: Failed to resume task', err);
-        }
-
-        // 6. Show status (already handled by GlobalStatusBar)
-        // Optionally, you could set a startup complete flag or message
-        // setReadinessMessage('Startup complete.');
-      })();
-    }, []);
-      // Option to enable agent auto-refinement after plan generation
-      const [autoAgentRefine, setAutoAgentRefine] = useState(true)
-      const [agentRefineNotice, setAgentRefineNotice] = useState('')
-    // Simulate agent-driven plan refinement (placeholder for real LLM/agent logic)
-    async function agentRefinePlan(plan: any) {
-      // In a real implementation, this would call an agent/LLM backend
-      // For now, simulate a refinement suggestion
-      if (!plan || plan.length < 2) return plan
-      // Example: split step 2 into two atomic actions
-      const newPlan = [...plan]
-      const step2 = newPlan[1]
-      newPlan.splice(1, 1,
-        { ...step2, id: step2.id + '-a', title: step2.title + ' (part 1)', request: { ...step2.request, detail: step2.request.detail + ' [part 1]' } },
-        { ...step2, id: step2.id + '-b', title: step2.title + ' (part 2)', request: { ...step2.request, detail: step2.request.detail + ' [part 2]' } }
-      )
-      return newPlan
+  // --- ONBOARDING & NAVIGATION ---
+  const [showQuickStart, setShowQuickStart] = useState(() => {
+    try {
+      return !localStorage.getItem('raizen-onboarding-complete')
+    } catch {
+      return true
     }
-  const [activeTab, setActiveTab] = useState<TabId>('chat')
-  const [selectedActionId, setSelectedActionId] = useState(actionPresets[0].id)
-  const [targetPath, setTargetPath] = useState(actionPresets[0].targetPath)
-  const [actionDetail, setActionDetail] = useState(actionPresets[0].detail)
+  })
+  const [activeTab, setActiveTab] = useState<TabId>('home')
+  
+  // --- UNIFIED PLUGIN STATE ---
+  const [plugins, setPlugins] = useState<Plugin[]>([])
+
+  // --- ADMIN & SECURITY ---
+  const [adminUnlocked, setAdminUnlocked] = useState(false)
+  const [adminExpiresAt, setAdminExpiresAt] = useState<number | null>(null)
   const [adminCodeword, setAdminCodeword] = useState('')
   const [lastDecision, setLastDecision] = useState<string>('No action evaluated yet.')
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([])
-  const [adminUnlocked, setAdminUnlocked] = useState(false)
-  const [adminExpiresAt, setAdminExpiresAt] = useState<number | null>(null)
+
+  // --- AUTOMATION & CODEN ---
+  const [selectedActionId, setSelectedActionId] = useState(actionPresets[0].id)
+  const [targetPath, setTargetPath] = useState(actionPresets[0].targetPath)
+  const [actionDetail, setActionDetail] = useState(actionPresets[0].detail)
+  const [autoAgentRefine, setAutoAgentRefine] = useState(true)
+  const [agentRefineNotice, setAgentRefineNotice] = useState('')
+
+  // --- HANDLERS ---
+  const handlePluginInstall = async (plugin: Plugin) => {
+    setPlugins(prev => {
+      const exists = prev.find(p => p.id === plugin.id)
+      if (exists) return prev.map(p => p.id === plugin.id ? { ...p, installed: true } : p)
+      return [...prev, { ...plugin, installed: true }]
+    })
+    if (window.raizen?.notify) {
+      window.raizen.notify({ title: 'Plugin Installed', body: `${plugin.name} is now ready to use.` })
+    }
+  }
+
+  function handleQuickStartComplete(selected: string) {
+    setShowQuickStart(false)
+    try {
+      localStorage.setItem('raizen-onboarding-complete', '1')
+      localStorage.setItem('raizen-quickstart-choice', selected)
+    } catch {}
+    if (selected === 'social') setActiveTab('social')
+    else if (selected === 'study') setActiveTab('library')
+    else if (selected === 'work') setActiveTab('workspace')
+    else if (selected === 'build') setActiveTab('manage-agents')
+  }
+
+  async function agentRefinePlan(plan: any) {
+    if (!plan || plan.length < 2) return plan
+    const newPlan = [...plan]
+    const step2 = newPlan[1]
+    newPlan.splice(1, 1,
+      { ...step2, id: step2.id + '-a', title: step2.title + ' (part 1)', request: { ...step2.request, detail: step2.request.detail + ' [part 1]' } },
+      { ...step2, id: step2.id + '-b', title: step2.title + ' (part 2)', request: { ...step2.request, detail: step2.request.detail + ' [part 2]' } }
+    )
+    return newPlan
+  }
+
+  // --- INITIALIZATION EFFECTS ---
+  
+  // Real-time learning updates
+  useEffect(() => {
+    if (!adminUnlocked) return;
+    const inter = setInterval(() => {
+      // @ts-ignore: loadLearningState is defined below
+      loadLearningState();
+    }, 3000);
+    return () => clearInterval(inter);
+  }, [adminUnlocked]);
+
+  // Startup flow
+  useEffect(() => {
+    (async () => {
+      let user = null;
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          const mod = await import('./lib/supabase');
+          user = await mod.getUser();
+        }
+      } catch (err) {
+        console.error('Startup: Failed to load user', err);
+      }
+
+      try {
+        if (user) {
+          await import('./lib/memory');
+          const { supabase } = await import('./lib/supabase');
+          const { error } = await supabase
+            .from('state_snapshot')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('id', { ascending: false })
+            .limit(1);
+          if (error) {
+            console.error('Startup: Failed to load snapshot', error);
+          }
+        }
+      } catch (err) {
+        console.error('Startup: Failed to load snapshot', err);
+      }
+
+      try {
+        const mod = await import('./lib/memory');
+        if (mod.loadMemory) {
+          await mod.loadMemory();
+        }
+      } catch (err) {
+        console.error('Startup: Failed to sync memory', err);
+      }
+    })();
+  }, []);
+
   const [adminMessage, setAdminMessage] = useState('')
   const [pwaInstallEvent, setPwaInstallEvent] = useState<BeforeInstallPromptEventLike | null>(null)
   const [pwaInstallMessage, setPwaInstallMessage] = useState('')

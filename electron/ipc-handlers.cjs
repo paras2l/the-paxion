@@ -6287,6 +6287,24 @@ function registerIpcHandlers(mainWindow) {
     return { ok: true, swarms: swarmState.tasks }
   })
 
+  ipcMain.handle('raizen:swarm:kill', (_event, id) => {
+    const task = swarmState.tasks.find(t => t.id === id)
+    if (task) {
+      task.status = 'stopped'
+      return { ok: true }
+    }
+    return { ok: false, reason: 'Task not found' }
+  })
+
+  ipcMain.handle('raizen:swarm:stopAll', () => {
+    swarmState.tasks.forEach(t => {
+      if (t.status === 'running') {
+        t.status = 'stopped'
+      }
+    })
+    return { ok: true }
+  })
+
   ipcMain.handle('raizen:notify', (_event, input) => {
     if (Notification.isSupported()) {
       new Notification({ title: input?.title || 'Raizen AI', body: input?.body || '' }).show()

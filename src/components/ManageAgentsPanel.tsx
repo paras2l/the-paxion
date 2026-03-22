@@ -6,12 +6,29 @@ interface AgentPlugin {
   name: string;
   description: string;
   manifest: any;
+  enabled?: boolean;
 }
 
 export const ManageAgentsPanel: React.FC = () => {
   const [agents, setAgents] = useState<AgentPlugin[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [auditAgentId, setAuditAgentId] = useState<string | null>(null);
+  const [auditLogs, setAuditLogs] = useState<{timestamp: string, action: string}[]>([]);
+
+  const handleToggleEnable = (id: string) => {
+    setAgents(prev => prev.map(a => a.id === id ? { ...a, enabled: a.enabled === false ? true : false } : a));
+  };
+
+  const handleShowAudit = (id: string) => {
+    setAuditAgentId(id);
+    setAuditLogs([{ timestamp: new Date().toLocaleTimeString(), action: 'Viewed audit logs' }]);
+  };
+
+  const handleCloseAudit = () => {
+    setAuditAgentId(null);
+    setAuditLogs([]);
+  };
 
   useEffect(() => {
     async function fetchAgents() {

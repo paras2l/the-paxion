@@ -33,7 +33,7 @@ export default function PluginCertificationPanel() {
   const [certifications, setCertifications] = useState(initialCertifications);
   const [pluginName, setPluginName] = useState('');
   const [pluginVersion, setPluginVersion] = useState('');
-  const [uploadFile, setUploadFile] = useState(null);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [submitMessage, setSubmitMessage] = useState('');
 
   function handleSubmit(e: React.FormEvent) {

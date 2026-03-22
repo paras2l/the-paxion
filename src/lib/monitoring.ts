@@ -5,7 +5,7 @@ export function initMonitoring() {
   Sentry.init({
     dsn: "YOUR_SENTRY_DSN_HERE", // Replace with your Sentry DSN
     tracesSampleRate: 1.0,
-    environment: process.env.NODE_ENV || "development",
+    environment: import.meta.env.MODE || "development",
   });
 }
 

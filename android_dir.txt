@@ -1,0 +1,18 @@
+ Volume in drive D is New Volume
+ Volume Serial Number is EEE3-5BA6
+
+ Directory of D:\Antigravity\amazing\the-paxion\android
+
+03/22/2026  12:31 AM    <DIR>          .
+03/22/2026  03:37 AM    <DIR>          ..
+03/06/2026  02:55 PM             1,824 .gitignore
+03/22/2026  12:31 AM    <DIR>          app
+03/06/2026  02:55 PM               637 build.gradle
+03/22/2026  12:31 AM    <DIR>          gradle
+03/06/2026  02:55 PM               987 gradle.properties
+03/06/2026  02:55 PM             8,733 gradlew
+03/06/2026  02:55 PM             2,937 gradlew.bat
+03/06/2026  02:55 PM               208 settings.gradle
+03/06/2026  02:55 PM               498 variables.gradle
+               7 File(s)         15,824 bytes
+               4 Dir(s)  251,833,774,080 bytes free

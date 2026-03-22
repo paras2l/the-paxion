@@ -47,7 +47,10 @@ export const MedicalAdvisor: React.FC = () => {
         // @ts-ignore
         const res = await window.raizen?.medical?.adviceCheck?.({ confidence: conf, threshold: thresh })
         if (res) {
-            setAdviceResult(res)
+            setAdviceResult({
+                allowed: res.allowed ?? false,
+                reason: res.reason ?? ''
+            })
             setStatus('')
         } else {
             setStatus('Advice check unavailable.')

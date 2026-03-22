@@ -41,11 +41,11 @@ export const TradingLab: React.FC = () => {
         }
         // @ts-ignore
         const res = await window.raizen?.trading?.backtest?.({ prices })
-        if (res) {
-            setBacktestResult(res as unknown as BacktestResult)
+        if (res?.ok && res.backtest) {
+            setBacktestResult(res.backtest as unknown as BacktestResult)
             setStatus('')
         } else {
-            setStatus('Backtest failed — check the backend is running.')
+            setStatus(res?.reason || 'Backtest failed — check the backend is running.')
         }
     }
 
@@ -57,17 +57,18 @@ export const TradingLab: React.FC = () => {
             return
         }
         // @ts-ignore
-        const order = await window.raizen?.trading?.paperOrder?.({
+        const res = await window.raizen?.trading?.paperOrder?.({
             symbol: orderSymbol.toUpperCase(),
             side: orderSide,
             quantity: qty,
             price,
         })
-        if (order?.id) {
-            setOrders(prev => [order as unknown as PaperOrder, ...prev].slice(0, 30))
+        if (res?.ok && res.order) {
+            const order = res.order as unknown as PaperOrder
+            setOrders(prev => [order, ...prev].slice(0, 30))
             setStatus(`Paper order ${order.id} placed.`)
         } else {
-            setStatus('Order placement failed.')
+            setStatus(res?.reason || 'Order placement failed.')
         }
     }
 

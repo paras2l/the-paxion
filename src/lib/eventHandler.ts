@@ -11,18 +11,20 @@ export type EventType =
 import { getDeviceId } from "./device";
 import { z } from "zod";
 import { notifyOnEvent } from "./pushNotifications";
+import { getContext } from "./memory";
+
 // Zod schema for event validation
 const eventSchema = z.object({
   id: z.string(),
   device_id: z.string(),
   type: z.string(),
   payload: z.any(),
-});
+  expires_at: z.string().optional(),
+}).passthrough();
 
 const processedEvents = new Set<string>();
 const deviceId = getDeviceId();
 
-import { enrichContext } from "./memory";
 // Main event handler for all incoming events with deduplication
 export function handleIncomingEvent(event: any) {
   const parsed = eventSchema.safeParse(event);
@@ -40,11 +42,11 @@ export function handleIncomingEvent(event: any) {
   processedEvents.add(validEvent.id);
 
   // Enrich context before processing
-  const context = enrichContext(validEvent.payload?.text || validEvent.type || "");
+  const context = getContext(validEvent.payload?.text || validEvent.type || "");
   validEvent.context = context;
 
   // Trigger push notification for important events
-  notifyOnEvent(validEvent);
+  notifyOnEvent(validEvent as any);
 
   switch (validEvent.type) {
     case "plugin.install":
@@ -87,6 +89,7 @@ function runAutomationLocal(payload: any) {
 function processCommand(payload: any) {
   // ...implement chat command logic
 }
+function updateLocalState(payload: any) {
   // ...implement state update logic
 }
 

@@ -180,7 +180,7 @@ export const Analytics: React.FC = () => {
                 <h3>Recent Events</h3>
                 {loading && <p className="analytics-muted">Loading telemetry...</p>}
                 {!loading && summary.recent.length === 0 && (
-                    <p className="analytics-muted">No events recorded yet. Track your first event above.</p>}
+                    <p className="analytics-muted">No events recorded yet. Track your first event above.</p>
                 )}
                 {summary.recent.map(ev => (
                     <div key={ev.id} className="analytics-event-row">

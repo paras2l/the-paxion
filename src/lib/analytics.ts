@@ -18,4 +18,3 @@ export async function logAnalyticsEvent(event: string, details?: any) {
     // Ignore analytics errors
   }
 }
-}

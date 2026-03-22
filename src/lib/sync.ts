@@ -14,13 +14,22 @@ import { getDeviceId } from "./device";
 const deviceId = getDeviceId();
 
 // Push an event to Supabase
-export async function pushEvent({ user_id, type, payload }: { user_id: string, type: string, payload: any }) {
-  await supabase.from("events").insert({
-    user_id,
-    device_id: deviceId,
-    type,
-    payload
-  });
+export async function pushEvent(event: { user_id: string, type: string, payload: any } | { user_id: string, type: string, payload: any }[]) {
+  if (Array.isArray(event)) {
+    const eventsToInsert = event.map(e => ({
+      ...e,
+      device_id: deviceId
+    }));
+    await supabase.from("events").insert(eventsToInsert);
+  } else {
+    const { user_id, type, payload } = event;
+    await supabase.from("events").insert({
+      user_id,
+      device_id: deviceId,
+      type,
+      payload
+    });
+  }
 }
 
 // Listen for real-time events from Supabase

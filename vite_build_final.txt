@@ -1,0 +1,23 @@
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+[32m✓[39m 116 modules transformed.
+[31mx[39m Build failed in 682ms
+[31merror during build:
+[31msrc/App.tsx (2:16): "PanelGroup" is not exported by "node_modules/react-resizable-panels/dist/react-resizable-panels.js", imported by "src/App.tsx".[31m
+file: [36mD:/Antigravity/amazing/the-paxion/src/App.tsx:2:16[31m
+[33m
+1: import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+2: import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
+                   ^
+3: import './App.css'
+[31m
+    at getRollupError (file:///D:/Antigravity/amazing/the-paxion/node_modules/rollup/dist/es/shared/parseAst.js:402:41)
+    at error (file:///D:/Antigravity/amazing/the-paxion/node_modules/rollup/dist/es/shared/parseAst.js:398:42)
+    at Module.error (file:///D:/Antigravity/amazing/the-paxion/node_modules/rollup/dist/es/shared/node-entry.js:17040:16)
+    at Module.traceVariable (file:///D:/Antigravity/amazing/the-paxion/node_modules/rollup/dist/es/shared/node-entry.js:17452:29)
+    at ModuleScope.findVariable (file:///D:/Antigravity/amazing/the-paxion/node_modules/rollup/dist/es/shared/node-entry.js:15070:39)
+    at FunctionScope.findVariable (file:///D:/Antigravity/amazing/the-paxion/node_modules/rollup/dist/es/shared/node-entry.js:5673:38)
+    at FunctionBodyScope.findVariable (file:///D:/Antigravity/amazing/the-paxion/node_modules/rollup/dist/es/shared/node-entry.js:5673:38)
+    at Identifier.bind (file:///D:/Antigravity/amazing/the-paxion/node_modules/rollup/dist/es/shared/node-entry.js:5447:40)
+    at CallExpression.bind (file:///D:/Antigravity/amazing/the-paxion/node_modules/rollup/dist/es/shared/node-entry.js:2825:28)
+    at CallExpression.bind (file:///D:/Antigravity/amazing/the-paxion/node_modules/rollup/dist/es/shared/node-entry.js:12179:15)[39m

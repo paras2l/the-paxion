@@ -1,0 +1,24 @@
+﻿
+> the-raizen@0.22.0 build
+> tsc -b && vite build
+
+src/App.tsx(2201,12): error TS6133: 'compactKnowledgeForPrompt' is declared but its value is never read.
+src/App.tsx(2238,15): error TS6133: 'transcript' is declared but its value is never read.
+src/components/Analytics.tsx(7,12): error TS6133: 'mode' is declared but its value is never read.
+src/components/QuickStartWizard.tsx(28,16): error TS6133: 'setStep' is declared but its value is never read.
+src/components/ReferralsPanel.tsx(48,31): error TS6133: 'i' is declared but its value is never read.
+src/lib/eventHandler.ts(80,29): error TS6133: 'payload' is declared but its value is never read.
+src/lib/eventHandler.ts(83,28): error TS6133: 'payload' is declared but its value is never read.
+src/lib/eventHandler.ts(86,29): error TS6133: 'payload' is declared but its value is never read.
+src/lib/eventHandler.ts(89,25): error TS6133: 'payload' is declared but its value is never read.
+src/lib/eventHandler.ts(92,27): error TS6133: 'payload' is declared but its value is never read.
+src/lib/handlers.ts(38,29): error TS6133: 'plugin' is declared but its value is never read.
+src/lib/handlers.ts(41,25): error TS6133: 'input' is declared but its value is never read.
+src/lib/supabase.ts(41,34): error TS6133: 'event' is declared but its value is never read.
+src/ui/ConflictResolutionDialog.tsx(1,8): error TS6133: 'React' is declared but its value is never read.
+src/ui/control/PluginCertificationPanel.tsx(36,10): error TS6133: 'uploadFile' is declared but its value is never read.
+src/ui/control/PluginCertificationPanel.tsx(95,44): error TS2345: Argument of type 'File | null' is not assignable to parameter of type 'SetStateAction<null>'.
+  Type 'File' is not assignable to type 'SetStateAction<null>'.
+    Type 'File' provides no match for the signature '(prevState: null): null'.
+src/ui/SyncActivityFeed.tsx(1,1): error TS6133: 'React' is declared but its value is never read.
+src/ui/SyncStatus.tsx(1,1): error TS6192: All imports in import declaration are unused.

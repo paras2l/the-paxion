@@ -79,13 +79,22 @@ contextBridge.exposeInMainWorld('raizen', {
     runOcr: (input) => ipcRenderer.invoke('raizen:readiness:runOcr', input),
     createEvidenceArtifact: (input) => ipcRenderer.invoke('raizen:readiness:createEvidenceArtifact', input),
   },
+  ecosystem: {
     register: (input) => ipcRenderer.invoke('raizen:ecosystem:register', input),
+    list: () => ipcRenderer.invoke('raizen:ecosystem:list'),
+    remove: (id) => ipcRenderer.invoke('raizen:ecosystem:remove', id),
+    plan: (input) => ipcRenderer.invoke('raizen:ecosystem:plan', input),
+  },
+  program: {
     status: () => ipcRenderer.invoke('raizen:program:status'),
   },
   devices: {
     list: () => ipcRenderer.invoke('raizen:devices:list'),
     register: (input) => ipcRenderer.invoke('raizen:devices:register', input),
+  },
+  robotics: {
     register: (input) => ipcRenderer.invoke('raizen:robotics:register', input),
+    plan: (input) => ipcRenderer.invoke('raizen:robotics:plan', input),
   },
   learningV2: {
     update: (input) => ipcRenderer.invoke('raizen:learning:v2:update', input),
@@ -93,7 +102,10 @@ contextBridge.exposeInMainWorld('raizen', {
   },
   trading: {
     backtest: (input) => ipcRenderer.invoke('raizen:trading:backtest', input),
+  },
+  perception: {
     sceneGraph: (input) => ipcRenderer.invoke('raizen:perception:sceneGraph', input),
+    groundFrame: (input) => ipcRenderer.invoke('raizen:perception:groundFrame', input),
   },
   checkpoint: {
     list: (scriptId) => ipcRenderer.invoke('raizen:checkpoint:list', scriptId),
@@ -108,9 +120,10 @@ contextBridge.exposeInMainWorld('raizen', {
   medical: {
     review: (input) => ipcRenderer.invoke('raizen:medical:review', input),
     adviceCheck: (input) => ipcRenderer.invoke('raizen:medical:adviceCheck', input),
-    start: (input) => ipcRenderer.invoke('raizen:swarm:start', input),
+  },
   media: {
     generate: (input) => ipcRenderer.invoke('raizen:media:generate', input),
+  },
   notify: (input) => ipcRenderer.invoke('raizen:notify', input),
   assistant: {
     getRuntime: () => ipcRenderer.invoke('raizen:assistant:getRuntime'),
@@ -226,6 +239,8 @@ contextBridge.exposeInMainWorld('raizen', {
   swarm: {
     start: (input) => ipcRenderer.invoke('raizen:swarm:start', input),
     status: () => ipcRenderer.invoke('raizen:swarm:status'),
+    kill: (id) => ipcRenderer.invoke('raizen:swarm:kill', id),
+    stopAll: () => ipcRenderer.invoke('raizen:swarm:stopAll'),
   },
   notify: (input) => ipcRenderer.invoke('raizen:notify', input),
   // Checkpoint APIs

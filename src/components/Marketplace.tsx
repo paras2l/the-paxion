@@ -21,11 +21,10 @@ function ModalTabs({ selectedPlugin, setPlugins, isAdmin, reviews, getAvgRating,
 							<strong>Version:</strong> {selectedPlugin.version || selectedPlugin.manifest?.version}
 						</div>
 					) : null}
-					{loading && (
-						<div style={{ textAlign: 'center', margin: '32px 0' }}>
-							<span className="spinner" style={{ display: 'inline-block', width: 32, height: 32, border: '4px solid #444', borderTop: '4px solid #ffd700', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-	//
-						  onClick={() => {
+					{selectedPlugin.installed && (
+						<button
+							style={{ background: '#a22', color: '#fff', border: 'none', borderRadius: 6, padding: '0.4em 1em', cursor: 'pointer', marginTop: 16 }}
+							onClick={() => {
 								if (!window.confirm(`Are you sure you want to uninstall ${selectedPlugin.name}?`)) return;
 								setPlugins((prev: any[]) => prev.map(p =>
 									p.id === selectedPlugin.id ? { ...p, installed: false } : p
@@ -226,6 +225,47 @@ const Marketplace: React.FC<MarketplaceProps> = ({ plugins, setPlugins, handlePl
 	  { key: 'Admin', label: 'Admin', icon: '🛡️' },
 	];
 
+	const openDetails = (plugin: any) => {
+		setSelectedPlugin(plugin);
+		setShowDetails(true);
+		setReviewText('');
+		setReviewRating(0);
+		setReviewUser('');
+	};
+
+	// Calculate average rating for a plugin
+	const getAvgRating = (pluginId: string) => {
+		const pluginReviews = reviews[pluginId] || [];
+		if (pluginReviews.length === 0) return 0;
+		return pluginReviews.reduce((sum, r) => sum + r.rating, 0) / pluginReviews.length;
+	};
+
+	// Uninstall plugin logic
+	const handlePluginUninstall = (plugin: any) => {
+		if (!window.confirm(`Are you sure you want to uninstall ${plugin.name}?`)) return;
+		setPlugins((prev: any[]) => prev.map(p =>
+			p.id === plugin.id ? { ...p, installed: false } : p
+		));
+		// If details modal is open for this plugin, update its installed state
+		setSelectedPlugin((prev: any) => prev && prev.id === plugin.id ? { ...prev, installed: false } : prev);
+	};
+
+	// Handle review submit
+	const handleReviewSubmit = (e: React.FormEvent) => {
+		e.preventDefault();
+		if (!selectedPlugin || !reviewUser || reviewRating < 1) return;
+		setReviews(prev => ({
+			...prev,
+			[selectedPlugin.id]: [
+				{ user: reviewUser, rating: reviewRating, text: reviewText, date: new Date().toISOString() },
+				...(prev[selectedPlugin.id] || [])
+			]
+		}));
+		setReviewText('');
+		setReviewRating(0);
+		setReviewUser('');
+	};
+
 	return (
 	  <div style={{ display: 'flex', height: '100vh', background: '#181828' }}>
 	    {/* Sidebar Navigation */}
@@ -357,144 +397,6 @@ const Marketplace: React.FC<MarketplaceProps> = ({ plugins, setPlugins, handlePl
 	      )}
 	    </div>
 	  </div>
-	);
-
-
-	const openDetails = (plugin: any) => {
-		setSelectedPlugin(plugin);
-		setShowDetails(true);
-		setReviewText('');
-		setReviewRating(0);
-		setReviewUser('');
-	};
-
-	// Calculate average rating for a plugin
-	const getAvgRating = (pluginId: string) => {
-		const pluginReviews = reviews[pluginId] || [];
-		if (pluginReviews.length === 0) return 0;
-		return pluginReviews.reduce((sum, r) => sum + r.rating, 0) / pluginReviews.length;
-	};
-
-	// Uninstall plugin logic
-	const handlePluginUninstall = (plugin: any) => {
-		if (!window.confirm(`Are you sure you want to uninstall ${plugin.name}?`)) return;
-		setPlugins((prev: any[]) => prev.map(p =>
-			p.id === plugin.id ? { ...p, installed: false } : p
-		));
-		// If details modal is open for this plugin, update its installed state
-		setSelectedPlugin((prev: any) => prev && prev.id === plugin.id ? { ...prev, installed: false } : prev);
-	};
-
-	// Handle review submit
-	const handleReviewSubmit = (e: React.FormEvent) => {
-		e.preventDefault();
-		if (!selectedPlugin || !reviewUser || reviewRating < 1) return;
-		setReviews(prev => ({
-			...prev,
-			[selectedPlugin.id]: [
-				{ user: reviewUser, rating: reviewRating, text: reviewText, date: new Date().toISOString() },
-				...(prev[selectedPlugin.id] || [])
-			]
-		}));
-		setReviewText('');
-		setReviewRating(0);
-		setReviewUser('');
-	};
-
-	return (
-		<div style={{ padding: 24 }}>
-			<h1>Plugin Marketplace</h1>
-			{loading && (
-				<div style={{ textAlign: 'center', margin: '32px 0' }}>
-					<span className="spinner" style={{ display: 'inline-block', width: 32, height: 32, border: '4px solid #444', borderTop: '4px solid #ffd700', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-					<style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
-				</div>
-			)}
-			{error && (
-				<div style={{ color: '#f44', background: '#2a1a1a', borderRadius: 8, padding: 12, marginBottom: 16, textAlign: 'center' }}>{error}</div>
-			)}
-			{!loading && !error && (
-				<>
-					<input
-						type="text"
-						placeholder="Search plugins..."
-						value={search}
-						onChange={e => setSearch(e.target.value)}
-						style={{ marginBottom: 16, padding: 8, borderRadius: 4, border: '1px solid #444', width: '100%' }}
-					/>
-					<div className="marketplace-grid">
-						{plugins
-							.filter(plugin =>
-								!search ||
-								plugin.name.toLowerCase().includes(search.toLowerCase()) ||
-								plugin.description.toLowerCase().includes(search.toLowerCase()) ||
-								(plugin.id && plugin.id.toLowerCase().includes(search.toLowerCase()))
-							)
-							.map(plugin => {
-								const avgRating = getAvgRating(plugin.id);
-								const pluginReviews = reviews[plugin.id] || [];
-								return (
-									<div key={plugin.id} className="plugin-card" style={{ cursor: 'pointer', position: 'relative' }} onClick={() => openDetails(plugin)}>
-										<div className="plugin-icon">{plugin.name[0]}</div>
-										<div className="plugin-info">
-											<h3>{plugin.name}</h3>
-											<p>{plugin.description}</p>
-											{plugin.version || plugin.manifest?.version ? (
-												<span style={{ fontSize: '0.9em', color: '#aaa' }}>Version: {plugin.version || plugin.manifest?.version}</span>
-											) : null}
-											{/* Star rating display */}
-											<div style={{ marginTop: 6 }}>
-												{Array.from({ length: 5 }).map((_, i) => (
-													<span key={i} style={{ color: i < avgRating ? '#ffd700' : '#555', fontSize: 18 }}>★</span>
-												))}
-												<span style={{ marginLeft: 8, color: '#aaa', fontSize: 13 }}>{pluginReviews.length} review{pluginReviews.length !== 1 ? 's' : ''}</span>
-											</div>
-										</div>
-										<div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
-											{plugin.installed ? (
-												<>
-													<button
-														className="remove-btn"
-														style={{ background: '#a22', color: '#fff', border: 'none', borderRadius: 6, padding: '0.4em 1em', marginRight: 8, cursor: 'pointer' }}
-														onClick={e => { e.stopPropagation(); handlePluginUninstall(plugin); }}
-													>Uninstall</button>
-												</>
-											) : (
-												<button className="install-btn" onClick={e => { e.stopPropagation(); handlePluginInstall(plugin); }}>
-													Install
-												</button>
-											)}
-											{/* Admin controls on card */}
-											{isAdmin && (
-												<div style={{ marginLeft: 8, display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
-													<button style={{ background: '#444', color: '#fff', border: 'none', borderRadius: 4, padding: '0.2em 0.7em', fontSize: 13, cursor: 'pointer' }} title="Edit plugin">✏️</button>
-													<button style={{ background: '#a22', color: '#fff', border: 'none', borderRadius: 4, padding: '0.2em 0.7em', fontSize: 13, cursor: 'pointer' }} title="Delete plugin">🗑️</button>
-													<button style={{ background: '#2a2', color: '#fff', border: 'none', borderRadius: 4, padding: '0.2em 0.7em', fontSize: 13, cursor: 'pointer' }} title="Feature plugin">⭐</button>
-													<button style={{ background: '#888', color: '#fff', border: 'none', borderRadius: 4, padding: '0.2em 0.7em', fontSize: 13, cursor: 'pointer' }} title="Block plugin">🚫</button>
-												</div>
-											)}
-										</div>
-									</div>
-								);
-							})}
-					</div>
-				</>
-			)}
-
-			{/* Details Modal */}
-
-			{showDetails && selectedPlugin && (
-				<div className="plugin-details-modal" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-					<div style={{ background: '#23234a', borderRadius: 16, boxShadow: '0 4px 32px #0008', padding: 32, minWidth: 320, maxWidth: '90vw', maxHeight: '90vh', overflowY: 'auto', color: '#fff', position: 'relative' }}>
-						<button style={{ position: 'absolute', top: 12, right: 16, background: 'none', border: 'none', color: '#fff', fontSize: 28, cursor: 'pointer', zIndex: 10 }} aria-label="Close details" onClick={() => setShowDetails(false)}>×</button>
-						{/* Modal Tabs */}
-						<ModalTabs selectedPlugin={selectedPlugin} setPlugins={setPlugins} isAdmin={isAdmin} reviews={reviews} getAvgRating={getAvgRating} reviewUser={reviewUser} setReviewUser={setReviewUser} reviewRating={reviewRating} setReviewRating={setReviewRating} reviewText={reviewText} setReviewText={setReviewText} handleReviewSubmit={handleReviewSubmit} />
-					</div>
-				</div>
-			)}
-
-// --- ModalTabs component for advanced modal ---
-		</div>
 	);
 };
 
