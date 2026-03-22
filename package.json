@@ -40,13 +40,11 @@
       "uninstallerIcon": "public/raizen.ico",
       "installerHeaderIcon": "public/raizen.ico"
     },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "paras2l",
-        "repo": "the-paxion"
-      }
-    ]
+    "publish": {
+      "provider": "github",
+      "owner": "paras2l",
+      "repo": "the-paxion"
+    }
   },
   "dependencies": {
     "@capacitor/android": "^8.2.0",
