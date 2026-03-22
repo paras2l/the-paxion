@@ -1,5 +1,6 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain } = require('electron')
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog } = require('electron')
 const path = require('path')
+const { autoUpdater } = require('electron-updater')
 const { registerIpcHandlers } = require('./ipc-handlers.cjs')
 
 const devServerUrl = process.env.RAIZEN_DEV_SERVER_URL
@@ -161,6 +162,27 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+
+  // Auto-updater configuration
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('update-available', () => {
+    mainWindowRef?.webContents.send('update-available')
+  })
+
+  autoUpdater.on('update-downloaded', () => {
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Update Ready',
+      message: 'A new version of Raizen is ready to install. Restart now?',
+      buttons: ['Restart', 'Later']
+    }).then((result) => {
+      if (result.response === 0) autoUpdater.quitAndInstall()
+    })
+  })
+
+  autoUpdater.checkForUpdatesAndNotify()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

@@ -14,7 +14,8 @@
     "dist:win": "npm run icon:win && npm run build && electron-builder --win nsis",
     "lint": "eslint .",
     "test": "node --test electron/readiness-utils.test.cjs electron/readiness-integration.test.cjs electron/compliance-engine.test.cjs electron/domain-engines.test.cjs electron/advanced-systems.test.cjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "publish-builds": "node scripts/publish.mjs"
   },
   "build": {
     "appId": "ai.raizen.desktop",
@@ -38,13 +39,21 @@
       "installerIcon": "public/raizen.ico",
       "uninstallerIcon": "public/raizen.ico",
       "installerHeaderIcon": "public/raizen.ico"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "paras2l",
+        "repo": "the-paxion"
+      }
+    ]
   },
   "dependencies": {
     "@capacitor/android": "^8.2.0",
     "@capacitor/cli": "^8.2.0",
     "@capacitor/core": "^8.2.0",
     "better-sqlite3": "^12.8.0",
+    "electron-updater": "^6.8.3",
     "pdf-parse": "^2.4.5",
     "puppeteer-core": "^24.40.0",
     "react": "^19.2.4",
@@ -68,6 +77,6 @@
     "sharp": "^0.34.4",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.56.1",
-    "vite": "^5.4.19"
+    "vite": "^8.0.1"
   }
 }

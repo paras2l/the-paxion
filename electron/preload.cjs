@@ -244,8 +244,12 @@ contextBridge.exposeInMainWorld('raizen', {
   },
   notify: (input) => ipcRenderer.invoke('raizen:notify', input),
   // Checkpoint APIs
-  checkpoint: {
-    create: (input) => ipcRenderer.invoke('raizen:checkpoint:create', input),
-    list: (scriptId) => ipcRenderer.invoke('raizen:checkpoint:list', scriptId)
-  },
-})
+    checkpoint: {
+      create: (input) => ipcRenderer.invoke('raizen:checkpoint:create', input),
+      list: (scriptId) => ipcRenderer.invoke('raizen:checkpoint:list', scriptId)
+    },
+    updates: {
+      check: () => ipcRenderer.invoke('raizen:updates:check'),
+      onUpdateAvailable: (callback) => ipcRenderer.on('update-available', callback)
+    }
+  })
