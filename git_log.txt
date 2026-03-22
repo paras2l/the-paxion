@@ -1,0 +1,5 @@
+﻿commit 413c1f4ccb5db7455ffd5d9332faefbf7446e989
+Author: Paras <paras.l.d.2006@gmail.com>
+Date:   Sun Mar 22 16:12:18 2026 +0530
+
+     fix: resolve build errors and android capacitor sync issues
