@@ -72,4 +72,20 @@ if (fs.existsSync(winUnpackedDir)) {
   console.log('⚠️ No Windows "win-unpacked" folder found. Skipping.');
 }
 
+// 4. Update Website version in index.html
+try {
+  const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
+  const indexPath = path.join(rootDir, 'website', 'index.html');
+  if (fs.existsSync(indexPath)) {
+    console.log(`📝 Updating website version to ${pkg.version}...`);
+    let html = fs.readFileSync(indexPath, 'utf8');
+    // Regex to find <span id="version">...</span>
+    html = html.replace(/(<span id="version">)([^<]*)(<\/span>)/, `$1v${pkg.version}$3`);
+    fs.writeFileSync(indexPath, html);
+    console.log('✅ website/index.html version updated.');
+  }
+} catch (error) {
+  console.error('❌ Failed to update website version:', error.message);
+}
+
 console.log('\n🎉 Automation Complete! Your website now has the latest builds!\n');
