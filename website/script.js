@@ -27,17 +27,17 @@ function startDownload(url, btn) {
 // Auto-detect device and highlight
 if (isAndroid) {
   autoDownload.innerHTML = '<button class="download-btn primary selected">📱 Download for Android</button>';
-  autoDownload.onclick = () => startDownload('https://github.com/paras2l/raizen-website/releases/download/raizen/raizen.apk', autoDownload.firstElementChild);
+  autoDownload.onclick = () => startDownload('https://github.com/paras2l/the-paxion/releases/download/raizen/raizen.apk', autoDownload.firstElementChild);
 } else if (isWindows) {
   autoDownload.innerHTML = '<button class="download-btn primary selected">🖥️ Download for Windows</button>';
-  autoDownload.onclick = () => startDownload('https://github.com/paras2l/raizen-website/releases/download/raizen/raizen.zip', autoDownload.firstElementChild);
+  autoDownload.onclick = () => startDownload('https://github.com/paras2l/the-paxion/releases/download/raizen/raizen.zip', autoDownload.firstElementChild);
 } else {
   autoDownload.innerHTML = '<button class="download-btn primary">⬇️ Download Raizen</button>';
   autoDownload.onclick = () => setFeedback('Choose your device below.');
 }
 
-androidBtn.onclick = () => startDownload('https://github.com/paras2l/raizen-website/releases/download/raizen/raizen.apk', androidBtn);
-windowsBtn.onclick = () => startDownload('https://github.com/paras2l/raizen-website/releases/download/raizen/raizen.zip', windowsBtn);
+androidBtn.onclick = () => startDownload('https://github.com/paras2l/the-paxion/releases/download/raizen/raizen.apk', androidBtn);
+windowsBtn.onclick = () => startDownload('https://github.com/paras2l/the-paxion/releases/download/raizen/raizen.zip', windowsBtn);
 
 document.getElementById('check-updates').onclick = () => setFeedback('Checking for updates... (not implemented)');
 
