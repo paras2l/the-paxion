@@ -1,8 +1,8 @@
 {
-  "name": "the-raizen",
+  "name": "the-jarvis",
   "private": true,
-  "version": "0.23.8",
-  "description": "The Raizen - Personal AI Desktop Assistant",
+  "version": "0.23.9",
+  "description": "The Jarvis - Personal AI Desktop Assistant",
   "author": "Paro the Chief",
   "main": "electron/main.cjs",
   "type": "module",
@@ -19,8 +19,8 @@
     "publish-builds": "node scripts/publish.mjs"
   },
   "build": {
-    "appId": "ai.raizen.desktop",
-    "productName": "The Raizen",
+    "appId": "ai.jarvis.desktop",
+    "productName": "The Jarvis",
     "directories": {
       "output": "release"
     },
@@ -39,16 +39,16 @@
           ]
         }
       ],
-      "icon": "public/raizen.ico",
-      "artifactName": "raizen.${ext}"
+      "icon": "public/jarvis.ico",
+      "artifactName": "jarvis.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "installerIcon": "public/raizen.ico",
-      "uninstallerIcon": "public/raizen.ico",
-      "installerHeaderIcon": "public/raizen.ico",
-      "artifactName": "raizen-setup.${ext}"
+      "installerIcon": "public/jarvis.ico",
+      "uninstallerIcon": "public/jarvis.ico",
+      "installerHeaderIcon": "public/jarvis.ico",
+      "artifactName": "jarvis-setup.${ext}"
     },
     "publish": {
       "provider": "github",
